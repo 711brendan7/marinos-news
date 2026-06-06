@@ -27,11 +27,11 @@ if fetch_button:
         st.success(f"{len(df)} 件のニュースを取得しました")
 
         df_display = df.copy()
-        df_display["タイトル"] = df_display.apply(
-            lambda row: f'<a href="{row["URL"]}" target="_blank">{row["タイトル"]}</a>',
+        df_display["要約"] = df_display.apply(
+            lambda row: f'<a href="{row["URL"]}" target="_blank">{row["要約"] or row["タイトル"]}</a>',
             axis=1,
         )
-        df_display = df_display[["タイトル", "要約", "配信元", "公開日時"]]
+        df_display = df_display[["要約", "配信元", "公開日時"]]
 
         st.write(
             df_display.to_html(escape=False, index=False),
