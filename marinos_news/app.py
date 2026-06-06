@@ -1,6 +1,8 @@
 import streamlit as st
 from news_fetcher import fetch_marinos_news, fetch_article_summary
 
+ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", "")
+
 # ---- ページ設定 ----
 st.set_page_config(
     page_title="横浜F・マリノス ニュース",
@@ -28,13 +30,17 @@ if fetch_button:
     else:
         st.success(f"{len(df)} 件のニュースを取得しました")
 
-        # 各記事の本文冒頭を取得
-        progress = st.progress(0, text="記事の内容を取得中...")
-        summaries = []
-        for i, url in enumerate(df["URL"]):
-            summaries.append(fetch_article_summary(url))
-            progress.progress((i + 1) / len(df), text=f"記事を取得中... ({i + 1}/{len(df)})")
-        progress.empty()
+        # Claude API で各記事の要約を生成
+        if ANTHROPIC_API_KEY:
+            progress = st.progress(0, text="Claude AIで要約を生成中...")
+            summaries = []
+            for i, title in enumerate(df["タイトル"]):
+                summaries.append(fetch_article_summary(title, api_key=ANTHROPIC_API_KEY))
+                progress.progress((i + 1) / len(df), text=f"要約を生成中... ({i + 1}/{len(df)})")
+            progress.empty()
+        else:
+            st.warning("⚠️ ANTHROPIC_API_KEY が設定されていないため、要約は表示されません。")
+            summaries = [""] * len(df)
         df["要約"] = summaries
 
         # タイトルをリンク付きで表示するために列を加工

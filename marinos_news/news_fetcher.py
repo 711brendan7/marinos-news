@@ -2,22 +2,30 @@ import feedparser
 import pandas as pd
 from datetime import datetime
 import urllib.parse
-import re
-import trafilatura
+import anthropic
 
 
-def fetch_article_summary(url: str, max_chars: int = 120) -> str:
-    """記事URLから本文を取得し、冒頭をmax_chars文字で返す。取得できない場合は空文字。"""
+def fetch_article_summary(title: str, api_key: str = "") -> str:
+    """Claude APIを使って記事タイトルから概要を生成する。APIキーがない場合は空文字。"""
+    if not api_key:
+        return ""
     try:
-        downloaded = trafilatura.fetch_url(url)
-        if not downloaded:
-            return ""
-        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-        if not text:
-            return ""
-        # 改行を除去して冒頭を切り出す
-        text = re.sub(r"\s+", " ", text).strip()
-        return text[:max_chars] + "…" if len(text) > max_chars else text
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=100,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"以下のサッカーニュース記事タイトルから、"
+                        f"記事の内容を50文字以内で簡潔に説明してください。\n\n"
+                        f"タイトル：{title}"
+                    ),
+                }
+            ],
+        )
+        return response.content[0].text.strip()
     except Exception:
         return ""
 

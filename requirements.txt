@@ -1,4 +1,4 @@
 streamlit
 feedparser
 pandas
-trafilatura
+anthropic
