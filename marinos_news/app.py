@@ -1,8 +1,6 @@
 import streamlit as st
 from news_fetcher import fetch_marinos_news, fetch_article_summary
 
-ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", "")
-
 # ---- ページ設定 ----
 st.set_page_config(
     page_title="横浜F・マリノス ニュース",
@@ -31,15 +29,20 @@ if fetch_button:
         st.success(f"{len(df)} 件のニュースを取得しました")
 
         # Claude API で各記事の要約を生成
-        if ANTHROPIC_API_KEY:
+        try:
+            api_key = st.secrets["ANTHROPIC_API_KEY"]
+        except Exception:
+            api_key = ""
+
+        if api_key:
             progress = st.progress(0, text="Claude AIで要約を生成中...")
             summaries = []
             for i, title in enumerate(df["タイトル"]):
-                summaries.append(fetch_article_summary(title, api_key=ANTHROPIC_API_KEY))
+                summaries.append(fetch_article_summary(title, api_key=api_key))
                 progress.progress((i + 1) / len(df), text=f"要約を生成中... ({i + 1}/{len(df)})")
             progress.empty()
         else:
-            st.warning("⚠️ ANTHROPIC_API_KEY が設定されていないため、要約は表示されません。")
+            st.warning("⚠️ ANTHROPIC_API_KEY が未設定です。Streamlit Cloud の Secrets に登録してください。")
             summaries = [""] * len(df)
         df["要約"] = summaries
 
