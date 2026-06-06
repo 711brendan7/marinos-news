@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.title("⚽ 横浜F・マリノス 最新ニュース")
-st.caption("Google ニュース RSS から取得しています")
+st.caption("Google ニュース・スポニチ・日刊スポーツ の RSS から取得しています")
 
 with st.sidebar:
     st.header("設定")
