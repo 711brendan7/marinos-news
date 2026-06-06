@@ -43,6 +43,7 @@ def fetch_marinos_news(keyword: str = "横浜F・マリノス", max_items: int =
         published_raw = entry.get("published", "")
 
         # 日時をパースして見やすい形式に変換
+        published_dt = None
         try:
             published_dt = datetime(*entry.published_parsed[:6])
             published = published_dt.strftime("%Y-%m-%d %H:%M")
@@ -54,13 +55,16 @@ def fetch_marinos_news(keyword: str = "横浜F・マリノス", max_items: int =
             "URL": url,
             "配信元": source,
             "公開日時": published,
+            "_sort_dt": published_dt,
         })
 
     df = pd.DataFrame(articles)
 
-    # URL を基準に重複を除外
+    # URL を基準に重複を除外し、新しい順に並べる
     if not df.empty:
         df = df.drop_duplicates(subset=["URL"])
+        df = df.sort_values("_sort_dt", ascending=False, na_position="last")
+        df = df.drop(columns=["_sort_dt"])
         df = df.reset_index(drop=True)
 
     return df
