@@ -14,7 +14,7 @@ with st.sidebar:
     st.header("設定")
     keyword = st.text_input("検索キーワード", value="マリノス")
     max_items = st.slider("最大取得件数", min_value=5, max_value=50, value=20, step=5)
-    days = st.slider("過去N日以内", min_value=1, max_value=30, value=7, step=1)
+    days = st.slider("過去N日以内", min_value=1, max_value=30, value=3, step=1)
     fetch_button = st.button("ニュースを取得する", type="primary")
 
 if fetch_button:
