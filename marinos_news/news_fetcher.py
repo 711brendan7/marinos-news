@@ -22,7 +22,7 @@ def fetch_article_summary(url: str, max_chars: int = 120) -> str:
         return ""
 
 
-def fetch_marinos_news(keyword: str = "横浜F・マリノス", max_items: int = 30) -> pd.DataFrame:
+def fetch_marinos_news(keyword: str = "マリノス", max_items: int = 30) -> pd.DataFrame:
     """
     Google ニュース RSS からキーワードに一致するニュースを取得する。
     重複URL は除外して DataFrame で返す。

@@ -14,7 +14,7 @@ st.caption("Google ニュース RSS から取得しています")
 # ---- サイドバー設定 ----
 with st.sidebar:
     st.header("設定")
-    keyword = st.text_input("検索キーワード", value="横浜F・マリノス")
+    keyword = st.text_input("検索キーワード", value="マリノス")
     max_items = st.slider("最大取得件数", min_value=5, max_value=50, value=20, step=5)
     fetch_button = st.button("ニュースを取得する", type="primary")
 
