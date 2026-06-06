@@ -1,11 +1,11 @@
 import feedparser
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import urllib.parse
 import re
 
 
-def fetch_marinos_news(keyword: str = "マリノス", max_items: int = 30) -> pd.DataFrame:
+def fetch_marinos_news(keyword: str = "マリノス", max_items: int = 30, days: int = 7) -> pd.DataFrame:
     encoded_keyword = urllib.parse.quote(keyword)
     rss_url = (
         f"https://news.google.com/rss/search"
@@ -49,6 +49,12 @@ def fetch_marinos_news(keyword: str = "マリノス", max_items: int = 30) -> pd
     if not df.empty:
         df = df.drop_duplicates(subset=["URL"])
         df = df.sort_values("_sort_dt", ascending=False, na_position="last")
+
+        # 過去N日以内の記事だけに絞る
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_naive = cutoff.replace(tzinfo=None)
+        df = df[df["_sort_dt"].apply(lambda d: d is None or d >= cutoff_naive)]
+
         df = df.drop(columns=["_sort_dt"])
         df = df.reset_index(drop=True)
 
