@@ -31,19 +31,34 @@ if fetch_button:
         # Claude API で各記事の要約を生成
         try:
             api_key = st.secrets["ANTHROPIC_API_KEY"]
-        except Exception:
+        except Exception as e:
             api_key = ""
+            st.error(f"Secrets読み込みエラー: {e}")
 
-        if api_key:
-            progress = st.progress(0, text="Claude AIで要約を生成中...")
-            summaries = []
-            for i, title in enumerate(df["タイトル"]):
-                summaries.append(fetch_article_summary(title, api_key=api_key))
-                progress.progress((i + 1) / len(df), text=f"要約を生成中... ({i + 1}/{len(df)})")
-            progress.empty()
-        else:
+        if not api_key:
             st.warning("⚠️ ANTHROPIC_API_KEY が未設定です。Streamlit Cloud の Secrets に登録してください。")
             summaries = [""] * len(df)
+        else:
+            progress = st.progress(0, text="Claude AIで要約を生成中...")
+            summaries = []
+            errors = []
+            for i, title in enumerate(df["タイトル"]):
+                try:
+                    import anthropic
+                    client = anthropic.Anthropic(api_key=api_key)
+                    response = client.messages.create(
+                        model="claude-haiku-4-5",
+                        max_tokens=100,
+                        messages=[{"role": "user", "content": f"以下のサッカーニュース記事タイトルから、記事の内容を50文字以内で簡潔に説明してください。\n\nタイトル：{title}"}],
+                    )
+                    summaries.append(response.content[0].text.strip())
+                except Exception as e:
+                    errors.append(str(e))
+                    summaries.append("")
+                progress.progress((i + 1) / len(df), text=f"要約を生成中... ({i + 1}/{len(df)})")
+            progress.empty()
+            if errors:
+                st.error(f"要約エラー（最初の1件）: {errors[0]}")
         df["要約"] = summaries
 
         # タイトルをリンク付きで表示するために列を加工
