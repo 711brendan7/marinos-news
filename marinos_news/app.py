@@ -40,7 +40,10 @@ if fetch_button:
     # YouTube取得
     df_yt = pd.DataFrame()
     if youtube_enabled:
-        api_key = st.secrets.get("YOUTUBE_API_KEY", "")
+        try:
+            api_key = st.secrets.get("YOUTUBE_API_KEY", "")
+        except FileNotFoundError:
+            api_key = ""
         if api_key:
             with st.spinner("YouTube動画を取得中..."):
                 df_yt = fetch_youtube_videos(
