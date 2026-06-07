@@ -14,24 +14,30 @@ st.set_page_config(
 st.title("⚽ サッカー 最新ニュース")
 st.caption("Google ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
-# ── localStorage から既読URLを読み込む ──────────────────────────
+# ── localStorage から既読URLを読み込む（初回のみ同期）──────────
 raw = st_javascript("JSON.parse(localStorage.getItem('marinos_read_urls') || '[]')")
 if isinstance(raw, list):
-    st.session_state.read_urls = set(raw)
+    if "read_urls" not in st.session_state:
+        st.session_state.read_urls = set(raw)
+    else:
+        st.session_state.read_urls.update(raw)
 elif "read_urls" not in st.session_state:
     st.session_state.read_urls = set()
 
 
-def mark_read(url: str):
-    st.session_state.read_urls.add(url)
+def save_to_local_storage():
     urls_json = json.dumps(list(st.session_state.read_urls))
     st_javascript(f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))")
+
+
+def mark_read(url: str):
+    st.session_state.read_urls.add(url)
+    save_to_local_storage()
 
 
 def unmark_read(url: str):
     st.session_state.read_urls.discard(url)
-    urls_json = json.dumps(list(st.session_state.read_urls))
-    st_javascript(f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))")
+    save_to_local_storage()
 
 
 # ── サイドバー ────────────────────────────────────────────────
@@ -77,7 +83,7 @@ def render_articles(df: pd.DataFrame, prefix: str):
             continue
 
         displayed += 1
-        col_text, col_btn, col_check = st.columns([8, 2, 1])
+        col_text, col_link, col_check = st.columns([7, 2, 1])
 
         with col_text:
             summary = row["要約"]
@@ -87,31 +93,29 @@ def render_articles(df: pd.DataFrame, prefix: str):
                     unsafe_allow_html=True,
                 )
             else:
-                st.markdown(summary)
+                st.write(summary)
             st.caption(f'{row["配信元"]} ｜ {row["公開日時"]}')
 
-        with col_btn:
-            safe_url = url.replace("'", "%27")
+        with col_link:
+            # 記事を開くリンク（新タブ）
             st.markdown(
-                f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" '
-                f'onclick="'
-                f'var u=JSON.parse(localStorage.getItem(\'marinos_read_urls\')||\'[]\');'
-                f'if(!u.includes(\'{safe_url}\'))u.push(\'{safe_url}\');'
-                f'localStorage.setItem(\'marinos_read_urls\',JSON.stringify(u));" '
-                f'style="display:inline-block;padding:5px 12px;font-size:0.85em;'
-                f'border:1px solid #888;border-radius:5px;text-decoration:none;color:#444;">'
-                f'記事を読む →</a>',
+                f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+                f'style="display:inline-block;margin-top:8px;padding:5px 10px;'
+                f'font-size:0.85em;border:1px solid #999;border-radius:5px;'
+                f'text-decoration:none;color:#333;">記事を読む →</a>',
                 unsafe_allow_html=True,
             )
 
         with col_check:
-            checked = st.checkbox("既読", key=f"cb_{prefix}_{i}", value=is_read)
-            if checked and not is_read:
-                mark_read(url)
-                st.rerun()
-            elif not checked and is_read:
-                unmark_read(url)
-                st.rerun()
+            # 既読ボタン（Streamlit ネイティブ）
+            if is_read:
+                if st.button("✓ 既読", key=f"unread_{prefix}_{i}", type="secondary"):
+                    unmark_read(url)
+                    st.rerun()
+            else:
+                if st.button("既読にする", key=f"read_{prefix}_{i}"):
+                    mark_read(url)
+                    st.rerun()
 
         st.divider()
 
@@ -159,6 +163,7 @@ if fetch_button:
         else:
             st.warning("YouTube APIキーが設定されていません")
     st.session_state.df_yt = df_yt
+
 
 # ── 表示 ────────────────────────────────────────────────────
 if "df_news" in st.session_state:
