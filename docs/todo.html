@@ -207,11 +207,8 @@ function saveConfig() {
 }
 
 async function api(params) {
-  const res = await fetch(gasUrl, {
-    method: 'POST',
-    body: JSON.stringify({ token, ...params }),
-    redirect: 'follow'
-  });
+  const qs = new URLSearchParams({ token, ...params }).toString();
+  const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
   return res.json();
 }
 
@@ -219,8 +216,7 @@ async function loadTodos() {
   const spinner = document.getElementById('spinner');
   spinner.style.display = 'block';
   try {
-    const res = await fetch(`${gasUrl}?action=list&token=${encodeURIComponent(token)}`, { redirect: 'follow' });
-    const data = await res.json();
+    const data = await api({ action: 'list' });
     render(data.todos || []);
   } catch(e) {
     alert('読み込みに失敗しました。URLとトークンを確認してください。');

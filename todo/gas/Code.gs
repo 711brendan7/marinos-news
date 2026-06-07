@@ -2,22 +2,14 @@ const SHEET_NAME = 'TODO';
 const SECRET_TOKEN = 'QzFA2VTLy0Bhkv3cc99DuZ1v';
 
 function doGet(e) {
-  const token = e.parameter.token;
-  if (token !== SECRET_TOKEN) return makeResponse({ error: 'Unauthorized' });
+  const p = e.parameter;
+  if (p.token !== SECRET_TOKEN) return makeResponse({ error: 'Unauthorized' });
 
-  const action = e.parameter.action || 'list';
-  if (action === 'list') return makeResponse(listTodos());
-
-  return makeResponse({ error: 'Unknown action' });
-}
-
-function doPost(e) {
-  const body = JSON.parse(e.postData.contents);
-  if (body.token !== SECRET_TOKEN) return makeResponse({ error: 'Unauthorized' });
-
-  if (body.action === 'add')    return makeResponse(addTodo(body.text));
-  if (body.action === 'done')   return makeResponse(doneTodo(body.id));
-  if (body.action === 'delete') return makeResponse(deleteTodo(body.id));
+  const action = p.action || 'list';
+  if (action === 'list')   return makeResponse(listTodos());
+  if (action === 'add')    return makeResponse(addTodo(p.text));
+  if (action === 'done')   return makeResponse(doneTodo(p.id));
+  if (action === 'delete') return makeResponse(deleteTodo(p.id));
 
   return makeResponse({ error: 'Unknown action' });
 }
