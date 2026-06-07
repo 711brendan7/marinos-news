@@ -19,6 +19,7 @@ with st.sidebar:
     chk_marinos = st.checkbox("横浜F・マリノス", value=True)
     chk_japan   = st.checkbox("サッカー日本代表", value=False)
     chk_maeda   = st.checkbox("前田大然", value=False)
+    custom_keyword = st.text_input("カスタムキーワード（任意）", value="", placeholder="例：久保建英")
 
     st.subheader("オプション")
     max_items = st.slider("最大取得件数（カテゴリごと）", min_value=5, max_value=50, value=20, step=5)
@@ -37,6 +38,9 @@ selected = []
 if chk_marinos: selected.append("横浜F・マリノス")
 if chk_japan:   selected.append("サッカー日本代表")
 if chk_maeda:   selected.append("前田大然")
+if custom_keyword.strip():
+    KEYWORD_MAP[custom_keyword.strip()] = custom_keyword.strip()
+    selected.append(custom_keyword.strip())
 
 
 def render_table(df: pd.DataFrame):
