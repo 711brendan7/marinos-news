@@ -32,7 +32,7 @@ if not st.session_state.read_urls_loaded:
         st.session_state.read_urls = set(raw)
         st.session_state.read_urls_loaded = True
 
-# 変更があったときだけ localStorage に保存（余分な再描画を防ぐ）
+# 変更があったときだけ localStorage に保存
 if st.session_state.read_urls_dirty:
     urls_json = json.dumps(list(st.session_state.read_urls))
     st_javascript(
@@ -41,10 +41,16 @@ if st.session_state.read_urls_dirty:
     )
     st.session_state.read_urls_dirty = False
 
+# 記事を新タブで開く（読むボタン押下後）
+if st.session_state.get("pending_open_url"):
+    open_url = st.session_state.pop("pending_open_url")
+    st_javascript(f"window.open('{open_url}', '_blank', 'noopener,noreferrer')", key="open_url")
+
 
 def mark_read(url: str):
     st.session_state.read_urls.add(url)
     st.session_state.read_urls_dirty = True
+    st.session_state.pending_open_url = url
 
 
 def unmark_read(url: str):
