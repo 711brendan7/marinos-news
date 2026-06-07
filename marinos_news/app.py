@@ -1,7 +1,5 @@
-import json
 import streamlit as st
 import pandas as pd
-from streamlit_javascript import st_javascript
 from news_fetcher import fetch_marinos_news
 from youtube_fetcher import fetch_youtube_videos
 
@@ -14,35 +12,23 @@ st.set_page_config(
 st.title("⚽ サッカー 最新ニュース")
 st.caption("Google ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
-# ── localStorage から既読URLを読み込む（初回のみ同期）──────────
-raw = st_javascript("JSON.parse(localStorage.getItem('marinos_read_urls') || '[]')")
-if isinstance(raw, list):
-    if "read_urls" not in st.session_state:
-        st.session_state.read_urls = set(raw)
-    else:
-        st.session_state.read_urls.update(raw)
-elif "read_urls" not in st.session_state:
+if "read_urls" not in st.session_state:
     st.session_state.read_urls = set()
-
-
-def save_to_local_storage():
-    urls_json = json.dumps(list(st.session_state.read_urls))
-    st_javascript(f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))")
 
 
 def mark_read(url: str):
     st.session_state.read_urls.add(url)
-    save_to_local_storage()
 
 
 def unmark_read(url: str):
     st.session_state.read_urls.discard(url)
-    save_to_local_storage()
 
 
 # ── サイドバー ────────────────────────────────────────────────
 with st.sidebar:
     st.header("設定")
+
+    fetch_button = st.button("ニュースを取得する", type="primary", use_container_width=True)
 
     st.subheader("カテゴリ")
     chk_marinos = st.checkbox("横浜F・マリノス", value=True)
@@ -55,8 +41,6 @@ with st.sidebar:
     days = st.slider("過去N日以内", min_value=1, max_value=30, value=3, step=1)
     youtube_enabled = st.checkbox("YouTube動画も取得する", value=True)
     show_read = st.checkbox("既読記事を隠す", value=False)
-
-    fetch_button = st.button("ニュースを取得する", type="primary")
 
 KEYWORD_MAP = {
     "横浜F・マリノス": "マリノス",
@@ -86,14 +70,13 @@ def render_articles(df: pd.DataFrame, prefix: str):
         col_text, col_link, col_check = st.columns([7, 2, 1])
 
         with col_text:
-            summary = row["要約"]
             if is_read:
                 st.markdown(
-                    f'✅ <span style="color:#aaa;">{summary}</span>',
+                    f'✅ <span style="color:#aaa;">{row["要約"]}</span>',
                     unsafe_allow_html=True,
                 )
             else:
-                st.write(summary)
+                st.write(row["要約"])
             st.caption(f'{row["配信元"]} ｜ {row["公開日時"]}')
 
         with col_link:
@@ -116,7 +99,7 @@ def render_articles(df: pd.DataFrame, prefix: str):
         st.divider()
 
     if displayed == 0:
-        st.info("表示する記事がありません（「既読記事も表示する」をオンにすると既読記事も表示されます）")
+        st.info("表示する記事がありません（「既読記事を隠す」をオフにすると既読記事も表示されます）")
 
 
 # ── ニュース取得 ──────────────────────────────────────────────
@@ -128,15 +111,13 @@ if fetch_button:
     news_frames = []
     with st.spinner("ニュースを取得中..."):
         for label in selected:
-            kw = KEYWORD_MAP[label]
-            df_kw = fetch_marinos_news(keyword=kw, max_items=max_items, days=days)
+            df_kw = fetch_marinos_news(keyword=KEYWORD_MAP[label], max_items=max_items, days=days)
             news_frames.append(df_kw)
 
     df_news = pd.concat(news_frames, ignore_index=True)
     df_news = df_news.drop_duplicates(subset=["URL"])
     df_news = df_news.sort_values("公開日時", ascending=False, na_position="last")
-    df_news = df_news.reset_index(drop=True)
-    st.session_state.df_news = df_news
+    st.session_state.df_news = df_news.reset_index(drop=True)
 
     df_yt = pd.DataFrame()
     if youtube_enabled:
@@ -149,8 +130,7 @@ if fetch_button:
             yt_frames = []
             with st.spinner("YouTube動画を取得中..."):
                 for label in selected:
-                    kw = KEYWORD_MAP[label]
-                    df_kw = fetch_youtube_videos(keyword=kw, max_items=10, days=days, api_key=api_key)
+                    df_kw = fetch_youtube_videos(keyword=KEYWORD_MAP[label], max_items=10, days=days, api_key=api_key)
                     yt_frames.append(df_kw)
             df_yt = pd.concat(yt_frames, ignore_index=True)
             df_yt = df_yt.drop_duplicates(subset=["URL"])
