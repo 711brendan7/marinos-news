@@ -91,11 +91,18 @@ def render_articles(df: pd.DataFrame, prefix: str):
             st.caption(f'{row["配信元"]} ｜ {row["公開日時"]}')
 
         with col_btn:
-            # クリックで既読にして記事を開く
-            if st.button("記事を読む →", key=f"link_{prefix}_{i}"):
-                mark_read(url)
-                st_javascript(f"window.open('{url}', '_blank', 'noopener')")
-                st.rerun()
+            safe_url = url.replace("'", "%27")
+            st.markdown(
+                f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" '
+                f'onclick="'
+                f'var u=JSON.parse(localStorage.getItem(\'marinos_read_urls\')||\'[]\');'
+                f'if(!u.includes(\'{safe_url}\'))u.push(\'{safe_url}\');'
+                f'localStorage.setItem(\'marinos_read_urls\',JSON.stringify(u));" '
+                f'style="display:inline-block;padding:5px 12px;font-size:0.85em;'
+                f'border:1px solid #888;border-radius:5px;text-decoration:none;color:#444;">'
+                f'記事を読む →</a>',
+                unsafe_allow_html=True,
+            )
 
         with col_check:
             checked = st.checkbox("既読", key=f"cb_{prefix}_{i}", value=is_read)
