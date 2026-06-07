@@ -1,4 +1,14 @@
-marinos_news/venv/
+marinos/venv/
+marinos/.streamlit/secrets.toml
+marinos_news/.streamlit/secrets.toml
+reins/scraper/venv/
+reins/scraper/.env
+reins/scraper/*.log
+reins/scraper/*.json
+realestate/.env
+todo/.env
+realestate/credentials.json
+realestate/venv/
 .claude/
 __pycache__/
 *.pyc
