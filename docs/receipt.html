@@ -82,9 +82,23 @@
 <script>
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbwfdNLvQS0aajkqqU_qcO5NXIXjeR4XIsKnMTrS7hrmoZ2khiXe2Wl6l81zX462BcFiGQ/exec';
   const TOKEN   = 'Ulzdc5gG18YLMASwWNGJvg';
+  const APP_PIN = '1234'; // ← PINコードをここで変更
 
   let currentFile = null;
   let currentBase64 = null;
+
+  // PIN認証
+  function checkPin() {
+    if (localStorage.getItem('pin_ok') === APP_PIN) return;
+    const pin = prompt('PINコードを入力してください');
+    if (pin === APP_PIN) {
+      localStorage.setItem('pin_ok', APP_PIN);
+    } else {
+      document.body.innerHTML = '<p style="text-align:center;margin-top:40vh;font-size:18px;color:#721c24">PINが違います</p>';
+      throw new Error('PIN error');
+    }
+  }
+  checkPin();
 
   // フォルダ一覧取得
   fetch(GAS_URL + '?action=getFolders&token=' + TOKEN)
