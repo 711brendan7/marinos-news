@@ -9,7 +9,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("⚽ サッカー 最新ニュース")
+st.markdown("### ⚽ 最新ニュース")
 st.caption("Google ニュース・Yahoo!ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
 st.markdown("""
@@ -154,7 +154,6 @@ if fetch_button or auto_fetch:
 
 # ── 表示 ────────────────────────────────────────────────────
 if "df_news" in st.session_state:
-    st.subheader("📰 ニュース")
     if st.session_state.df_news.empty:
         st.warning("ニュースが見つかりませんでした。")
     else:
