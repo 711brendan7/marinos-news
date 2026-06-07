@@ -44,7 +44,9 @@ if st.session_state.read_urls_dirty:
 # 記事を新タブで開く（読むボタン押下後）
 if st.session_state.get("pending_open_url"):
     open_url = st.session_state.pop("pending_open_url")
-    st_javascript(f"window.open('{open_url}', '_blank', 'noopener,noreferrer')", key="open_url")
+    # json.dumps でURLを安全にエスケープ
+    st_javascript(f"window.open({json.dumps(open_url)}, '_blank', 'noopener,noreferrer')", key="open_url")
+    st.session_state.just_opened_url = open_url
 
 
 def mark_read(url: str):
@@ -108,13 +110,7 @@ def render_articles(df: pd.DataFrame, prefix: str):
                 if st.button("✅ 既読", key=f"unread_{prefix}_{i}"):
                     unmark_read(url)
                     st.rerun()
-                st.markdown(
-                    f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
-                    f'style="display:inline-block;margin-top:4px;padding:5px 10px;'
-                    f'font-size:0.85em;border:1px solid #4caf50;border-radius:5px;'
-                    f'text-decoration:none;color:#4caf50;">→ 記事を開く</a>',
-                    unsafe_allow_html=True,
-                )
+                st.link_button("→ 記事を開く", url, use_container_width=True)
             else:
                 if st.button("📖 読む", key=f"read_{prefix}_{i}"):
                     mark_read(url)
