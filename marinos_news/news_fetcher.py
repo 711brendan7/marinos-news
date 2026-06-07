@@ -12,6 +12,11 @@ RSS_SOURCES = [
         "keyword_in_url": True,
     },
     {
+        "name": "Yahoo!ニュース",
+        "url": "https://news.yahoo.co.jp/rss/topics/sports.xml",
+        "keyword_in_url": False,
+    },
+    {
         "name": "スポニチ",
         "url": "https://www.sponichi.co.jp/soccer/rss/sponichi-20061016-soccer.xml",
         "keyword_in_url": False,
