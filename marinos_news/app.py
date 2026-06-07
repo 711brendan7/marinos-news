@@ -1,7 +1,5 @@
-import json
 import streamlit as st
 import pandas as pd
-from streamlit_javascript import st_javascript
 from news_fetcher import fetch_marinos_news
 from youtube_fetcher import fetch_youtube_videos
 
@@ -13,52 +11,6 @@ st.set_page_config(
 
 st.title("⚽ サッカー 最新ニュース")
 st.caption("Google ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
-
-# ── 既読状態の初期化 ──────────────────────────────────────────
-if "read_urls" not in st.session_state:
-    st.session_state.read_urls = set()
-if "read_urls_loaded" not in st.session_state:
-    st.session_state.read_urls_loaded = False
-if "read_urls_dirty" not in st.session_state:
-    st.session_state.read_urls_dirty = False
-
-# localStorage から既読URLを初回のみ読み込む
-if not st.session_state.read_urls_loaded:
-    raw = st_javascript(
-        "JSON.parse(localStorage.getItem('marinos_read_urls') || '[]')",
-        key="ls_read",
-    )
-    if isinstance(raw, list):
-        st.session_state.read_urls = set(raw)
-        st.session_state.read_urls_loaded = True
-
-# 変更があったときだけ localStorage に保存
-if st.session_state.read_urls_dirty:
-    urls_json = json.dumps(list(st.session_state.read_urls))
-    st_javascript(
-        f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))",
-        key="ls_write",
-    )
-    st.session_state.read_urls_dirty = False
-
-# 記事を新タブで開く（読むボタン押下後）
-if st.session_state.get("pending_open_url"):
-    open_url = st.session_state.pop("pending_open_url")
-    # json.dumps でURLを安全にエスケープ
-    st_javascript(f"window.open({json.dumps(open_url)}, '_blank', 'noopener,noreferrer')", key="open_url")
-    st.session_state.just_opened_url = open_url
-
-
-def mark_read(url: str):
-    st.session_state.read_urls.add(url)
-    st.session_state.read_urls_dirty = True
-    st.session_state.pending_open_url = url
-
-
-def unmark_read(url: str):
-    st.session_state.read_urls.discard(url)
-    st.session_state.read_urls_dirty = True
-
 
 # ── サイドバー ────────────────────────────────────────────────
 with st.sidebar:
@@ -76,7 +28,6 @@ with st.sidebar:
     max_items = st.slider("最大取得件数（カテゴリごと）", min_value=5, max_value=50, value=20, step=5)
     days = st.slider("過去N日以内", min_value=1, max_value=30, value=3, step=1)
     youtube_enabled = st.checkbox("YouTube動画も取得する", value=True)
-    show_read = st.checkbox("既読記事を隠す", value=False)
 
 KEYWORD_MAP = {
     "横浜F・マリノス": "マリノス",
@@ -93,51 +44,22 @@ if custom_keyword.strip():
     selected.append(custom_keyword.strip())
 
 
-def render_articles(df: pd.DataFrame, prefix: str):
-    displayed = 0
+def render_articles(df: pd.DataFrame):
     for i, row in df.iterrows():
         url = row["URL"]
-        is_read = url in st.session_state.read_urls
-
-        if is_read and show_read:
-            continue
-
-        displayed += 1
-        col_text, col_action = st.columns([6, 2])
-
-        with col_action:
-            st.markdown(
-                f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
-                f'style="display:inline-block;width:100%;text-align:center;'
-                f'padding:4px 0;font-size:0.8em;border:1px solid #999;'
-                f'border-radius:4px;text-decoration:none;color:#333;'
-                f'margin-bottom:4px;">→ 開く</a>',
-                unsafe_allow_html=True,
-            )
-            if is_read:
-                if st.button("✅ 既読", key=f"unread_{prefix}_{i}", use_container_width=True):
-                    unmark_read(url)
-                    st.rerun()
-            else:
-                if st.button("既読", key=f"read_{prefix}_{i}", use_container_width=True):
-                    mark_read(url)
-                    st.rerun()
-
-        with col_text:
-            color = "#aaa" if is_read else "inherit"
-            icon = "✅ " if is_read else ""
-            st.markdown(
-                f'<div style="color:{color};font-size:0.9em;line-height:1.3;">'
-                f'{icon}{row["要約"]}<br>'
-                f'<span style="font-size:0.78em;color:#999;">'
-                f'{row["配信元"]} ｜ {row["公開日時"]}</span></div>',
-                unsafe_allow_html=True,
-            )
-
-        st.markdown('<hr style="margin:3px 0;border:none;border-top:1px solid #e0e0e0;">', unsafe_allow_html=True)
-
-    if displayed == 0:
-        st.info("表示する記事がありません（「既読記事を隠す」をオフにすると既読記事も表示されます）")
+        st.markdown(
+            f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+            f'style="display:block;text-decoration:none;color:inherit;'
+            f'padding:6px 2px;font-size:0.9em;line-height:1.4;">'
+            f'{row["要約"]}<br>'
+            f'<span style="font-size:0.78em;color:#999;">'
+            f'{row["配信元"]} ｜ {row["公開日時"]}</span></a>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<hr style="margin:2px 0;border:none;border-top:1px solid #e0e0e0;">',
+            unsafe_allow_html=True,
+        )
 
 
 # ── ニュース取得 ──────────────────────────────────────────────
@@ -186,11 +108,11 @@ if "df_news" in st.session_state:
         st.warning("ニュースが見つかりませんでした。")
     else:
         st.success(f"{len(st.session_state.df_news)} 件のニュースを取得しました")
-        render_articles(st.session_state.df_news, prefix="news")
+        render_articles(st.session_state.df_news)
 
     if youtube_enabled and "df_yt" in st.session_state and not st.session_state.df_yt.empty:
         st.subheader("▶️ YouTube 動画")
         st.success(f"{len(st.session_state.df_yt)} 件の動画を取得しました")
-        render_articles(st.session_state.df_yt, prefix="yt")
+        render_articles(st.session_state.df_yt)
 else:
     st.info("左のサイドバーにある「ニュースを取得する」ボタンを押してください。")
