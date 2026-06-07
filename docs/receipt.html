@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="領収書スキャン">
+<meta name="theme-color" content="#007aff">
+<title>領収書スキャン</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, sans-serif;
+    background: #f5f5f7;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .container { width: 100%; max-width: 400px; padding: 24px 16px; text-align: center; }
+  h1 { font-size: 22px; margin-bottom: 8px; color: #1c1c1e; }
+  .subtitle { font-size: 14px; color: #8e8e93; margin-bottom: 32px; }
+  .btn { display: block; width: 100%; padding: 18px; font-size: 17px; font-weight: 600;
+         border: none; border-radius: 14px; cursor: pointer; margin-bottom: 12px; }
+  .btn-primary { background: #007aff; color: white; }
+  .btn-secondary { background: white; color: #007aff; border: 2px solid #007aff; font-size: 15px; }
+  .btn:disabled { opacity: 0.4; }
+  input[type="file"] { display: none; }
+  #preview { margin-top: 20px; display: none; }
+  #preview img { width: 100%; max-height: 220px; object-fit: contain; border-radius: 10px; }
+  #edit-box { margin-top: 14px; background: white; border-radius: 12px; overflow: hidden; display: none; }
+  .field-row { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; }
+  .field-row:last-child { border-bottom: none; }
+  .field-label { font-size: 13px; color: #8e8e93; width: 50px; flex-shrink: 0; }
+  .field-input { flex: 1; border: none; font-size: 16px; outline: none; background: transparent; text-align: right; }
+  .field-select { flex: 1; border: none; font-size: 15px; outline: none; background: transparent; text-align: right; color: #1c1c1e; }
+  #filename-preview { margin-top: 10px; font-size: 12px; color: #8e8e93; word-break: break-all; }
+  #status { margin-top: 16px; padding: 14px; border-radius: 12px; font-size: 14px; display: none; }
+  .status-processing { background: #fff3cd; color: #856404; }
+  .status-success { background: #d4edda; color: #155724; }
+  .status-error { background: #f8d7da; color: #721c24; }
+  #upload-btn { display: none; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📄 領収書スキャン</h1>
+  <p class="subtitle">撮影 → 日付を自動認識 → Google Drive に保存</p>
+
+  <button class="btn btn-primary" onclick="document.getElementById('cameraInput').click()">📷 カメラで撮影</button>
+  <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()">🖼️ 写真を選ぶ</button>
+
+  <input type="file" id="cameraInput"  accept="image/*" capture="environment">
+  <input type="file" id="galleryInput" accept="image/*">
+
+  <div id="preview"><img id="previewImg"></div>
+
+  <div id="edit-box">
+    <div class="field-row">
+      <span class="field-label">日付</span>
+      <input type="date" id="input-date" class="field-input" onchange="updatePreview()">
+    </div>
+    <div class="field-row">
+      <span class="field-label">金額</span>
+      <input type="number" id="input-amount" class="field-input" placeholder="手動入力" inputmode="numeric" onchange="updatePreview()">
+    </div>
+    <div class="field-row">
+      <span class="field-label">保存先</span>
+      <select id="input-folder" class="field-select">
+        <option value="">読み込み中...</option>
+      </select>
+    </div>
+  </div>
+  <div id="filename-preview"></div>
+
+  <div id="status"></div>
+  <button id="upload-btn" class="btn btn-primary" onclick="doUpload()">☁️ Google Drive に保存</button>
+</div>
+
+<script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbwfdNLvQS0aajkqqU_qcO5NXIXjeR4XIsKnMTrS7hrmoZ2khiXe2Wl6l81zX462BcFiGQ/exec';
+  const TOKEN   = 'Ulzdc5gG18YLMASwWNGJvg';
+
+  let currentFile = null;
+  let currentBase64 = null;
+
+  // フォルダ一覧取得
+  fetch(GAS_URL + '?action=getFolders&token=' + TOKEN)
+    .then(r => r.json())
+    .then(folders => {
+      const sel = document.getElementById('input-folder');
+      sel.innerHTML = folders.map(f =>
+        '<option value="' + f.id + '"' + (f.isCurrent ? ' selected' : '') + '>' + f.name + '</option>'
+      ).join('');
+      const saved = localStorage.getItem('lastFolderId');
+      if (saved) sel.value = saved;
+    })
+    .catch(() => {
+      document.getElementById('input-folder').innerHTML = '<option value="">（取得失敗）</option>';
+    });
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  function updatePreview() {
+    const dateVal = document.getElementById('input-date').value;
+    const amount  = document.getElementById('input-amount').value;
+    if (!dateVal) return;
+    const name = dateVal.replace(/-/g, '') + (amount ? '_' + amount : '') + '_receipt.jpg';
+    document.getElementById('filename-preview').textContent = '📄 ' + name;
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    currentFile = file;
+
+    document.getElementById('preview').style.display = 'block';
+    document.getElementById('previewImg').src = URL.createObjectURL(file);
+    document.getElementById('upload-btn').style.display = 'none';
+    document.getElementById('edit-box').style.display = 'none';
+    document.getElementById('filename-preview').textContent = '';
+
+    showStatus('processing', '🔍 テキスト認識中...');
+
+    try {
+      const worker = await Tesseract.createWorker('eng');
+      const { data: { text } } = await worker.recognize(file);
+      await worker.terminate();
+
+      const now = new Date();
+      const dateMatch = text.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+      document.getElementById('input-date').value = dateMatch
+        ? dateMatch[1] + '-' + pad(dateMatch[2]) + '-' + pad(dateMatch[3])
+        : now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate());
+
+      document.getElementById('input-amount').value = '';
+      updatePreview();
+      document.getElementById('edit-box').style.display = 'block';
+      document.getElementById('upload-btn').style.display = 'block';
+      showStatus('processing', '✏️ 内容を確認して「保存」をタップ');
+
+      const reader = new FileReader();
+      reader.onload = e => { currentBase64 = e.target.result.split(',')[1]; };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      showStatus('error', 'OCRエラー: ' + err.message);
+    }
+  }
+
+  function doUpload() {
+    if (!currentBase64) { showStatus('error', '画像の読み込みが完了していません'); return; }
+    const dateVal = document.getElementById('input-date').value;
+    if (!dateVal) { showStatus('error', '日付を入力してください'); return; }
+    const amount   = document.getElementById('input-amount').value;
+    const folderId = document.getElementById('input-folder').value;
+    const filename = dateVal.replace(/-/g, '') + (amount ? '_' + amount : '') + '_receipt.jpg';
+
+    localStorage.setItem('lastFolderId', folderId);
+    showStatus('processing', 'アップロード中...');
+    document.getElementById('upload-btn').disabled = true;
+
+    fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ token: TOKEN, image: currentBase64, mimeType: currentFile.type || 'image/jpeg', filename: filename, folderId: folderId })
+    })
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('upload-btn').disabled = false;
+      if (data.success) {
+        showStatus('success', '✓ 保存完了！<br><b>' + data.name + '</b>');
+        document.getElementById('upload-btn').style.display = 'none';
+        document.getElementById('edit-box').style.display = 'none';
+      } else {
+        showStatus('error', 'エラー: ' + data.error);
+      }
+    })
+    .catch(err => {
+      document.getElementById('upload-btn').disabled = false;
+      showStatus('error', '通信エラー: ' + err.message);
+    });
+  }
+
+  function showStatus(type, msg) {
+    const el = document.getElementById('status');
+    el.className = 'status-' + type;
+    el.innerHTML = msg;
+    el.style.display = 'block';
+  }
+
+  document.getElementById('cameraInput').addEventListener('change', e => handleFile(e.target.files[0]));
+  document.getElementById('galleryInput').addEventListener('change', e => handleFile(e.target.files[0]));
+</script>
+</body>
+</html>
