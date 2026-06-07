@@ -12,6 +12,22 @@ st.set_page_config(
 st.title("⚽ サッカー 最新ニュース")
 st.caption("Google ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
+st.markdown("""
+<style>
+a.article-link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    padding: 6px 2px;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+a.article-link:visited { color: #aaa; }
+.article-meta { font-size: 0.78em; color: #999; }
+a.article-link:visited .article-meta { color: #bbb; }
+</style>
+""", unsafe_allow_html=True)
+
 # ── サイドバー ────────────────────────────────────────────────
 with st.sidebar:
     st.header("設定")
@@ -48,12 +64,9 @@ def render_articles(df: pd.DataFrame):
     for i, row in df.iterrows():
         url = row["URL"]
         st.markdown(
-            f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
-            f'style="display:block;text-decoration:none;color:inherit;'
-            f'padding:6px 2px;font-size:0.9em;line-height:1.4;">'
+            f'<a class="article-link" href="{url}" target="_blank" rel="noopener noreferrer">'
             f'{row["要約"]}<br>'
-            f'<span style="font-size:0.78em;color:#999;">'
-            f'{row["配信元"]} ｜ {row["公開日時"]}</span></a>',
+            f'<span class="article-meta">{row["配信元"]} ｜ {row["公開日時"]}</span></a>',
             unsafe_allow_html=True,
         )
         st.markdown(
