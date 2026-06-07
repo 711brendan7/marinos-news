@@ -41,12 +41,17 @@ if chk_maeda:   selected.append("前田大然")
 
 def render_table(df: pd.DataFrame):
     df_display = df.copy()
-    df_display["タイトル"] = df_display.apply(
-        lambda row: f'<a href="{row["URL"]}" target="_blank">{row["タイトル"]}</a>',
+    df_display["記事"] = df_display.apply(
+        lambda row: (
+            f'{row["要約"]}&nbsp;&nbsp;'
+            f'<a href="{row["URL"]}" target="_blank" '
+            f'style="display:inline-block;padding:2px 8px;font-size:0.75em;'
+            f'border:1px solid #888;border-radius:4px;text-decoration:none;color:#444;">'
+            f'記事を読む →</a>'
+        ),
         axis=1,
     )
-    df_display = df_display.rename(columns={"要約": "記事"})
-    df_display = df_display[["タイトル", "記事", "配信元", "公開日時"]]
+    df_display = df_display[["記事", "配信元", "公開日時"]]
     st.write(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
 
 
