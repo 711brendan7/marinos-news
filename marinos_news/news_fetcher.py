@@ -36,10 +36,12 @@ def _parse_entry(entry, source_name, keyword_in_url, keyword):
     url = entry.get("link", "")
     source = entry.get("source", {}).get("title", source_name)
 
+    JST = timezone(timedelta(hours=9))
     published_dt = None
     try:
-        published_dt = datetime(*entry.published_parsed[:6])
-        published = published_dt.strftime("%Y-%m-%d %H:%M")
+        published_utc = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+        published_dt = published_utc.replace(tzinfo=None)  # naive UTC for sorting
+        published = published_utc.astimezone(JST).strftime("%Y-%m-%d %H:%M")
     except Exception:
         published = entry.get("published", "")
 

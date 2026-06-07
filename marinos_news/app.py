@@ -46,12 +46,30 @@ with st.sidebar:
     fetch_button = st.button("ニュースを取得する", type="primary", use_container_width=True)
 
     st.subheader("カテゴリ")
+
+    # 新規カテゴリのチェック状態を初期化
+    for cat in st.session_state.categories:
+        if f"cat_{cat}" not in st.session_state:
+            st.session_state[f"cat_{cat}"] = True
+
+    col_all, col_none = st.columns(2)
+    with col_all:
+        if st.button("全選択", use_container_width=True):
+            for cat in st.session_state.categories:
+                st.session_state[f"cat_{cat}"] = True
+            st.rerun()
+    with col_none:
+        if st.button("全解除", use_container_width=True):
+            for cat in st.session_state.categories:
+                st.session_state[f"cat_{cat}"] = False
+            st.rerun()
+
     selected = []
     to_delete = None
     for cat in st.session_state.categories:
         col_chk, col_del = st.columns([5, 1])
         with col_chk:
-            if st.checkbox(cat, value=True, key=f"cat_{cat}"):
+            if st.checkbox(cat, key=f"cat_{cat}"):
                 selected.append(cat)
         with col_del:
             if st.button("✕", key=f"del_{cat}", help=f"{cat}を削除"):
