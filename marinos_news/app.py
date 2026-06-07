@@ -103,16 +103,23 @@ def render_articles(df: pd.DataFrame, prefix: str):
             continue
 
         displayed += 1
-        col_text, col_action = st.columns([7, 2])
+        col_text, col_action = st.columns([6, 2])
 
         with col_action:
+            st.markdown(
+                f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+                f'style="display:inline-block;width:100%;text-align:center;'
+                f'padding:6px 0;font-size:0.85em;border:1px solid #999;'
+                f'border-radius:5px;text-decoration:none;color:#333;'
+                f'margin-bottom:6px;">→ 記事を開く</a>',
+                unsafe_allow_html=True,
+            )
             if is_read:
-                if st.button("✅ 既読", key=f"unread_{prefix}_{i}"):
+                if st.button("✅ 既読", key=f"unread_{prefix}_{i}", use_container_width=True):
                     unmark_read(url)
                     st.rerun()
-                st.link_button("→ 記事を開く", url, use_container_width=True)
             else:
-                if st.button("📖 読む", key=f"read_{prefix}_{i}"):
+                if st.button("既読にする", key=f"read_{prefix}_{i}", use_container_width=True):
                     mark_read(url)
                     st.rerun()
 
