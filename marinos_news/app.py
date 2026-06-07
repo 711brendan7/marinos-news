@@ -1,3 +1,4 @@
+import anthropic
 import streamlit as st
 import pandas as pd
 from news_fetcher import fetch_marinos_news
@@ -96,15 +97,36 @@ for cat in st.session_state.categories:
         KEYWORD_MAP[cat] = cat
 
 
+def generate_overall_summary(df: pd.DataFrame) -> str:
+    try:
+        api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+    except FileNotFoundError:
+        api_key = ""
+    if not api_key:
+        return ""
+    titles = df["タイトル"].tolist()[:40]
+    titles_text = "\n".join(f"・{t}" for t in titles)
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=400,
+        messages=[{
+            "role": "user",
+            "content": (
+                "以下のサッカーニュースの見出し一覧を3〜5文で日本語で要約してください。"
+                "トレンドや注目の話題を中心に簡潔にまとめてください。\n\n" + titles_text
+            ),
+        }],
+    )
+    return message.content[0].text
+
+
 def render_articles(df: pd.DataFrame):
     for i, row in df.iterrows():
         url = row["URL"]
-        summary = row["要約"]
-        title = row["タイトル"]
         st.markdown(
             f'<a class="article-link" href="{url}" target="_blank" rel="noopener noreferrer">'
-            f'<span style="font-weight:600;">{title}</span><br>'
-            f'<span style="font-size:0.82em;color:#555;">{summary}</span><br>'
+            f'<span style="font-weight:600;">{row["タイトル"]}</span><br>'
             f'<span class="article-meta">{row["配信元"]} ｜ {row["公開日時"]}</span></a>',
             unsafe_allow_html=True,
         )
@@ -133,6 +155,9 @@ if fetch_button or auto_fetch:
     df_news = df_news.sort_values("公開日時", ascending=False, na_position="last")
     st.session_state.df_news = df_news.reset_index(drop=True)
 
+    with st.spinner("全体要約を生成中..."):
+        st.session_state.overall_summary = generate_overall_summary(st.session_state.df_news)
+
     df_yt = pd.DataFrame()
     if youtube_enabled:
         try:
@@ -157,6 +182,9 @@ if fetch_button or auto_fetch:
 
 # ── 表示 ────────────────────────────────────────────────────
 if "df_news" in st.session_state:
+    if st.session_state.get("overall_summary"):
+        st.info(st.session_state.overall_summary)
+
     if st.session_state.df_news.empty:
         st.warning("ニュースが見つかりませんでした。")
     else:
