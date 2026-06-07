@@ -99,9 +99,12 @@ for cat in st.session_state.categories:
 def render_articles(df: pd.DataFrame):
     for i, row in df.iterrows():
         url = row["URL"]
+        summary = row["要約"]
+        title = row["タイトル"]
         st.markdown(
             f'<a class="article-link" href="{url}" target="_blank" rel="noopener noreferrer">'
-            f'{row["要約"]}<br>'
+            f'<span style="font-weight:600;">{title}</span><br>'
+            f'<span style="font-size:0.82em;color:#555;">{summary}</span><br>'
             f'<span class="article-meta">{row["配信元"]} ｜ {row["公開日時"]}</span></a>',
             unsafe_allow_html=True,
         )
