@@ -109,9 +109,9 @@ def render_articles(df: pd.DataFrame, prefix: str):
             st.markdown(
                 f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
                 f'style="display:inline-block;width:100%;text-align:center;'
-                f'padding:6px 0;font-size:0.85em;border:1px solid #999;'
-                f'border-radius:5px;text-decoration:none;color:#333;'
-                f'margin-bottom:6px;">→ 記事を開く</a>',
+                f'padding:4px 0;font-size:0.8em;border:1px solid #999;'
+                f'border-radius:4px;text-decoration:none;color:#333;'
+                f'margin-bottom:4px;">→ 開く</a>',
                 unsafe_allow_html=True,
             )
             if is_read:
@@ -119,21 +119,22 @@ def render_articles(df: pd.DataFrame, prefix: str):
                     unmark_read(url)
                     st.rerun()
             else:
-                if st.button("既読にする", key=f"read_{prefix}_{i}", use_container_width=True):
+                if st.button("既読", key=f"read_{prefix}_{i}", use_container_width=True):
                     mark_read(url)
                     st.rerun()
 
         with col_text:
-            if is_read:
-                st.markdown(
-                    f'✅ <span style="color:#aaa;">{row["要約"]}</span>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.write(row["要約"])
-            st.caption(f'{row["配信元"]} ｜ {row["公開日時"]}')
+            color = "#aaa" if is_read else "inherit"
+            icon = "✅ " if is_read else ""
+            st.markdown(
+                f'<div style="color:{color};font-size:0.9em;line-height:1.3;">'
+                f'{icon}{row["要約"]}<br>'
+                f'<span style="font-size:0.78em;color:#999;">'
+                f'{row["配信元"]} ｜ {row["公開日時"]}</span></div>',
+                unsafe_allow_html=True,
+            )
 
-        st.divider()
+        st.markdown('<hr style="margin:3px 0;border:none;border-top:1px solid #e0e0e0;">', unsafe_allow_html=True)
 
     if displayed == 0:
         st.info("表示する記事がありません（「既読記事を隠す」をオフにすると既読記事も表示されます）")
