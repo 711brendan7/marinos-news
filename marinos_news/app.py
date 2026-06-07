@@ -36,8 +36,8 @@ with st.sidebar:
 
     st.subheader("カテゴリ")
     chk_marinos = st.checkbox("横浜F・マリノス", value=True)
-    chk_japan   = st.checkbox("サッカー日本代表", value=False)
-    chk_maeda   = st.checkbox("前田大然", value=False)
+    chk_japan   = st.checkbox("サッカー日本代表", value=True)
+    chk_maeda   = st.checkbox("前田大然", value=True)
     custom_keyword = st.text_input("カスタムキーワード（任意）", value="", placeholder="例：久保建英")
 
     st.subheader("オプション")
@@ -76,7 +76,9 @@ def render_articles(df: pd.DataFrame):
 
 
 # ── ニュース取得 ──────────────────────────────────────────────
-if fetch_button:
+auto_fetch = "df_news" not in st.session_state
+
+if fetch_button or auto_fetch:
     if not selected:
         st.warning("カテゴリを1つ以上選択してください。")
         st.stop()
