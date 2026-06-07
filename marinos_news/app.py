@@ -11,6 +11,22 @@ st.set_page_config(
     layout="wide",
 )
 
+# ── PIN認証 ───────────────────────────────────────────────────
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.markdown("### ⚽ 最新ニュース")
+    pin_input = st.text_input("PINコードを入力してください", type="password", max_chars=8)
+    if st.button("ログイン", type="primary"):
+        correct_pin = st.secrets.get("APP_PIN", "")
+        if pin_input == correct_pin:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("PINコードが正しくありません")
+    st.stop()
+
 st.markdown("### ⚽ 最新ニュース")
 st.caption("Google ニュース・Yahoo!ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
