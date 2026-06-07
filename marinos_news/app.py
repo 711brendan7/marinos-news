@@ -28,6 +28,17 @@ a.article-link:visited .article-meta { color: #bbb; }
 </style>
 """, unsafe_allow_html=True)
 
+DEFAULT_CATEGORIES = ["横浜F・マリノス", "サッカー日本代表", "前田大然", "Jリーグ移籍情報"]
+KEYWORD_MAP = {
+    "横浜F・マリノス": "マリノス",
+    "サッカー日本代表": "サッカー日本代表",
+    "前田大然": "前田大然",
+    "Jリーグ移籍情報": "Jリーグ移籍情報",
+}
+
+if "categories" not in st.session_state:
+    st.session_state.categories = DEFAULT_CATEGORIES.copy()
+
 # ── サイドバー ────────────────────────────────────────────────
 with st.sidebar:
     st.header("設定")
@@ -35,29 +46,36 @@ with st.sidebar:
     fetch_button = st.button("ニュースを取得する", type="primary", use_container_width=True)
 
     st.subheader("カテゴリ")
-    chk_marinos = st.checkbox("横浜F・マリノス", value=True)
-    chk_japan   = st.checkbox("サッカー日本代表", value=True)
-    chk_maeda   = st.checkbox("前田大然", value=True)
-    custom_keyword = st.text_input("カスタムキーワード（任意）", value="", placeholder="例：久保建英")
+    selected = []
+    to_delete = None
+    for cat in st.session_state.categories:
+        col_chk, col_del = st.columns([5, 1])
+        with col_chk:
+            if st.checkbox(cat, value=True, key=f"cat_{cat}"):
+                selected.append(cat)
+        with col_del:
+            if st.button("✕", key=f"del_{cat}", help=f"{cat}を削除"):
+                to_delete = cat
+
+    if to_delete:
+        st.session_state.categories.remove(to_delete)
+        st.rerun()
+
+    with st.form("add_category_form", clear_on_submit=True):
+        new_cat = st.text_input("カテゴリを追加", placeholder="例：久保建英")
+        if st.form_submit_button("追加") and new_cat.strip():
+            if new_cat.strip() not in st.session_state.categories:
+                st.session_state.categories.append(new_cat.strip())
+            st.rerun()
 
     st.subheader("オプション")
     max_items = st.slider("最大取得件数（カテゴリごと）", min_value=5, max_value=50, value=20, step=5)
     days = st.slider("過去N日以内", min_value=1, max_value=30, value=3, step=1)
-    youtube_enabled = st.checkbox("YouTube動画も取得する", value=True)
+    youtube_enabled = st.checkbox("YouTube動画も取得する", value=False)
 
-KEYWORD_MAP = {
-    "横浜F・マリノス": "マリノス",
-    "サッカー日本代表": "サッカー日本代表",
-    "前田大然": "前田大然",
-}
-
-selected = []
-if chk_marinos: selected.append("横浜F・マリノス")
-if chk_japan:   selected.append("サッカー日本代表")
-if chk_maeda:   selected.append("前田大然")
-if custom_keyword.strip():
-    KEYWORD_MAP[custom_keyword.strip()] = custom_keyword.strip()
-    selected.append(custom_keyword.strip())
+for cat in st.session_state.categories:
+    if cat not in KEYWORD_MAP:
+        KEYWORD_MAP[cat] = cat
 
 
 def render_articles(df: pd.DataFrame):
