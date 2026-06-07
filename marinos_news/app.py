@@ -95,15 +95,22 @@ def render_articles(df: pd.DataFrame, prefix: str):
             continue
 
         displayed += 1
-        col_text, col_link, col_check = st.columns([7, 2, 1])
+        col_text, col_action = st.columns([7, 2])
 
-        with col_check:
+        with col_action:
             if is_read:
                 if st.button("✅ 既読", key=f"unread_{prefix}_{i}"):
                     unmark_read(url)
                     st.rerun()
+                st.markdown(
+                    f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+                    f'style="display:inline-block;margin-top:4px;padding:5px 10px;'
+                    f'font-size:0.85em;border:1px solid #4caf50;border-radius:5px;'
+                    f'text-decoration:none;color:#4caf50;">→ 記事を開く</a>',
+                    unsafe_allow_html=True,
+                )
             else:
-                if st.button("既読にする", key=f"read_{prefix}_{i}"):
+                if st.button("📖 読む", key=f"read_{prefix}_{i}"):
                     mark_read(url)
                     st.rerun()
 
@@ -116,15 +123,6 @@ def render_articles(df: pd.DataFrame, prefix: str):
             else:
                 st.write(row["要約"])
             st.caption(f'{row["配信元"]} ｜ {row["公開日時"]}')
-
-        with col_link:
-            st.markdown(
-                f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
-                f'style="display:inline-block;margin-top:8px;padding:5px 10px;'
-                f'font-size:0.85em;border:1px solid #999;border-radius:5px;'
-                f'text-decoration:none;color:#333;">記事を読む →</a>',
-                unsafe_allow_html=True,
-            )
 
         st.divider()
 
