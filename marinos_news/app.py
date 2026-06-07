@@ -1,5 +1,7 @@
+import json
 import streamlit as st
 import pandas as pd
+from streamlit_javascript import st_javascript
 from news_fetcher import fetch_marinos_news
 from youtube_fetcher import fetch_youtube_videos
 
@@ -12,16 +14,34 @@ st.set_page_config(
 st.title("⚽ サッカー 最新ニュース")
 st.caption("Google ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
+# ── localStorage から既読URLを【初回のみ】読み込む ────────────────
+# read_urls_loaded が True になった後は st_javascript を呼ばない
+# → ボタンクリック時に余分な再描画が起きなくなる
 if "read_urls" not in st.session_state:
     st.session_state.read_urls = set()
+if "read_urls_loaded" not in st.session_state:
+    st.session_state.read_urls_loaded = False
+
+if not st.session_state.read_urls_loaded:
+    raw = st_javascript("JSON.parse(localStorage.getItem('marinos_read_urls') || '[]')")
+    if isinstance(raw, list):
+        st.session_state.read_urls = set(raw)
+        st.session_state.read_urls_loaded = True
+
+
+def save_to_local_storage():
+    urls_json = json.dumps(list(st.session_state.read_urls))
+    st_javascript(f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))")
 
 
 def mark_read(url: str):
     st.session_state.read_urls.add(url)
+    save_to_local_storage()
 
 
 def unmark_read(url: str):
     st.session_state.read_urls.discard(url)
+    save_to_local_storage()
 
 
 # ── サイドバー ────────────────────────────────────────────────
