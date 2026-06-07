@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 st.title("⚽ サッカー 最新ニュース")
-st.caption("Google ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
+st.caption("Google ニュース・Yahoo!ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
 st.markdown("""
 <style>
