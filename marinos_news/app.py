@@ -77,22 +77,28 @@ def render_articles(df: pd.DataFrame, prefix: str):
             continue
 
         displayed += 1
-        col_text, col_check = st.columns([11, 1])
+        col_text, col_btn, col_check = st.columns([8, 2, 1])
 
         with col_text:
             summary = row["要約"]
-            link = f'<a href="{url}" target="_blank" style="display:inline-block;padding:2px 8px;font-size:0.75em;border:1px solid #888;border-radius:4px;text-decoration:none;color:#444;">記事を読む →</a>'
             if is_read:
                 st.markdown(
-                    f'<span style="color:#bbb;text-decoration:line-through;">{summary}</span>&nbsp;&nbsp;{link}',
+                    f'<span style="color:#bbb;text-decoration:line-through;">{summary}</span>',
                     unsafe_allow_html=True,
                 )
             else:
-                st.markdown(f'{summary}&nbsp;&nbsp;{link}', unsafe_allow_html=True)
+                st.markdown(summary)
             st.caption(f'{row["配信元"]} ｜ {row["公開日時"]}')
 
+        with col_btn:
+            # クリックで既読にして記事を開く
+            if st.button("記事を読む →", key=f"link_{prefix}_{i}"):
+                mark_read(url)
+                st_javascript(f"window.open('{url}', '_blank', 'noopener')")
+                st.rerun()
+
         with col_check:
-            checked = st.checkbox("既読", key=f"{prefix}_{i}", value=is_read)
+            checked = st.checkbox("既読", key=f"cb_{prefix}_{i}", value=is_read)
             if checked and not is_read:
                 mark_read(url)
                 st.rerun()
@@ -103,15 +109,15 @@ def render_articles(df: pd.DataFrame, prefix: str):
         st.divider()
 
     if displayed == 0:
-        st.info("表示する記事がありません（既読記事を表示するにはサイドバーの「既読記事も表示する」をオンにしてください）")
+        st.info("表示する記事がありません（「既読記事も表示する」をオンにすると既読記事も表示されます）")
 
 
+# ── ニュース取得 ──────────────────────────────────────────────
 if fetch_button:
     if not selected:
         st.warning("カテゴリを1つ以上選択してください。")
         st.stop()
 
-    # ニュース取得
     news_frames = []
     with st.spinner("ニュースを取得中..."):
         for label in selected:
@@ -123,8 +129,8 @@ if fetch_button:
     df_news = df_news.drop_duplicates(subset=["URL"])
     df_news = df_news.sort_values("公開日時", ascending=False, na_position="last")
     df_news = df_news.reset_index(drop=True)
+    st.session_state.df_news = df_news
 
-    # YouTube取得
     df_yt = pd.DataFrame()
     if youtube_enabled:
         try:
@@ -145,20 +151,20 @@ if fetch_button:
             df_yt = df_yt.reset_index(drop=True)
         else:
             st.warning("YouTube APIキーが設定されていません")
+    st.session_state.df_yt = df_yt
 
-    # ニュース表示
+# ── 表示 ────────────────────────────────────────────────────
+if "df_news" in st.session_state:
     st.subheader("📰 ニュース")
-    if df_news.empty:
+    if st.session_state.df_news.empty:
         st.warning("ニュースが見つかりませんでした。")
     else:
-        st.success(f"{len(df_news)} 件のニュースを取得しました")
-        render_articles(df_news, prefix="news")
+        st.success(f"{len(st.session_state.df_news)} 件のニュースを取得しました")
+        render_articles(st.session_state.df_news, prefix="news")
 
-    # YouTube表示
-    if youtube_enabled and not df_yt.empty:
+    if youtube_enabled and "df_yt" in st.session_state and not st.session_state.df_yt.empty:
         st.subheader("▶️ YouTube 動画")
-        st.success(f"{len(df_yt)} 件の動画を取得しました")
-        render_articles(df_yt, prefix="yt")
-
+        st.success(f"{len(st.session_state.df_yt)} 件の動画を取得しました")
+        render_articles(st.session_state.df_yt, prefix="yt")
 else:
     st.info("左のサイドバーにある「ニュースを取得する」ボタンを押してください。")
