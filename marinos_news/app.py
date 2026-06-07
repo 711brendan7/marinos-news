@@ -1,5 +1,7 @@
+import json
 import streamlit as st
 import pandas as pd
+from streamlit_javascript import st_javascript
 from news_fetcher import fetch_marinos_news
 from youtube_fetcher import fetch_youtube_videos
 
@@ -12,6 +14,27 @@ st.set_page_config(
 st.title("⚽ サッカー 最新ニュース")
 st.caption("Google ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
+# ── localStorage から既読URLを読み込む ──────────────────────────
+raw = st_javascript("JSON.parse(localStorage.getItem('marinos_read_urls') || '[]')")
+if isinstance(raw, list):
+    st.session_state.read_urls = set(raw)
+elif "read_urls" not in st.session_state:
+    st.session_state.read_urls = set()
+
+
+def mark_read(url: str):
+    st.session_state.read_urls.add(url)
+    urls_json = json.dumps(list(st.session_state.read_urls))
+    st_javascript(f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))")
+
+
+def unmark_read(url: str):
+    st.session_state.read_urls.discard(url)
+    urls_json = json.dumps(list(st.session_state.read_urls))
+    st_javascript(f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))")
+
+
+# ── サイドバー ────────────────────────────────────────────────
 with st.sidebar:
     st.header("設定")
 
@@ -25,6 +48,7 @@ with st.sidebar:
     max_items = st.slider("最大取得件数（カテゴリごと）", min_value=5, max_value=50, value=20, step=5)
     days = st.slider("過去N日以内", min_value=1, max_value=30, value=3, step=1)
     youtube_enabled = st.checkbox("YouTube動画も取得する", value=True)
+    show_read = st.checkbox("既読記事も表示する", value=False)
 
     fetch_button = st.button("ニュースを取得する", type="primary")
 
@@ -43,20 +67,43 @@ if custom_keyword.strip():
     selected.append(custom_keyword.strip())
 
 
-def render_table(df: pd.DataFrame):
-    df_display = df.copy()
-    df_display["記事"] = df_display.apply(
-        lambda row: (
-            f'{row["要約"]}&nbsp;&nbsp;'
-            f'<a href="{row["URL"]}" target="_blank" '
-            f'style="display:inline-block;padding:2px 8px;font-size:0.75em;'
-            f'border:1px solid #888;border-radius:4px;text-decoration:none;color:#444;">'
-            f'記事を読む →</a>'
-        ),
-        axis=1,
-    )
-    df_display = df_display[["記事", "配信元", "公開日時"]]
-    st.write(df_display.to_html(escape=False, index=False), unsafe_allow_html=True)
+def render_articles(df: pd.DataFrame, prefix: str):
+    displayed = 0
+    for i, row in df.iterrows():
+        url = row["URL"]
+        is_read = url in st.session_state.read_urls
+
+        if is_read and not show_read:
+            continue
+
+        displayed += 1
+        col_text, col_check = st.columns([11, 1])
+
+        with col_text:
+            summary = row["要約"]
+            link = f'<a href="{url}" target="_blank" style="display:inline-block;padding:2px 8px;font-size:0.75em;border:1px solid #888;border-radius:4px;text-decoration:none;color:#444;">記事を読む →</a>'
+            if is_read:
+                st.markdown(
+                    f'<span style="color:#bbb;text-decoration:line-through;">{summary}</span>&nbsp;&nbsp;{link}',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(f'{summary}&nbsp;&nbsp;{link}', unsafe_allow_html=True)
+            st.caption(f'{row["配信元"]} ｜ {row["公開日時"]}')
+
+        with col_check:
+            checked = st.checkbox("既読", key=f"{prefix}_{i}", value=is_read)
+            if checked and not is_read:
+                mark_read(url)
+                st.rerun()
+            elif not checked and is_read:
+                unmark_read(url)
+                st.rerun()
+
+        st.divider()
+
+    if displayed == 0:
+        st.info("表示する記事がありません（既読記事を表示するにはサイドバーの「既読記事も表示する」をオンにしてください）")
 
 
 if fetch_button:
@@ -64,7 +111,7 @@ if fetch_button:
         st.warning("カテゴリを1つ以上選択してください。")
         st.stop()
 
-    # ニュース取得（カテゴリごと）
+    # ニュース取得
     news_frames = []
     with st.spinner("ニュースを取得中..."):
         for label in selected:
@@ -77,7 +124,7 @@ if fetch_button:
     df_news = df_news.sort_values("公開日時", ascending=False, na_position="last")
     df_news = df_news.reset_index(drop=True)
 
-    # YouTube取得（カテゴリごと）
+    # YouTube取得
     df_yt = pd.DataFrame()
     if youtube_enabled:
         try:
@@ -97,7 +144,7 @@ if fetch_button:
             df_yt = df_yt.sort_values("公開日時", ascending=False, na_position="last")
             df_yt = df_yt.reset_index(drop=True)
         else:
-            st.warning("YouTube APIキーが設定されていません（Streamlit Secrets に YOUTUBE_API_KEY を追加してください）")
+            st.warning("YouTube APIキーが設定されていません")
 
     # ニュース表示
     st.subheader("📰 ニュース")
@@ -105,13 +152,13 @@ if fetch_button:
         st.warning("ニュースが見つかりませんでした。")
     else:
         st.success(f"{len(df_news)} 件のニュースを取得しました")
-        render_table(df_news)
+        render_articles(df_news, prefix="news")
 
     # YouTube表示
     if youtube_enabled and not df_yt.empty:
         st.subheader("▶️ YouTube 動画")
         st.success(f"{len(df_yt)} 件の動画を取得しました")
-        render_table(df_yt)
+        render_articles(df_yt, prefix="yt")
 
 else:
     st.info("左のサイドバーにある「ニュースを取得する」ボタンを押してください。")
