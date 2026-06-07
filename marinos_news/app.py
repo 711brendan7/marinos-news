@@ -1,5 +1,6 @@
 import anthropic
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from news_fetcher import fetch_marinos_news
 from youtube_fetcher import fetch_youtube_videos
@@ -12,6 +13,27 @@ st.set_page_config(
 
 st.markdown("### ⚽ 最新ニュース")
 st.caption("Google ニュース・Yahoo!ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
+
+st.components.v1.html("""
+<script>
+(function() {
+  var head = window.parent.document.head;
+
+  function addTag(tag, attrs) {
+    var el = window.parent.document.createElement(tag);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    head.appendChild(el);
+  }
+
+  if (!window.parent.document.querySelector("link[rel='apple-touch-icon']")) {
+    addTag('link', { rel: 'apple-touch-icon', href: 'app/static/icon.svg' });
+  }
+  if (!window.parent.document.querySelector("link[rel='manifest']")) {
+    addTag('link', { rel: 'manifest', href: 'app/static/manifest.json' });
+  }
+})();
+</script>
+""", height=0)
 
 st.markdown("""
 <style>

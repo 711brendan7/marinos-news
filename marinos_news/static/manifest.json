@@ -1,0 +1,16 @@
+{
+  "name": "最新ニュース",
+  "short_name": "最新ニュース",
+  "description": "サッカー最新ニュースアプリ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a5c2a",
+  "theme_color": "#1a5c2a",
+  "icons": [
+    {
+      "src": "app/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
