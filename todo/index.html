@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>TODO</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+      background: #f2f2f7;
+      color: #1c1c1e;
+      min-height: 100vh;
+    }
+    header {
+      background: #fff;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid #e5e5ea;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .add-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .add-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #d1d1d6;
+      border-radius: 10px;
+      font-size: 16px;
+      background: #f2f2f7;
+      outline: none;
+      -webkit-appearance: none;
+    }
+    .add-row input:focus { border-color: #007aff; background: #fff; }
+    .add-row button {
+      padding: 10px 18px;
+      background: #007aff;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .add-row button:active { opacity: 0.7; }
+    .section-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #8e8e93;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 16px 20px 6px;
+    }
+    .list { padding: 0 16px; }
+    .item {
+      background: #fff;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .check {
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      border: 2px solid #c7c7cc;
+      flex-shrink: 0;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .item.done .check {
+      background: #34c759;
+      border-color: #34c759;
+    }
+    .item.done .check::after {
+      content: '';
+      width: 10px; height: 6px;
+      border-left: 2px solid #fff;
+      border-bottom: 2px solid #fff;
+      transform: rotate(-45deg) translateY(-1px);
+      display: block;
+    }
+    .text { flex: 1; font-size: 17px; line-height: 1.3; }
+    .item.done .text { color: #8e8e93; text-decoration: line-through; }
+    .del {
+      color: #c7c7cc;
+      font-size: 22px;
+      cursor: pointer;
+      padding: 0 2px;
+      line-height: 1;
+    }
+    .del:active { color: #ff3b30; }
+    .setup-banner {
+      margin: 16px;
+      padding: 16px;
+      background: #fff3cd;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .setup-banner a { color: #007aff; }
+    #setup-form { padding: 16px; }
+    #setup-form label { font-size: 14px; color: #8e8e93; display: block; margin-bottom: 4px; }
+    #setup-form input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #d1d1d6;
+      border-radius: 10px;
+      font-size: 15px;
+      margin-bottom: 12px;
+    }
+    #setup-form button {
+      width: 100%;
+      padding: 14px;
+      background: #007aff;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 17px;
+      font-weight: 600;
+    }
+    .spinner {
+      display: none;
+      text-align: center;
+      padding: 24px;
+      color: #8e8e93;
+    }
+    .empty { text-align: center; color: #c7c7cc; padding: 24px; font-size: 15px; }
+  </style>
+</head>
+<body>
+
+<div id="main-view" style="display:none">
+  <header>
+    <h1>TODO</h1>
+    <div class="add-row">
+      <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
+      <button onclick="addTodo()">追加</button>
+    </div>
+  </header>
+
+  <div id="spinner" class="spinner">読み込み中...</div>
+
+  <div id="pending-section">
+    <div class="section-label">未完了</div>
+    <div class="list" id="pending-list"></div>
+  </div>
+
+  <div id="done-section">
+    <div class="section-label">完了済み</div>
+    <div class="list" id="done-list"></div>
+  </div>
+</div>
+
+<div id="setup-view">
+  <header><h1>TODO セットアップ</h1></header>
+  <div id="setup-form">
+    <p style="margin-bottom:16px;font-size:14px;color:#636366;">
+      Google Apps Script のデプロイ URL とトークンを入力してください。<br>
+      一度設定すればこのデバイスに保存されます。
+    </p>
+    <label>GAS デプロイ URL</label>
+    <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/..." autocomplete="off" autocorrect="off" spellcheck="false">
+    <label>SECRET_TOKEN</label>
+    <input type="password" id="cfg-token" placeholder="Code.gs に設定したトークン">
+    <button onclick="saveConfig()">保存して開始</button>
+  </div>
+</div>
+
+<script>
+const LS_URL   = 'todo_gas_url';
+const LS_TOKEN = 'todo_gas_token';
+
+let gasUrl = localStorage.getItem(LS_URL) || '';
+let token  = localStorage.getItem(LS_TOKEN) || '';
+
+function init() {
+  if (gasUrl && token) {
+    document.getElementById('setup-view').style.display = 'none';
+    document.getElementById('main-view').style.display  = 'block';
+    loadTodos();
+  } else {
+    document.getElementById('setup-view').style.display = 'block';
+    document.getElementById('main-view').style.display  = 'none';
+  }
+}
+
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const tok = document.getElementById('cfg-token').value.trim();
+  if (!url || !tok) { alert('URLとトークンを入力してください'); return; }
+  localStorage.setItem(LS_URL,   url);
+  localStorage.setItem(LS_TOKEN, tok);
+  gasUrl = url; token = tok;
+  init();
+}
+
+async function api(params) {
+  const qs = new URLSearchParams({ token, ...params }).toString();
+  const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
+  return res.json();
+}
+
+async function loadTodos() {
+  const spinner = document.getElementById('spinner');
+  spinner.style.display = 'block';
+  try {
+    const data = await api({ action: 'list' });
+    render(data.todos || []);
+  } catch(e) {
+    alert('読み込みに失敗しました。URLとトークンを確認してください。');
+    console.error(e);
+  } finally {
+    spinner.style.display = 'none';
+  }
+}
+
+function render(todos) {
+  const pending = todos.filter(t => t.status !== 'done');
+  const done    = todos.filter(t => t.status === 'done');
+
+  const pl = document.getElementById('pending-list');
+  const dl = document.getElementById('done-list');
+
+  pl.innerHTML = pending.length ? pending.map(itemHTML).join('') : '<div class="empty">タスクなし</div>';
+  dl.innerHTML = done.length    ? done.map(itemHTML).join('')    : '<div class="empty">まだ完了したタスクはありません</div>';
+
+  document.getElementById('done-section').style.display = done.length ? '' : 'none';
+}
+
+function itemHTML(t) {
+  const cls = t.status === 'done' ? 'item done' : 'item';
+  return `<div class="${cls}" id="item-${t.id}">
+    <div class="check" onclick="toggleDone('${t.id}')"></div>
+    <div class="text">${escHtml(t.text)}</div>
+    <div class="del" onclick="deleteTodo('${t.id}')">×</div>
+  </div>`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function addTodo() {
+  const input = document.getElementById('new-todo');
+  const text  = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  await api({ action: 'add', text });
+  loadTodos();
+}
+
+async function toggleDone(id) {
+  await api({ action: 'done', id });
+  loadTodos();
+}
+
+async function deleteTodo(id) {
+  if (!confirm('削除しますか？')) return;
+  await api({ action: 'delete', id });
+  loadTodos();
+}
+
+document.getElementById('new-todo').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addTodo();
+});
+
+init();
+</script>
+</body>
+</html>

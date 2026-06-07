@@ -13,4 +13,4 @@ realestate/venv/
 __pycache__/
 *.pyc
 .DS_Store
-index.html
+/index.html
