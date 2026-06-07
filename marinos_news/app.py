@@ -54,7 +54,7 @@ with st.sidebar:
     max_items = st.slider("最大取得件数（カテゴリごと）", min_value=5, max_value=50, value=20, step=5)
     days = st.slider("過去N日以内", min_value=1, max_value=30, value=3, step=1)
     youtube_enabled = st.checkbox("YouTube動画も取得する", value=True)
-    show_read = st.checkbox("既読記事も表示する", value=False)
+    show_read = st.checkbox("既読記事を隠す", value=False)
 
     fetch_button = st.button("ニュースを取得する", type="primary")
 
@@ -79,7 +79,7 @@ def render_articles(df: pd.DataFrame, prefix: str):
         url = row["URL"]
         is_read = url in st.session_state.read_urls
 
-        if is_read and not show_read:
+        if is_read and show_read:
             continue
 
         displayed += 1
@@ -89,7 +89,7 @@ def render_articles(df: pd.DataFrame, prefix: str):
             summary = row["要約"]
             if is_read:
                 st.markdown(
-                    f'<span style="color:#bbb;text-decoration:line-through;">{summary}</span>',
+                    f'✅ <span style="color:#aaa;">{summary}</span>',
                     unsafe_allow_html=True,
                 )
             else:
@@ -97,7 +97,6 @@ def render_articles(df: pd.DataFrame, prefix: str):
             st.caption(f'{row["配信元"]} ｜ {row["公開日時"]}')
 
         with col_link:
-            # 記事を開くリンク（新タブ）
             st.markdown(
                 f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
                 f'style="display:inline-block;margin-top:8px;padding:5px 10px;'
@@ -107,15 +106,12 @@ def render_articles(df: pd.DataFrame, prefix: str):
             )
 
         with col_check:
-            # 既読ボタン（Streamlit ネイティブ）
             if is_read:
-                if st.button("✓ 既読", key=f"unread_{prefix}_{i}", type="secondary"):
+                if st.button("✅ 既読", key=f"unread_{prefix}_{i}"):
                     unmark_read(url)
-                    st.rerun()
             else:
                 if st.button("既読にする", key=f"read_{prefix}_{i}"):
                     mark_read(url)
-                    st.rerun()
 
         st.divider()
 
