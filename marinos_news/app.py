@@ -28,12 +28,12 @@ a.article-link:visited .article-meta { color: #bbb; }
 </style>
 """, unsafe_allow_html=True)
 
-DEFAULT_CATEGORIES = ["横浜F・マリノス", "サッカー日本代表", "前田大然", "Jリーグ移籍情報"]
+DEFAULT_CATEGORIES = ["横浜F・マリノス", "サッカー日本代表", "前田大然", "Jリーグ移籍"]
 KEYWORD_MAP = {
     "横浜F・マリノス": "マリノス",
     "サッカー日本代表": "サッカー日本代表",
     "前田大然": "前田大然",
-    "Jリーグ移籍情報": "Jリーグ移籍情報",
+    "Jリーグ移籍": "Jリーグ移籍",
 }
 
 if "categories" not in st.session_state:
