@@ -89,6 +89,18 @@ def render_articles(df: pd.DataFrame, prefix: str):
         displayed += 1
         col_text, col_link, col_check = st.columns([7, 2, 1])
 
+        # ボタンを先に処理して is_read を最新の状態にする
+        with col_check:
+            if is_read:
+                if st.button("✅ 既読", key=f"unread_{prefix}_{i}"):
+                    unmark_read(url)
+            else:
+                if st.button("既読にする", key=f"read_{prefix}_{i}"):
+                    mark_read(url)
+
+        # ボタン処理後に is_read を再チェック → 1回押すだけで即反映
+        is_read = url in st.session_state.read_urls
+
         with col_text:
             if is_read:
                 st.markdown(
@@ -107,14 +119,6 @@ def render_articles(df: pd.DataFrame, prefix: str):
                 f'text-decoration:none;color:#333;">記事を読む →</a>',
                 unsafe_allow_html=True,
             )
-
-        with col_check:
-            if is_read:
-                if st.button("✅ 既読", key=f"unread_{prefix}_{i}"):
-                    unmark_read(url)
-            else:
-                if st.button("既読にする", key=f"read_{prefix}_{i}"):
-                    mark_read(url)
 
         st.divider()
 
