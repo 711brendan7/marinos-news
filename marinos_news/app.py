@@ -14,34 +14,42 @@ st.set_page_config(
 st.title("⚽ サッカー 最新ニュース")
 st.caption("Google ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
-# ── localStorage から既読URLを【初回のみ】読み込む ────────────────
-# read_urls_loaded が True になった後は st_javascript を呼ばない
-# → ボタンクリック時に余分な再描画が起きなくなる
+# ── 既読状態の初期化 ──────────────────────────────────────────
 if "read_urls" not in st.session_state:
     st.session_state.read_urls = set()
 if "read_urls_loaded" not in st.session_state:
     st.session_state.read_urls_loaded = False
+if "read_urls_dirty" not in st.session_state:
+    st.session_state.read_urls_dirty = False
 
+# localStorage から既読URLを初回のみ読み込む
 if not st.session_state.read_urls_loaded:
-    raw = st_javascript("JSON.parse(localStorage.getItem('marinos_read_urls') || '[]')")
+    raw = st_javascript(
+        "JSON.parse(localStorage.getItem('marinos_read_urls') || '[]')",
+        key="ls_read",
+    )
     if isinstance(raw, list):
         st.session_state.read_urls = set(raw)
         st.session_state.read_urls_loaded = True
 
-
-def save_to_local_storage():
+# 変更があったときだけ localStorage に保存（余分な再描画を防ぐ）
+if st.session_state.read_urls_dirty:
     urls_json = json.dumps(list(st.session_state.read_urls))
-    st_javascript(f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))")
+    st_javascript(
+        f"localStorage.setItem('marinos_read_urls', JSON.stringify({urls_json}))",
+        key="ls_write",
+    )
+    st.session_state.read_urls_dirty = False
 
 
 def mark_read(url: str):
     st.session_state.read_urls.add(url)
-    save_to_local_storage()
+    st.session_state.read_urls_dirty = True
 
 
 def unmark_read(url: str):
     st.session_state.read_urls.discard(url)
-    save_to_local_storage()
+    st.session_state.read_urls_dirty = True
 
 
 # ── サイドバー ────────────────────────────────────────────────
@@ -89,17 +97,15 @@ def render_articles(df: pd.DataFrame, prefix: str):
         displayed += 1
         col_text, col_link, col_check = st.columns([7, 2, 1])
 
-        # ボタンを先に処理して is_read を最新の状態にする
         with col_check:
             if is_read:
                 if st.button("✅ 既読", key=f"unread_{prefix}_{i}"):
                     unmark_read(url)
+                    st.rerun()
             else:
                 if st.button("既読にする", key=f"read_{prefix}_{i}"):
                     mark_read(url)
-
-        # ボタン処理後に is_read を再チェック → 1回押すだけで即反映
-        is_read = url in st.session_state.read_urls
+                    st.rerun()
 
         with col_text:
             if is_read:
