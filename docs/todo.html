@@ -190,6 +190,7 @@ async function loadTodos() {
   try {
     const data = await api({ action: 'list' });
     allTodos = data.todos || [];
+    catMap.clear(); // selections are stale after a fetch
     updateFilterBar(); render(allTodos);
   } catch(e) { alert('読み込みに失敗しました。'); console.error(e); }
   finally { document.getElementById('spinner').style.display = 'none'; }
@@ -248,28 +249,49 @@ function itemHTML(t) {
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 
-// ── category button selection ──────────────────────────
+// ── category selection ────────────────────────────────
+// catMap stores the user's current selection; more reliable than DOM dataset
+// because iOS can cancel 'click' events when a non-passive touchmove handler
+// exists on an ancestor (the list's setupInteraction uses {passive:false}).
+const catMap = new Map();
+
 function selectCat(selectorId, val) {
+  catMap.set(selectorId, val);
   const sel = document.getElementById(selectorId);
   if (!sel) return;
   sel.querySelectorAll('.cat-opt').forEach(b => b.classList.remove('selected'));
-  const btn = [...sel.querySelectorAll('.cat-opt')].find(b => b.dataset.val === val);
-  if (btn) btn.classList.add('selected');
+  [...sel.querySelectorAll('.cat-opt')].find(b => b.dataset.val === val)?.classList.add('selected');
   sel.dataset.val = val;
-  const customId = sel.dataset.customId;
-  if (!customId) return;
-  const c = document.getElementById(customId);
+  const c = sel.dataset.customId ? document.getElementById(sel.dataset.customId) : null;
   if (!c) return;
   if (val === '__custom__') { c.style.display='block'; c.focus(); }
   else { c.style.display='none'; c.value=''; }
 }
 
 function getSelectedCat(selectorId, customId) {
-  const sel = document.getElementById(selectorId);
-  const val = sel ? (sel.dataset.val || '') : '';
+  // Prefer catMap (set by user interaction) then fall back to dataset.val (set in itemHTML)
+  const val = catMap.has(selectorId) ? catMap.get(selectorId) : (document.getElementById(selectorId)?.dataset.val || '');
   if (val === '__custom__') return (document.getElementById(customId)?.value || '').trim();
   return val;
 }
+
+// touchend delegation for .cat-opt — fires before 'click' and works on iOS
+// even when the list's {passive:false} touchmove causes iOS to cancel clicks.
+let _catTx = 0, _catTy = 0;
+document.addEventListener('touchstart', e => {
+  const btn = e.target.closest('.cat-opt');
+  _catTx = btn ? e.touches[0].clientX : -9999;
+  _catTy = btn ? e.touches[0].clientY : -9999;
+}, {passive: true});
+document.addEventListener('touchend', e => {
+  const btn = e.target.closest('.cat-opt');
+  if (!btn) return;
+  const dx = (e.changedTouches[0]?.clientX ?? _catTx) - _catTx;
+  const dy = (e.changedTouches[0]?.clientY ?? _catTy) - _catTy;
+  if (Math.abs(dx) > 12 || Math.abs(dy) > 12) return; // moved too far — scrolling
+  const sel = btn.closest('.cat-selector');
+  if (sel) selectCat(sel.id, btn.dataset.val);
+}, {passive: true});
 
 // ── edit form ──────────────────────────────────────────
 function openEdit(id) {
@@ -301,6 +323,7 @@ async function addTodo() {
   const sel = document.getElementById('add-cat-selector');
   sel.querySelectorAll('.cat-opt').forEach(b => b.classList.remove('selected'));
   sel.dataset.val = '';
+  catMap.delete('add-cat-selector');
   document.getElementById('new-cat-custom').value = '';
   document.getElementById('new-cat-custom').style.display = 'none';
   await api({ action:'add', text, category });
@@ -444,7 +467,7 @@ function applyReorder(id, newIdx) {
   ids.splice(newIdx, 0, id);
   ids.forEach((tid,i) => { const t=allTodos.find(t=>t.id===tid); if(t) t.order=i+1; });
   render(allTodos);
-  api({action:'reorder', ids: ids.join(',')}).then(loadTodos).catch(console.error);
+  api({action:'reorder', ids: ids.join(',')}).catch(console.error);
 }
 
 // ── interaction: 500ms = edit, 1000ms = drag ───────────
@@ -460,8 +483,8 @@ function setupInteraction(listId) {
     if (dragState) return;
     const el = e.target.closest('.text');
     if (!el) return;
-    // Prevent iOS from claiming scroll control when in custom mode
-    // so a subsequent touchmove can start a drag without scroll interference.
+    // In custom mode, prevent iOS from claiming scroll control so drag can start.
+    // In other modes allow normal scroll; drag is disabled.
     if (sortMode === 'custom') e.preventDefault();
 
     lpId  = el.id.replace('text-', '');
