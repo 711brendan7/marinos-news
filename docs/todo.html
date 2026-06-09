@@ -164,15 +164,6 @@
       line-height: 1;
     }
     .edit-btn:active { color: #007aff; }
-    .del {
-      color: #c7c7cc;
-      font-size: 22px;
-      cursor: pointer;
-      padding: 0 2px;
-      line-height: 1;
-      flex-shrink: 0;
-    }
-    .del:active { color: #ff3b30; }
     .cat-tag {
       display: inline-block;
       margin-top: 6px;
@@ -432,7 +423,6 @@ function itemHTML(t) {
         <div class="check" onclick="toggleDone('${t.id}')"></div>
         <div class="text">${escHtml(t.text)}</div>
         <div class="edit-btn" onclick="openEdit('${t.id}')">✎</div>
-        <div class="del" onclick="deleteTodo('${t.id}')">×</div>
       </div>
       ${catBadge ? `<div>${catBadge}</div>` : ''}
       <div class="edit-form" id="edit-${t.id}">
@@ -488,11 +478,6 @@ async function toggleDone(id) {
   loadTodos();
 }
 
-async function deleteTodo(id) {
-  if (!confirm('削除しますか？')) return;
-  await api({ action: 'delete', id });
-  loadTodos();
-}
 
 document.getElementById('new-todo').addEventListener('keydown', e => {
   if (e.key === 'Enter') addTodo();
