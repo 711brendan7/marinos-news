@@ -8,249 +8,64 @@
   <title>TODO</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-      background: #f2f2f7;
-      color: #1c1c1e;
-      min-height: 100vh;
-    }
-    header {
-      background: #fff;
-      padding: 16px 20px 12px;
-      border-bottom: 1px solid #e5e5ea;
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: #f2f2f7; color: #1c1c1e; min-height: 100vh; }
+    header { background: #fff; padding: 16px 20px 12px; border-bottom: 1px solid #e5e5ea; position: sticky; top: 0; z-index: 10; }
     h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
     .add-area { margin-top: 10px; }
-    .add-row {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 6px;
-    }
-    .add-row input {
-      flex: 1;
-      padding: 10px 14px;
-      border: 1px solid #d1d1d6;
-      border-radius: 10px;
-      font-size: 16px;
-      background: #f2f2f7;
-      outline: none;
-      -webkit-appearance: none;
-    }
-    .add-row input:focus { border-color: #007aff; background: #fff; }
-    .cat-selector { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-    .cat-opt {
-      padding: 5px 12px;
-      border-radius: 14px;
-      font-size: 13px;
-      font-weight: 500;
-      border: 1.5px solid #d1d1d6;
-      background: #f2f2f7;
-      color: #636366;
-      cursor: pointer;
-    }
-    .cat-opt.selected { background: #007aff; color: #fff; border-color: #007aff; }
-    .custom-cat-input {
-      display: none;
-      width: 100%;
-      margin-top: 6px;
-      padding: 8px 12px;
-      border: 1px solid #007aff;
-      border-radius: 10px;
-      font-size: 14px;
-      outline: none;
-      -webkit-appearance: none;
-      background: #fff;
-    }
-    .mic-btn {
-      padding: 10px 12px;
-      background: #f2f2f7;
-      border: 1px solid #d1d1d6;
-      border-radius: 10px;
-      color: #636366;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-    }
+    .add-row { display: flex; gap: 8px; margin-bottom: 6px; }
+    .add-row input[type="text"] { flex: 1; padding: 10px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
+    .add-row input[type="text"]:focus { border-color: #007aff; background: #fff; }
+    .mic-btn { padding: 10px 12px; background: #f2f2f7; border: 1px solid #d1d1d6; border-radius: 10px; color: #636366; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .mic-btn.listening { background: #ff3b30; color: #fff; border-color: #ff3b30; }
-    .btn-primary {
-      padding: 10px 18px;
-      background: #007aff;
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-    }
+    .btn-primary { padding: 10px 18px; background: #007aff; color: #fff; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .btn-primary:active { opacity: 0.7; }
-    .sort-bar {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 10px 16px;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-    }
+
+    /* category radio pills */
+    .cat-selector { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .cat-opt { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; border: 1.5px solid #d1d1d6; background: #f2f2f7; color: #636366; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .cat-opt input[type="radio"] { display: none; }
+    .cat-opt.selected { background: #007aff; color: #fff; border-color: #007aff; }
+    .custom-cat-input { display: none; width: 100%; margin-top: 6px; padding: 8px 12px; border: 1px solid #007aff; border-radius: 10px; font-size: 14px; outline: none; -webkit-appearance: none; background: #fff; }
+
+    /* sort / filter */
+    .sort-bar { display: flex; align-items: center; gap: 6px; padding: 10px 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .sort-label { font-size: 12px; color: #8e8e93; white-space: nowrap; flex-shrink: 0; }
-    .sort-btn {
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 500;
-      border: 1px solid #d1d1d6;
-      background: #fff;
-      cursor: pointer;
-      white-space: nowrap;
-      color: #636366;
-      flex-shrink: 0;
-    }
-    .sort-btn.active {
-      background: #007aff;
-      color: #fff;
-      border-color: #007aff;
-    }
-    .section-label {
-      font-size: 13px;
-      font-weight: 600;
-      color: #8e8e93;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      padding: 16px 20px 6px;
-    }
+    .sort-btn { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; border: 1px solid #d1d1d6; background: #fff; cursor: pointer; white-space: nowrap; color: #636366; flex-shrink: 0; }
+    .sort-btn.active { background: #007aff; color: #fff; border-color: #007aff; }
+
+    .section-label { font-size: 13px; font-weight: 600; color: #8e8e93; text-transform: uppercase; letter-spacing: 0.5px; padding: 16px 20px 6px; }
     .list { padding: 0 16px; }
-    .item-wrap {
-      position: relative;
-      overflow: hidden;
-      border-radius: 12px;
-      margin-bottom: 8px;
-    }
-    .swipe-del-btn {
-      position: absolute;
-      right: 0; top: 0; bottom: 0;
-      width: 80px;
-      background: #ff3b30;
-      color: #fff;
-      border: none;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .item {
-      position: relative;
-      background: #fff;
-      border-radius: 12px;
-      padding: 12px 14px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    }
-    .item-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .check {
-      width: 26px; height: 26px;
-      border-radius: 50%;
-      border: 2px solid #c7c7cc;
-      flex-shrink: 0;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.15s;
-    }
-    .item.done .check {
-      background: #34c759;
-      border-color: #34c759;
-    }
-    .item.done .check::after {
-      content: '';
-      width: 10px; height: 6px;
-      border-left: 2px solid #fff;
-      border-bottom: 2px solid #fff;
-      transform: rotate(-45deg) translateY(-1px);
-      display: block;
-    }
-    .text { flex: 1; font-size: 17px; line-height: 1.3; word-break: break-word; }
+
+    /* item */
+    .item-wrap { position: relative; overflow: hidden; border-radius: 12px; margin-bottom: 8px; }
+    .swipe-del-btn { position: absolute; right: 0; top: 0; bottom: 0; width: 80px; background: #ff3b30; color: #fff; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .item { position: relative; background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); -webkit-touch-callout: none; }
+    .item-row { display: flex; align-items: center; gap: 10px; }
+    .drag-handle { display: none; color: #c7c7cc; font-size: 20px; line-height: 1; flex-shrink: 0; padding: 0 2px; touch-action: none; cursor: grab; }
+    .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #c7c7cc; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .item.done .check { background: #34c759; border-color: #34c759; }
+    .item.done .check::after { content: ''; width: 10px; height: 6px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translateY(-1px); display: block; }
+    .text { flex: 1; font-size: 17px; line-height: 1.3; word-break: break-word; -webkit-user-select: none; user-select: none; }
     .item.done .text { color: #8e8e93; text-decoration: line-through; }
-    .edit-btn {
-      color: #c7c7cc;
-      font-size: 15px;
-      cursor: pointer;
-      padding: 2px 4px;
-      flex-shrink: 0;
-      line-height: 1;
-    }
-    .edit-btn:active { color: #007aff; }
-    .cat-tag {
-      display: inline-block;
-      margin-top: 6px;
-      padding: 2px 8px;
-      border-radius: 8px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #fff;
-    }
+    .cat-tag { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; color: #fff; }
+
+    /* edit form */
     .edit-form { display: none; margin-top: 10px; }
     .edit-form.visible { display: block; }
-    .edit-form input {
-      width: 100%;
-      padding: 8px 12px;
-      border: 1px solid #007aff;
-      border-radius: 8px;
-      font-size: 15px;
-      margin-bottom: 6px;
-      outline: none;
-      -webkit-appearance: none;
-    }
-    .edit-form-cat { display: flex; gap: 6px; margin-top: 6px; }
-    .btn-save {
-      padding: 7px 14px;
-      background: #007aff;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .btn-cancel {
-      padding: 7px 10px;
-      background: #f2f2f7;
-      color: #636366;
-      border: 1px solid #d1d1d6;
-      border-radius: 8px;
-      font-size: 13px;
-      cursor: pointer;
-    }
+    .edit-form > input[type="text"] { width: 100%; padding: 8px 12px; border: 1px solid #007aff; border-radius: 8px; font-size: 15px; margin-bottom: 6px; outline: none; -webkit-appearance: none; }
+    .edit-form-actions { display: flex; gap: 6px; margin-top: 6px; }
+    .btn-save { padding: 7px 14px; background: #007aff; color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-cancel { padding: 7px 10px; background: #f2f2f7; color: #636366; border: 1px solid #d1d1d6; border-radius: 8px; font-size: 13px; cursor: pointer; }
+
+    /* drag */
+    .drop-indicator { height: 3px; background: #007aff; border-radius: 2px; margin: 2px 0; pointer-events: none; }
+
+    /* setup */
     #setup-form { padding: 16px; }
     #setup-form label { font-size: 14px; color: #8e8e93; display: block; margin-bottom: 4px; }
-    #setup-form input {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1px solid #d1d1d6;
-      border-radius: 10px;
-      font-size: 15px;
-      margin-bottom: 12px;
-    }
-    #setup-form button {
-      width: 100%;
-      padding: 14px;
-      background: #007aff;
-      color: #fff;
-      border: none;
-      border-radius: 12px;
-      font-size: 17px;
-      font-weight: 600;
-    }
-    .spinner {
-      display: none;
-      text-align: center;
-      padding: 24px;
-      color: #8e8e93;
-    }
+    #setup-form input { width: 100%; padding: 10px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 15px; margin-bottom: 12px; }
+    #setup-form button { width: 100%; padding: 14px; background: #007aff; color: #fff; border: none; border-radius: 12px; font-size: 17px; font-weight: 600; }
+    .spinner { display: none; text-align: center; padding: 24px; color: #8e8e93; }
     .empty { text-align: center; color: #c7c7cc; padding: 24px; font-size: 15px; }
   </style>
 </head>
@@ -262,15 +77,15 @@
     <div class="add-area">
       <div class="add-row">
         <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
-        <button type="button" class="mic-btn" onclick="startVoiceInput()" title="音声入力">
+        <button type="button" class="mic-btn" onclick="startVoiceInput()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V20H9v2h6v-2h-2v-2.07A7 7 0 0 0 19 11h-2z"/></svg>
         </button>
-        <button class="btn-primary" onclick="addTodo()">追加</button>
+        <button type="button" class="btn-primary" onclick="addTodo()">追加</button>
       </div>
-      <div class="cat-selector" id="add-cat-sel">
-        <button type="button" class="cat-opt" onclick="selectAddCat('会社')">会社</button>
-        <button type="button" class="cat-opt" onclick="selectAddCat('プライベート')">プライベート</button>
-        <button type="button" class="cat-opt" onclick="selectAddCat('__custom__')">任意入力</button>
+      <div class="cat-selector">
+        <label class="cat-opt"><input type="radio" name="addcat" value="会社">会社</label>
+        <label class="cat-opt"><input type="radio" name="addcat" value="プライベート">プライベート</label>
+        <label class="cat-opt"><input type="radio" name="addcat" value="__custom__">任意入力</label>
       </div>
       <input type="text" id="new-cat-custom" class="custom-cat-input" placeholder="カテゴリを入力...">
     </div>
@@ -279,34 +94,24 @@
   <div class="sort-bar">
     <span class="sort-label">並び順:</span>
     <button class="sort-btn" data-sort="date-desc" onclick="setSort('date-desc')">新着順</button>
-    <button class="sort-btn" data-sort="date-asc" onclick="setSort('date-asc')">古い順</button>
-    <button class="sort-btn" data-sort="category" onclick="setSort('category')">カテゴリ順</button>
+    <button class="sort-btn" data-sort="date-asc"  onclick="setSort('date-asc')">古い順</button>
+    <button class="sort-btn" data-sort="category"  onclick="setSort('category')">カテゴリ順</button>
+    <button class="sort-btn" data-sort="custom"    onclick="setSort('custom')">並び替え</button>
   </div>
-  <div id="filter-bar" class="sort-bar" style="padding-top:0; display:none;">
+  <div id="filter-bar" class="sort-bar" style="padding-top:0;display:none;">
     <span class="sort-label">絞り込み:</span>
-    <div id="filter-cats" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+    <div id="filter-cats" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
   </div>
 
   <div id="spinner" class="spinner">読み込み中...</div>
-
-  <div id="pending-section">
-    <div class="section-label">未完了</div>
-    <div class="list" id="pending-list"></div>
-  </div>
-
-  <div id="done-section">
-    <div class="section-label">完了済み</div>
-    <div class="list" id="done-list"></div>
-  </div>
+  <div id="pending-section"><div class="section-label">未完了</div><div class="list" id="pending-list"></div></div>
+  <div id="done-section"><div class="section-label">完了済み</div><div class="list" id="done-list"></div></div>
 </div>
 
 <div id="setup-view">
   <header><h1>TODO セットアップ</h1></header>
   <div id="setup-form">
-    <p style="margin-bottom:16px;font-size:14px;color:#636366;">
-      Google Apps Script のデプロイ URL とトークンを入力してください。<br>
-      一度設定すればこのデバイスに保存されます。
-    </p>
+    <p style="margin-bottom:16px;font-size:14px;color:#636366;">GAS デプロイ URL とトークンを入力してください。<br>一度設定すればこのデバイスに保存されます。</p>
     <label>GAS デプロイ URL</label>
     <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/..." autocomplete="off" autocorrect="off" spellcheck="false">
     <label>SECRET_TOKEN</label>
@@ -316,16 +121,17 @@
 </div>
 
 <script>
-const LS_URL   = 'todo_gas_url';
-const LS_TOKEN = 'todo_gas_token';
-const LS_SORT  = 'todo_sort';
+const LS_URL  = 'todo_gas_url';
+const LS_TOKEN= 'todo_gas_token';
+const LS_SORT = 'todo_sort';
 
 let gasUrl   = localStorage.getItem(LS_URL)   || '';
 let token    = localStorage.getItem(LS_TOKEN) || '';
 let sortMode = localStorage.getItem(LS_SORT)  || 'date-desc';
 let allTodos = [];
-let filterCat = '';
+let filterCat= '';
 
+// ── init ──────────────────────────────────────────────
 function init() {
   if (gasUrl && token) {
     document.getElementById('setup-view').style.display = 'none';
@@ -337,311 +143,318 @@ function init() {
     document.getElementById('main-view').style.display  = 'none';
   }
 }
-
 function saveConfig() {
   const url = document.getElementById('cfg-url').value.trim();
   const tok = document.getElementById('cfg-token').value.trim();
   if (!url || !tok) { alert('URLとトークンを入力してください'); return; }
-  localStorage.setItem(LS_URL,   url);
-  localStorage.setItem(LS_TOKEN, tok);
-  gasUrl = url; token = tok;
-  init();
+  localStorage.setItem(LS_URL, url); localStorage.setItem(LS_TOKEN, tok);
+  gasUrl = url; token = tok; init();
 }
 
+// ── sort / filter ──────────────────────────────────────
 function setSort(mode) {
-  sortMode = mode;
-  localStorage.setItem(LS_SORT, mode);
-  updateSortButtons();
-  render(allTodos);
+  sortMode = mode; localStorage.setItem(LS_SORT, mode);
+  updateSortButtons(); render(allTodos);
 }
-
 function updateSortButtons() {
-  document.querySelectorAll('.sort-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.sort === sortMode);
-  });
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === sortMode));
+}
+function updateFilterBar() {
+  const cats = [...new Set(allTodos.map(t => t.category).filter(Boolean))];
+  const bar  = document.getElementById('filter-bar');
+  const cont = document.getElementById('filter-cats');
+  bar.style.display = cats.length ? '' : 'none';
+  cont.innerHTML = cats.map(c =>
+    `<button class="sort-btn${filterCat===c?' active':''}" onclick="setFilter('${escAttr(c)}')">${escHtml(c)}</button>`
+  ).join('');
+}
+function setFilter(cat) {
+  filterCat = filterCat === cat ? '' : cat; updateFilterBar(); render(allTodos);
+}
+function sortedTodos(arr) {
+  const a = [...arr];
+  if      (sortMode === 'date-asc')  a.sort((x,y) => (x.created||'').localeCompare(y.created||''));
+  else if (sortMode === 'category')  a.sort((x,y) => (x.category||'').localeCompare(y.category||'','ja') || (y.created||'').localeCompare(x.created||''));
+  else if (sortMode === 'custom')    a.sort((x,y) => (x.order??999999)-(y.order??999999));
+  else                               a.sort((x,y) => (y.created||'').localeCompare(x.created||''));
+  return a;
 }
 
+// ── API ────────────────────────────────────────────────
 async function api(params) {
-  const qs = new URLSearchParams({ token, ...params }).toString();
+  const qs  = new URLSearchParams({ token, ...params }).toString();
   const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
   return res.json();
 }
-
 async function loadTodos() {
-  const spinner = document.getElementById('spinner');
-  spinner.style.display = 'block';
+  document.getElementById('spinner').style.display = 'block';
   try {
     const data = await api({ action: 'list' });
     allTodos = data.todos || [];
-    updateFilterBar();
-    render(allTodos);
-  } catch(e) {
-    alert('読み込みに失敗しました。URLとトークンを確認してください。');
-    console.error(e);
-  } finally {
-    spinner.style.display = 'none';
-  }
+    updateFilterBar(); render(allTodos);
+  } catch(e) { alert('読み込みに失敗しました。'); console.error(e); }
+  finally { document.getElementById('spinner').style.display = 'none'; }
 }
 
-function updateFilterBar() {
-  const cats = [...new Set(allTodos.map(t => t.category).filter(Boolean))];
-  const bar = document.getElementById('filter-bar');
-  const container = document.getElementById('filter-cats');
-  bar.style.display = cats.length ? '' : 'none';
-  container.innerHTML = cats.map(c =>
-    `<button class="sort-btn${filterCat === c ? ' active' : ''}" onclick="setFilter('${escAttr(c)}')">${escHtml(c)}</button>`
-  ).join('');
-}
-
-function setFilter(cat) {
-  filterCat = filterCat === cat ? '' : cat;
-  updateFilterBar();
-  render(allTodos);
-}
-
-
-function sortedTodos(todos) {
-  const arr = [...todos];
-  if (sortMode === 'date-asc') {
-    arr.sort((a, b) => (a.created || '').localeCompare(b.created || ''));
-  } else if (sortMode === 'category') {
-    arr.sort((a, b) =>
-      (a.category || '').localeCompare(b.category || '', 'ja') ||
-      (b.created || '').localeCompare(a.created || '')
-    );
-  } else {
-    arr.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
-  }
-  return arr;
-}
-
+// ── render ─────────────────────────────────────────────
 function render(todos) {
-  const visible = filterCat ? todos.filter(t => t.category === filterCat) : todos;
-  const pending = sortedTodos(visible.filter(t => t.status !== 'done'));
-  const done    = sortedTodos(visible.filter(t => t.status === 'done'));
-
+  const vis     = filterCat ? todos.filter(t => t.category === filterCat) : todos;
+  const pending = sortedTodos(vis.filter(t => t.status !== 'done'));
+  const done    = sortedTodos(vis.filter(t => t.status === 'done'));
   document.getElementById('pending-list').innerHTML =
     pending.length ? pending.map(itemHTML).join('') : '<div class="empty">タスクなし</div>';
   document.getElementById('done-list').innerHTML =
     done.length ? done.map(itemHTML).join('') : '<div class="empty">まだ完了したタスクはありません</div>';
-
   document.getElementById('done-section').style.display = done.length ? '' : 'none';
+  const showDrag = sortMode === 'custom';
+  document.querySelectorAll('.drag-handle').forEach(h => h.style.display = showDrag ? 'flex' : 'none');
   attachSwipeHandlers();
 }
 
+// ── item HTML ──────────────────────────────────────────
 function catColor(cat) {
   if (!cat) return '#8e8e93';
-  let h = 0;
-  for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) & 0xffff;
-  return `hsl(${h % 360}, 55%, 42%)`;
+  let h = 0; for (let i = 0; i < cat.length; i++) h = (h*31+cat.charCodeAt(i))&0xffff;
+  return `hsl(${h%360},55%,42%)`;
 }
-
 function itemHTML(t) {
-  const cls = t.status === 'done' ? 'item done' : 'item';
-  const catBadge = t.category
+  const cls    = t.status === 'done' ? 'item done' : 'item';
+  const isCust = t.category && t.category !== '会社' && t.category !== 'プライベート';
+  const badge  = t.category
     ? `<span class="cat-tag" style="background:${catColor(t.category)}">${escHtml(t.category)}</span>`
     : '';
   return `<div class="item-wrap" id="wrap-${t.id}">
-    <button class="swipe-del-btn" onclick="swipeDelete('${t.id}')">削除</button>
-    <div class="${cls}" id="item-${t.id}">
-      <div class="item-row">
-        <div class="check" onclick="toggleDone('${t.id}')"></div>
-        <div class="text">${escHtml(t.text)}</div>
-        <div class="edit-btn" onclick="openEdit('${t.id}')">✎</div>
+  <button type="button" class="swipe-del-btn" onclick="swipeDelete('${t.id}')">削除</button>
+  <div class="${cls}" id="item-${t.id}">
+    <div class="item-row">
+      <div class="drag-handle" ontouchstart="startDrag('${t.id}',event)">≡</div>
+      <div class="check" onclick="toggleDone('${t.id}')"></div>
+      <div class="text" id="text-${t.id}">${escHtml(t.text)}</div>
+    </div>
+    ${badge ? `<div>${badge}</div>` : ''}
+    <div class="edit-form" id="edit-${t.id}">
+      <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
+      <div class="cat-selector" style="margin-bottom:6px;">
+        <label class="cat-opt${t.category==='会社'?' selected':''}"><input type="radio" name="cat${t.id}" value="会社" ${t.category==='会社'?'checked':''}>会社</label>
+        <label class="cat-opt${t.category==='プライベート'?' selected':''}"><input type="radio" name="cat${t.id}" value="プライベート" ${t.category==='プライベート'?'checked':''}>プライベート</label>
+        <label class="cat-opt${isCust?' selected':''}"><input type="radio" name="cat${t.id}" value="__custom__" ${isCust?'checked':''}>任意入力</label>
       </div>
-      ${catBadge ? `<div>${catBadge}</div>` : ''}
-      <div class="edit-form" id="edit-${t.id}">
-        <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
-        <div class="cat-selector" id="edit-cat-sel-${t.id}" style="margin-bottom:6px;">
-          <button type="button" class="cat-opt${t.category === '会社' ? ' selected' : ''}" onclick="selectEditCat('${t.id}','会社')">会社</button>
-          <button type="button" class="cat-opt${t.category === 'プライベート' ? ' selected' : ''}" onclick="selectEditCat('${t.id}','プライベート')">プライベート</button>
-          <button type="button" class="cat-opt${t.category && t.category !== '会社' && t.category !== 'プライベート' ? ' selected' : ''}" onclick="selectEditCat('${t.id}','__custom__')">任意入力</button>
-        </div>
-        <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(t.category && t.category !== '会社' && t.category !== 'プライベート' ? t.category : '')}" style="${t.category && t.category !== '会社' && t.category !== 'プライベート' ? 'display:block' : ''}">
-        <div class="edit-form-cat">
-          <button type="button" class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
-          <button type="button" class="btn-cancel" onclick="closeEdit('${t.id}')">×</button>
-        </div>
+      <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(isCust?t.category:'')}" style="${isCust?'display:block':''}">
+      <div class="edit-form-actions">
+        <button type="button" class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
+        <button type="button" class="btn-cancel" onclick="closeEdit('${t.id}')">×</button>
       </div>
     </div>
-  </div>`;
+  </div>
+</div>`;
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+
+// ── category radio (event delegation) ─────────────────
+document.addEventListener('change', e => {
+  if (e.target.type !== 'radio') return;
+  const name = e.target.name;
+  document.querySelectorAll(`input[name="${name}"]`).forEach(r =>
+    r.closest('label.cat-opt').classList.toggle('selected', r.checked)
+  );
+  const isCustom = e.target.value === '__custom__';
+  if (name === 'addcat') {
+    const c = document.getElementById('new-cat-custom');
+    isCustom ? (c.style.display='block', c.focus()) : (c.style.display='none', c.value='');
+  } else if (name.startsWith('cat')) {
+    const c = document.getElementById('edit-cat-custom-' + name.slice(3));
+    if (!c) return;
+    isCustom ? (c.style.display='block', c.focus()) : (c.style.display='none', c.value='');
+  }
+});
+function getSelectedCat(name, customId) {
+  const checked = document.querySelector(`input[name="${name}"]:checked`);
+  if (!checked) return '';
+  if (checked.value === '__custom__') return (document.getElementById(customId)?.value||'').trim();
+  return checked.value;
 }
 
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function escAttr(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-}
-
+// ── edit (open on long press) ──────────────────────────
 function openEdit(id) {
-  document.getElementById(`edit-${id}`).classList.add('visible');
-  document.getElementById(`edit-text-${id}`).focus();
+  document.querySelectorAll('.edit-form.visible').forEach(f => {
+    if (f.id !== 'edit-'+id) f.classList.remove('visible');
+  });
+  const form = document.getElementById('edit-'+id);
+  const opening = !form.classList.contains('visible');
+  form.classList.toggle('visible');
+  if (opening) document.getElementById('edit-text-'+id).focus();
 }
-
-function closeEdit(id) {
-  document.getElementById(`edit-${id}`).classList.remove('visible');
-}
-
+function closeEdit(id) { document.getElementById('edit-'+id).classList.remove('visible'); }
 async function saveEdit(id) {
-  const text     = document.getElementById(`edit-text-${id}`).value.trim();
-  const category = getSelectedCat(`edit-cat-sel-${id}`, `edit-cat-custom-${id}`);
+  const text     = document.getElementById('edit-text-'+id).value.trim();
+  const category = getSelectedCat('cat'+id, 'edit-cat-custom-'+id);
   if (!text) { alert('タスク名を入力してください'); return; }
-  await api({ action: 'edit', id, text, category });
+  await api({ action:'edit', id, text, category });
   loadTodos();
 }
 
-function selectAddCat(val) {
-  const btns = document.querySelectorAll('#add-cat-sel .cat-opt');
-  const customInput = document.getElementById('new-cat-custom');
-  btns.forEach(b => b.classList.remove('selected'));
-  if (val === '__custom__') {
-    btns[2].classList.add('selected');
-    customInput.style.display = 'block';
-    customInput.focus();
-  } else {
-    btns[val === '会社' ? 0 : 1].classList.add('selected');
-    customInput.style.display = 'none';
-    customInput.value = '';
-  }
-}
-
-function selectEditCat(id, val) {
-  const form = document.getElementById(`edit-${id}`);
-  const btns = form.querySelectorAll('.cat-opt');
-  const customInput = document.getElementById(`edit-cat-custom-${id}`);
-  btns.forEach(b => b.classList.remove('selected'));
-  if (val === '__custom__') {
-    btns[2].classList.add('selected');
-    customInput.style.display = 'block';
-    customInput.focus();
-  } else {
-    btns[val === '会社' ? 0 : 1].classList.add('selected');
-    customInput.style.display = 'none';
-    customInput.value = '';
-  }
-}
-
-function getSelectedCat(selId, customId) {
-  const container = document.getElementById(selId);
-  if (!container) return '';
-  const sel = container.querySelector('.cat-opt.selected');
-  if (!sel) return '';
-  if (sel.textContent.trim() === '任意入力') return document.getElementById(customId).value.trim();
-  return sel.textContent.trim();
-}
-
+// ── add todo ───────────────────────────────────────────
 async function addTodo() {
   const input = document.getElementById('new-todo');
   const text  = input.value.trim();
   if (!text) return;
-  const category = getSelectedCat('add-cat-sel', 'new-cat-custom');
+  const category = getSelectedCat('addcat', 'new-cat-custom');
   input.value = '';
+  document.querySelectorAll('input[name="addcat"]').forEach(r => {
+    r.checked = false;
+    r.closest('label.cat-opt').classList.remove('selected');
+  });
   document.getElementById('new-cat-custom').value = '';
   document.getElementById('new-cat-custom').style.display = 'none';
-  document.querySelectorAll('#add-cat-sel .cat-opt').forEach(b => b.classList.remove('selected'));
-  await api({ action: 'add', text, category });
+  await api({ action:'add', text, category });
   loadTodos();
 }
+async function toggleDone(id) { await api({ action:'done', id }); loadTodos(); }
+document.getElementById('new-todo').addEventListener('keydown', e => { if (e.key==='Enter') addTodo(); });
 
-async function toggleDone(id) {
-  await api({ action: 'done', id });
-  loadTodos();
-}
-
-
-document.getElementById('new-todo').addEventListener('keydown', e => {
-  if (e.key === 'Enter') addTodo();
-});
-
+// ── voice input ────────────────────────────────────────
 function startVoiceInput() {
   const input = document.getElementById('new-todo');
-  // iOS standalone (home screen app) blocks Web Speech API — fall back to native keyboard mic
-  if (window.navigator.standalone) {
-    input.focus();
-    return;
-  }
+  if (window.navigator.standalone) { input.focus(); return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { input.focus(); return; }
   const mic = document.querySelector('.mic-btn');
-  const recognition = new SR();
-  recognition.lang = 'ja-JP';
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-  recognition.onstart  = () => mic.classList.add('listening');
-  recognition.onend    = () => mic.classList.remove('listening');
-  recognition.onresult = e => { input.value = e.results[0][0].transcript; };
-  recognition.onerror  = e => {
+  const rec = new SR();
+  rec.lang = 'ja-JP'; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.onstart  = () => mic.classList.add('listening');
+  rec.onend    = () => mic.classList.remove('listening');
+  rec.onresult = e => { input.value = e.results[0][0].transcript; };
+  rec.onerror  = e => {
     mic.classList.remove('listening');
-    if (e.error === 'service-not-allowed' || e.error === 'not-allowed') {
-      input.focus();
-    }
+    if (e.error==='service-not-allowed'||e.error==='not-allowed') input.focus();
   };
-  try { recognition.start(); } catch(e) { mic.classList.remove('listening'); input.focus(); }
+  try { rec.start(); } catch(e) { mic.classList.remove('listening'); input.focus(); }
 }
 
-// --- swipe to delete ---
+// ── swipe to delete ────────────────────────────────────
 let openSwipeItem = null;
-
 function attachSwipeHandlers() {
   document.querySelectorAll('.item-wrap').forEach(wrap => {
     const item = wrap.querySelector('.item');
-    let startX, startY, currentX = 0, tracking = false, isOpen = false;
-    const SNAP = 80, THRESHOLD = 40;
-
+    let sx, sy, cx=0, tracking=false, isOpen=false;
+    const SNAP=80, THR=40;
     item.addEventListener('touchstart', e => {
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      tracking = true;
-      item.style.transition = 'none';
-    }, { passive: true });
-
+      if (dragState || e.target.closest('.drag-handle') || e.target.closest('.edit-form')) return;
+      sx=e.touches[0].clientX; sy=e.touches[0].clientY; tracking=true;
+      item.style.transition='none';
+    }, {passive:true});
     item.addEventListener('touchmove', e => {
-      if (!tracking) return;
-      const dx = e.touches[0].clientX - startX;
-      const dy = e.touches[0].clientY - startY;
-      if (Math.abs(dy) > Math.abs(dx) + 5) { tracking = false; return; }
-      const base = isOpen ? -SNAP : 0;
-      currentX = Math.max(-SNAP, Math.min(0, base + dx));
-      item.style.transform = `translateX(${currentX}px)`;
-    }, { passive: true });
-
+      if (!tracking||dragState) return;
+      const dx=e.touches[0].clientX-sx, dy=e.touches[0].clientY-sy;
+      if (Math.abs(dy)>Math.abs(dx)+5) { tracking=false; return; }
+      const base=isOpen?-SNAP:0;
+      cx=Math.max(-SNAP,Math.min(0,base+dx));
+      item.style.transform=`translateX(${cx}px)`;
+    }, {passive:true});
     item.addEventListener('touchend', () => {
-      if (!tracking) return;
-      tracking = false;
-      item.style.transition = 'transform 0.2s ease';
-      if (currentX < -THRESHOLD) {
-        item.style.transform = `translateX(-${SNAP}px)`;
-        isOpen = true;
-        if (openSwipeItem && openSwipeItem !== item) closeSwipeItem(openSwipeItem);
-        openSwipeItem = item;
-      } else {
-        item.style.transform = 'translateX(0)';
-        isOpen = false;
-        if (openSwipeItem === item) openSwipeItem = null;
-      }
-    }, { passive: true });
+      if (!tracking) return; tracking=false;
+      item.style.transition='transform 0.2s ease';
+      if (cx<-THR) {
+        item.style.transform=`translateX(-${SNAP}px)`; isOpen=true;
+        if (openSwipeItem&&openSwipeItem!==item) closeSwipeItem(openSwipeItem);
+        openSwipeItem=item;
+      } else { item.style.transform='translateX(0)'; isOpen=false; if(openSwipeItem===item)openSwipeItem=null; }
+    }, {passive:true});
   });
 }
-
 function closeSwipeItem(item) {
   if (!item) return;
-  item.style.transition = 'transform 0.2s ease';
-  item.style.transform = 'translateX(0)';
-  if (openSwipeItem === item) openSwipeItem = null;
+  item.style.transition='transform 0.2s ease'; item.style.transform='translateX(0)';
+  if (openSwipeItem===item) openSwipeItem=null;
 }
-
 document.addEventListener('touchstart', e => {
-  if (openSwipeItem && !openSwipeItem.contains(e.target)) {
-    closeSwipeItem(openSwipeItem);
-  }
-}, { passive: true });
+  if (openSwipeItem&&!openSwipeItem.contains(e.target)) closeSwipeItem(openSwipeItem);
+}, {passive:true});
+async function swipeDelete(id) { closeSwipeItem(openSwipeItem); await api({action:'delete',id}); loadTodos(); }
 
-async function swipeDelete(id) {
+// ── drag to reorder (custom sort mode only) ────────────
+let dragState = null;
+function startDrag(id, e) {
+  if (sortMode!=='custom') return;
+  e.stopPropagation();
   closeSwipeItem(openSwipeItem);
-  await api({ action: 'delete', id });
-  loadTodos();
+  const wrap=document.getElementById('wrap-'+id);
+  const r=wrap.getBoundingClientRect();
+  const t=e.touches[0];
+  const ghost=wrap.cloneNode(true);
+  ghost.removeAttribute('id');
+  ghost.style.cssText=`position:fixed;width:${r.width}px;top:${r.top}px;left:${r.left}px;z-index:1000;opacity:0.9;box-shadow:0 8px 24px rgba(0,0,0,0.25);pointer-events:none;border-radius:12px;transition:none;`;
+  document.body.appendChild(ghost);
+  wrap.style.opacity='0.3';
+  dragState={id,wrap,ghost,offsetY:t.clientY-r.top};
+  document.addEventListener('touchmove',onDragMove,{passive:false});
+  document.addEventListener('touchend', onDragEnd, {passive:false});
 }
+function onDragMove(e) {
+  if (!dragState) return;
+  e.preventDefault();
+  dragState.ghost.style.top=(e.touches[0].clientY-dragState.offsetY)+'px';
+  updateDropIndicator(e.touches[0].clientY);
+}
+function onDragEnd(e) {
+  if (!dragState) return;
+  document.removeEventListener('touchmove',onDragMove);
+  document.removeEventListener('touchend', onDragEnd);
+  const y=e.changedTouches[0].clientY;
+  const newIdx=getDropIndex(y);
+  dragState.ghost.remove();
+  dragState.wrap.style.opacity='';
+  const ind=document.getElementById('drop-indicator');
+  if (ind) ind.remove();
+  if (newIdx!==null) applyReorder(dragState.id,newIdx);
+  dragState=null;
+}
+function updateDropIndicator(y) {
+  let ind=document.getElementById('drop-indicator');
+  if (!ind) { ind=document.createElement('div'); ind.id='drop-indicator'; ind.className='drop-indicator'; }
+  const list=document.getElementById('pending-list');
+  const items=[...list.querySelectorAll('.item-wrap')].filter(el=>el!==dragState.wrap);
+  let before=null;
+  for (const item of items) { const r=item.getBoundingClientRect(); if (y<r.top+r.height/2){before=item;break;} }
+  before ? list.insertBefore(ind,before) : list.appendChild(ind);
+}
+function getDropIndex(y) {
+  const items=[...document.querySelectorAll('#pending-list .item-wrap')];
+  for (let i=0;i<items.length;i++) {
+    if (items[i]===dragState.wrap) continue;
+    if (y<items[i].getBoundingClientRect().top+items[i].getBoundingClientRect().height/2) return i;
+  }
+  return items.length;
+}
+function applyReorder(id,newIdx) {
+  const items=[...document.querySelectorAll('#pending-list .item-wrap')];
+  const ids=items.map(el=>el.id.replace('wrap-',''));
+  const cur=ids.indexOf(id);
+  ids.splice(cur,1);
+  ids.splice(newIdx>cur?newIdx-1:newIdx,0,id);
+  ids.forEach((tid,i) => { const t=allTodos.find(t=>t.id===tid); if(t) t.order=i+1; });
+  render(allTodos);
+  api({action:'reorder',ids:ids.join(',')});
+}
+
+// ── long press to edit ─────────────────────────────────
+let lpTimer=null;
+function setupLongPress(listId) {
+  const list=document.getElementById(listId);
+  list.addEventListener('touchstart', e => {
+    const el=e.target.closest('.text');
+    if (!el) return;
+    const id=el.id.replace('text-','');
+    lpTimer=setTimeout(()=>{ navigator.vibrate&&navigator.vibrate(50); openEdit(id); lpTimer=null; },600);
+  }, {passive:true});
+  list.addEventListener('touchmove',  cancelLP, {passive:true});
+  list.addEventListener('touchend',   cancelLP, {passive:true});
+  list.addEventListener('touchcancel',cancelLP, {passive:true});
+}
+function cancelLP() { if(lpTimer){clearTimeout(lpTimer);lpTimer=null;} }
+setupLongPress('pending-list');
+setupLongPress('done-list');
 
 init();
 </script>
