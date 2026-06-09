@@ -23,7 +23,7 @@
     /* category radio pills */
     .cat-selector { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
     .cat-opt { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; border: 1.5px solid #d1d1d6; background: #f2f2f7; color: #636366; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-    .cat-opt input[type="radio"] { display: none; }
+    .cat-opt input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
     .cat-opt:has(input[type="radio"]:checked) { background: #007aff; color: #fff; border-color: #007aff; }
     .custom-cat-input { display: none; width: 100%; margin-top: 6px; padding: 8px 12px; border: 1px solid #007aff; border-radius: 10px; font-size: 14px; outline: none; -webkit-appearance: none; background: #fff; }
 
@@ -207,8 +207,10 @@ function render(todos) {
     done.length ? done.map(itemHTML).join('') : '<div class="empty">まだ完了したタスクはありません</div>';
   document.getElementById('done-section').style.display = done.length ? '' : 'none';
   const showDrag = sortMode === 'custom';
-  document.querySelectorAll('.drag-handle').forEach(h => h.style.display = showDrag ? 'flex' : 'none');
+  document.querySelectorAll('#pending-list .drag-handle').forEach(h => h.style.display = showDrag ? 'flex' : 'none');
+  document.querySelectorAll('#done-list .drag-handle').forEach(h => h.style.display = 'none');
   attachSwipeHandlers();
+  attachDragHandlers();
 }
 
 // ── item HTML ──────────────────────────────────────────
@@ -227,7 +229,7 @@ function itemHTML(t) {
   <button type="button" class="swipe-del-btn" onclick="swipeDelete('${t.id}')">削除</button>
   <div class="${cls}" id="item-${t.id}">
     <div class="item-row">
-      <div class="drag-handle" ontouchstart="startDrag('${t.id}',event)">≡</div>
+      <div class="drag-handle" data-id="${t.id}">≡</div>
       <div class="check" onclick="toggleDone('${t.id}')"></div>
       <div class="text" id="text-${t.id}">${escHtml(t.text)}</div>
     </div>
@@ -369,9 +371,17 @@ async function swipeDelete(id) { closeSwipeItem(openSwipeItem); await api({actio
 
 // ── drag to reorder (custom sort mode only) ────────────
 let dragState = null;
+function attachDragHandlers() {
+  document.querySelectorAll('#pending-list .drag-handle').forEach(handle => {
+    handle.addEventListener('touchstart', e => {
+      if (sortMode !== 'custom') return;
+      e.preventDefault();
+      e.stopPropagation();
+      startDrag(handle.dataset.id, e);
+    }, {passive: false});
+  });
+}
 function startDrag(id, e) {
-  if (sortMode!=='custom') return;
-  e.stopPropagation();
   closeSwipeItem(openSwipeItem);
   const wrap=document.getElementById('wrap-'+id);
   const r=wrap.getBoundingClientRect();
