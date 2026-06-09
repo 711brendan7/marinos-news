@@ -459,8 +459,8 @@ function itemHTML(t) {
         </div>
         <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(t.category && t.category !== '会社' && t.category !== 'プライベート' ? t.category : '')}" style="${t.category && t.category !== '会社' && t.category !== 'プライベート' ? 'display:block' : ''}">
         <div class="edit-form-cat">
-          <button class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
-          <button class="btn-cancel" onclick="closeEdit('${t.id}')">×</button>
+          <button type="button" class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
+          <button type="button" class="btn-cancel" onclick="closeEdit('${t.id}')">×</button>
         </div>
       </div>
     </div>
@@ -523,10 +523,12 @@ function selectEditCat(id, val) {
 }
 
 function getSelectedCat(selId, customId) {
-  const sel = document.querySelector(`#${selId} .cat-opt.selected`);
+  const container = document.getElementById(selId);
+  if (!container) return '';
+  const sel = container.querySelector('.cat-opt.selected');
   if (!sel) return '';
-  if (sel.textContent === '任意入力') return document.getElementById(customId).value.trim();
-  return sel.textContent;
+  if (sel.textContent.trim() === '任意入力') return document.getElementById(customId).value.trim();
+  return sel.textContent.trim();
 }
 
 async function addTodo() {
@@ -553,23 +555,29 @@ document.getElementById('new-todo').addEventListener('keydown', e => {
 });
 
 function startVoiceInput() {
+  const input = document.getElementById('new-todo');
+  // iOS standalone (home screen app) blocks Web Speech API — fall back to native keyboard mic
+  if (window.navigator.standalone) {
+    input.focus();
+    return;
+  }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert('このブラウザは音声入力に対応していません'); return; }
+  if (!SR) { input.focus(); return; }
   const mic = document.querySelector('.mic-btn');
   const recognition = new SR();
   recognition.lang = 'ja-JP';
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
-  recognition.onstart = () => mic.classList.add('listening');
-  recognition.onend   = () => mic.classList.remove('listening');
-  recognition.onresult = e => {
-    document.getElementById('new-todo').value = e.results[0][0].transcript;
-  };
-  recognition.onerror = e => {
+  recognition.onstart  = () => mic.classList.add('listening');
+  recognition.onend    = () => mic.classList.remove('listening');
+  recognition.onresult = e => { input.value = e.results[0][0].transcript; };
+  recognition.onerror  = e => {
     mic.classList.remove('listening');
-    if (e.error !== 'no-speech') alert('音声認識エラー: ' + e.error);
+    if (e.error === 'service-not-allowed' || e.error === 'not-allowed') {
+      input.focus();
+    }
   };
-  recognition.start();
+  try { recognition.start(); } catch(e) { mic.classList.remove('listening'); input.focus(); }
 }
 
 // --- swipe to delete ---
