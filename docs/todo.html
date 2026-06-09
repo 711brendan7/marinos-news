@@ -64,6 +64,17 @@
       -webkit-appearance: none;
       background: #fff;
     }
+    .mic-btn {
+      padding: 10px 12px;
+      background: #f2f2f7;
+      border: 1px solid #d1d1d6;
+      border-radius: 10px;
+      color: #636366;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .mic-btn.listening { background: #ff3b30; color: #fff; border-color: #ff3b30; }
     .btn-primary {
       padding: 10px 18px;
       background: #007aff;
@@ -251,6 +262,9 @@
     <div class="add-area">
       <div class="add-row">
         <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
+        <button type="button" class="mic-btn" onclick="startVoiceInput()" title="音声入力">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V20H9v2h6v-2h-2v-2.07A7 7 0 0 0 19 11h-2z"/></svg>
+        </button>
         <button class="btn-primary" onclick="addTodo()">追加</button>
       </div>
       <div class="cat-selector" id="add-cat-sel">
@@ -259,7 +273,6 @@
         <button type="button" class="cat-opt" onclick="selectAddCat('__custom__')">任意入力</button>
       </div>
       <input type="text" id="new-cat-custom" class="custom-cat-input" placeholder="カテゴリを入力...">
-      <input type="hidden" id="new-cat" value="">
     </div>
   </header>
 
@@ -268,6 +281,10 @@
     <button class="sort-btn" data-sort="date-desc" onclick="setSort('date-desc')">新着順</button>
     <button class="sort-btn" data-sort="date-asc" onclick="setSort('date-asc')">古い順</button>
     <button class="sort-btn" data-sort="category" onclick="setSort('category')">カテゴリ順</button>
+  </div>
+  <div id="filter-bar" class="sort-bar" style="padding-top:0; display:none;">
+    <span class="sort-label">絞り込み:</span>
+    <div id="filter-cats" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
   </div>
 
   <div id="spinner" class="spinner">読み込み中...</div>
@@ -307,6 +324,7 @@ let gasUrl   = localStorage.getItem(LS_URL)   || '';
 let token    = localStorage.getItem(LS_TOKEN) || '';
 let sortMode = localStorage.getItem(LS_SORT)  || 'date-desc';
 let allTodos = [];
+let filterCat = '';
 
 function init() {
   if (gasUrl && token) {
@@ -355,6 +373,7 @@ async function loadTodos() {
   try {
     const data = await api({ action: 'list' });
     allTodos = data.todos || [];
+    updateFilterBar();
     render(allTodos);
   } catch(e) {
     alert('読み込みに失敗しました。URLとトークンを確認してください。');
@@ -362,6 +381,22 @@ async function loadTodos() {
   } finally {
     spinner.style.display = 'none';
   }
+}
+
+function updateFilterBar() {
+  const cats = [...new Set(allTodos.map(t => t.category).filter(Boolean))];
+  const bar = document.getElementById('filter-bar');
+  const container = document.getElementById('filter-cats');
+  bar.style.display = cats.length ? '' : 'none';
+  container.innerHTML = cats.map(c =>
+    `<button class="sort-btn${filterCat === c ? ' active' : ''}" onclick="setFilter('${escAttr(c)}')">${escHtml(c)}</button>`
+  ).join('');
+}
+
+function setFilter(cat) {
+  filterCat = filterCat === cat ? '' : cat;
+  updateFilterBar();
+  render(allTodos);
 }
 
 
@@ -381,8 +416,9 @@ function sortedTodos(todos) {
 }
 
 function render(todos) {
-  const pending = sortedTodos(todos.filter(t => t.status !== 'done'));
-  const done    = sortedTodos(todos.filter(t => t.status === 'done'));
+  const visible = filterCat ? todos.filter(t => t.category === filterCat) : todos;
+  const pending = sortedTodos(visible.filter(t => t.status !== 'done'));
+  const done    = sortedTodos(visible.filter(t => t.status === 'done'));
 
   document.getElementById('pending-list').innerHTML =
     pending.length ? pending.map(itemHTML).join('') : '<div class="empty">タスクなし</div>';
@@ -416,13 +452,12 @@ function itemHTML(t) {
       ${catBadge ? `<div>${catBadge}</div>` : ''}
       <div class="edit-form" id="edit-${t.id}">
         <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
-        <div class="cat-selector" style="margin-bottom:6px;">
+        <div class="cat-selector" id="edit-cat-sel-${t.id}" style="margin-bottom:6px;">
           <button type="button" class="cat-opt${t.category === '会社' ? ' selected' : ''}" onclick="selectEditCat('${t.id}','会社')">会社</button>
           <button type="button" class="cat-opt${t.category === 'プライベート' ? ' selected' : ''}" onclick="selectEditCat('${t.id}','プライベート')">プライベート</button>
           <button type="button" class="cat-opt${t.category && t.category !== '会社' && t.category !== 'プライベート' ? ' selected' : ''}" onclick="selectEditCat('${t.id}','__custom__')">任意入力</button>
         </div>
         <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(t.category && t.category !== '会社' && t.category !== 'プライベート' ? t.category : '')}" style="${t.category && t.category !== '会社' && t.category !== 'プライベート' ? 'display:block' : ''}">
-        <input type="hidden" id="edit-cat-${t.id}" value="${escAttr(t.category || '')}">
         <div class="edit-form-cat">
           <button class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
           <button class="btn-cancel" onclick="closeEdit('${t.id}')">×</button>
@@ -449,12 +484,8 @@ function closeEdit(id) {
 }
 
 async function saveEdit(id) {
-  const text = document.getElementById(`edit-text-${id}`).value.trim();
-  const customInput = document.getElementById(`edit-cat-custom-${id}`);
-  if (customInput.style.display === 'block') {
-    document.getElementById(`edit-cat-${id}`).value = customInput.value.trim();
-  }
-  const category = document.getElementById(`edit-cat-${id}`).value.trim();
+  const text     = document.getElementById(`edit-text-${id}`).value.trim();
+  const category = getSelectedCat(`edit-cat-sel-${id}`, `edit-cat-custom-${id}`);
   if (!text) { alert('タスク名を入力してください'); return; }
   await api({ action: 'edit', id, text, category });
   loadTodos();
@@ -463,52 +494,49 @@ async function saveEdit(id) {
 function selectAddCat(val) {
   const btns = document.querySelectorAll('#add-cat-sel .cat-opt');
   const customInput = document.getElementById('new-cat-custom');
-  const hidden = document.getElementById('new-cat');
-  btns.forEach(btn => btn.classList.remove('selected'));
+  btns.forEach(b => b.classList.remove('selected'));
   if (val === '__custom__') {
     btns[2].classList.add('selected');
-    hidden.value = '';
     customInput.style.display = 'block';
     customInput.focus();
   } else {
     btns[val === '会社' ? 0 : 1].classList.add('selected');
-    hidden.value = val;
     customInput.style.display = 'none';
     customInput.value = '';
   }
 }
 
 function selectEditCat(id, val) {
-  const sel = document.getElementById(`edit-${id}`).querySelectorAll('.cat-opt');
+  const form = document.getElementById(`edit-${id}`);
+  const btns = form.querySelectorAll('.cat-opt');
   const customInput = document.getElementById(`edit-cat-custom-${id}`);
-  const hidden = document.getElementById(`edit-cat-${id}`);
-  sel.forEach(btn => btn.classList.remove('selected'));
+  btns.forEach(b => b.classList.remove('selected'));
   if (val === '__custom__') {
-    sel[2].classList.add('selected');
-    hidden.value = customInput.value.trim();
+    btns[2].classList.add('selected');
     customInput.style.display = 'block';
     customInput.focus();
-    customInput.addEventListener('input', () => { hidden.value = customInput.value.trim(); });
   } else {
-    sel[val === '会社' ? 0 : 1].classList.add('selected');
-    hidden.value = val;
+    btns[val === '会社' ? 0 : 1].classList.add('selected');
     customInput.style.display = 'none';
     customInput.value = '';
   }
+}
+
+function getSelectedCat(selId, customId) {
+  const sel = document.querySelector(`#${selId} .cat-opt.selected`);
+  if (!sel) return '';
+  if (sel.textContent === '任意入力') return document.getElementById(customId).value.trim();
+  return sel.textContent;
 }
 
 async function addTodo() {
   const input = document.getElementById('new-todo');
   const text  = input.value.trim();
   if (!text) return;
-  const customInput = document.getElementById('new-cat-custom');
-  const hidden = document.getElementById('new-cat');
-  if (customInput.style.display === 'block') hidden.value = customInput.value.trim();
-  const category = hidden.value.trim();
+  const category = getSelectedCat('add-cat-sel', 'new-cat-custom');
   input.value = '';
-  hidden.value = '';
-  customInput.value = '';
-  customInput.style.display = 'none';
+  document.getElementById('new-cat-custom').value = '';
+  document.getElementById('new-cat-custom').style.display = 'none';
   document.querySelectorAll('#add-cat-sel .cat-opt').forEach(b => b.classList.remove('selected'));
   await api({ action: 'add', text, category });
   loadTodos();
@@ -523,6 +551,26 @@ async function toggleDone(id) {
 document.getElementById('new-todo').addEventListener('keydown', e => {
   if (e.key === 'Enter') addTodo();
 });
+
+function startVoiceInput() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert('このブラウザは音声入力に対応していません'); return; }
+  const mic = document.querySelector('.mic-btn');
+  const recognition = new SR();
+  recognition.lang = 'ja-JP';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  recognition.onstart = () => mic.classList.add('listening');
+  recognition.onend   = () => mic.classList.remove('listening');
+  recognition.onresult = e => {
+    document.getElementById('new-todo').value = e.results[0][0].transcript;
+  };
+  recognition.onerror = e => {
+    mic.classList.remove('listening');
+    if (e.error !== 'no-speech') alert('音声認識エラー: ' + e.error);
+  };
+  recognition.start();
+}
 
 // --- swipe to delete ---
 let openSwipeItem = null;
