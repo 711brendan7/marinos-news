@@ -20,11 +20,10 @@
     .btn-primary { padding: 10px 18px; background: #007aff; color: #fff; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .btn-primary:active { opacity: 0.7; }
 
-    /* category radio pills */
+    /* category pills — JS manages .selected class via data-val attribute */
     .cat-selector { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
     .cat-opt { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; border: 1.5px solid #d1d1d6; background: #f2f2f7; color: #636366; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-    .cat-opt input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
-    .cat-opt:has(input[type="radio"]:checked) { background: #007aff; color: #fff; border-color: #007aff; }
+    .cat-opt.selected { background: #007aff; color: #fff; border-color: #007aff; }
     .custom-cat-input { display: none; width: 100%; margin-top: 6px; padding: 8px 12px; border: 1px solid #007aff; border-radius: 10px; font-size: 14px; outline: none; -webkit-appearance: none; background: #fff; }
 
     /* sort / filter */
@@ -39,9 +38,9 @@
     /* item */
     .item-wrap { position: relative; overflow: hidden; border-radius: 12px; margin-bottom: 8px; }
     .swipe-del-btn { position: absolute; right: 0; top: 0; bottom: 0; width: 80px; background: #ff3b30; color: #fff; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
-    .item { position: relative; background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); -webkit-touch-callout: none; }
+    .item { position: relative; background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); -webkit-touch-callout: none; transition: box-shadow 0.15s, transform 0.15s; }
+    .item.drag-ready { box-shadow: 0 6px 20px rgba(0,0,0,0.18); transform: scale(1.02); }
     .item-row { display: flex; align-items: center; gap: 10px; }
-    .drag-handle { display: none; color: #c7c7cc; font-size: 20px; flex-shrink: 0; padding: 4px 10px; min-height: 44px; align-items: center; justify-content: center; touch-action: none; cursor: grab; }
     .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #c7c7cc; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
     .item.done .check { background: #34c759; border-color: #34c759; }
     .item.done .check::after { content: ''; width: 10px; height: 6px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translateY(-1px); display: block; }
@@ -82,10 +81,10 @@
         </button>
         <button type="button" class="btn-primary" onclick="addTodo()">追加</button>
       </div>
-      <div class="cat-selector">
-        <label class="cat-opt"><input type="radio" name="addcat" value="会社">会社</label>
-        <label class="cat-opt"><input type="radio" name="addcat" value="プライベート">プライベート</label>
-        <label class="cat-opt"><input type="radio" name="addcat" value="__custom__">任意入力</label>
+      <div class="cat-selector" id="add-cat-selector" data-val="" data-custom-id="new-cat-custom">
+        <button type="button" class="cat-opt" data-val="会社">会社</button>
+        <button type="button" class="cat-opt" data-val="プライベート">プライベート</button>
+        <button type="button" class="cat-opt" data-val="__custom__">任意入力</button>
       </div>
       <input type="text" id="new-cat-custom" class="custom-cat-input" placeholder="カテゴリを入力...">
     </div>
@@ -206,11 +205,7 @@ function render(todos) {
   document.getElementById('done-list').innerHTML =
     done.length ? done.map(itemHTML).join('') : '<div class="empty">まだ完了したタスクはありません</div>';
   document.getElementById('done-section').style.display = done.length ? '' : 'none';
-  const showDrag = sortMode === 'custom';
-  document.querySelectorAll('#pending-list .drag-handle').forEach(h => h.style.display = showDrag ? 'flex' : 'none');
-  document.querySelectorAll('#done-list .drag-handle').forEach(h => h.style.display = 'none');
   attachSwipeHandlers();
-  attachDragHandlers();
 }
 
 // ── item HTML ──────────────────────────────────────────
@@ -222,6 +217,7 @@ function catColor(cat) {
 function itemHTML(t) {
   const cls    = t.status === 'done' ? 'item done' : 'item';
   const isCust = t.category && t.category !== '会社' && t.category !== 'プライベート';
+  const initVal= isCust ? '__custom__' : (t.category || '');
   const badge  = t.category
     ? `<span class="cat-tag" style="background:${catColor(t.category)}">${escHtml(t.category)}</span>`
     : '';
@@ -229,17 +225,16 @@ function itemHTML(t) {
   <button type="button" class="swipe-del-btn" onclick="swipeDelete('${t.id}')">削除</button>
   <div class="${cls}" id="item-${t.id}">
     <div class="item-row">
-      <div class="drag-handle" data-id="${t.id}">≡</div>
       <div class="check" onclick="toggleDone('${t.id}')"></div>
       <div class="text" id="text-${t.id}">${escHtml(t.text)}</div>
     </div>
     ${badge ? `<div>${badge}</div>` : ''}
     <div class="edit-form" id="edit-${t.id}">
       <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
-      <div class="cat-selector" style="margin-bottom:6px;">
-        <label class="cat-opt"><input type="radio" name="cat${t.id}" value="会社" ${t.category==='会社'?'checked':''}>会社</label>
-        <label class="cat-opt"><input type="radio" name="cat${t.id}" value="プライベート" ${t.category==='プライベート'?'checked':''}>プライベート</label>
-        <label class="cat-opt"><input type="radio" name="cat${t.id}" value="__custom__" ${isCust?'checked':''}>任意入力</label>
+      <div class="cat-selector" id="ecat-${t.id}" data-val="${escAttr(initVal)}" data-custom-id="edit-cat-custom-${t.id}" style="margin-bottom:6px;">
+        <button type="button" class="cat-opt${t.category==='会社'?' selected':''}" data-val="会社">会社</button>
+        <button type="button" class="cat-opt${t.category==='プライベート'?' selected':''}" data-val="プライベート">プライベート</button>
+        <button type="button" class="cat-opt${isCust?' selected':''}" data-val="__custom__">任意入力</button>
       </div>
       <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(isCust?t.category:'')}" style="${isCust?'display:block':''}">
       <div class="edit-form-actions">
@@ -253,41 +248,45 @@ function itemHTML(t) {
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 
-// ── category radio (event delegation) ─────────────────
-document.addEventListener('change', e => {
-  if (e.target.type !== 'radio') return;
-  const name = e.target.name;
-  const isCustom = e.target.value === '__custom__';
-  if (name === 'addcat') {
-    const c = document.getElementById('new-cat-custom');
-    isCustom ? (c.style.display='block', c.focus()) : (c.style.display='none', c.value='');
-  } else if (name.startsWith('cat')) {
-    const c = document.getElementById('edit-cat-custom-' + name.slice(3));
-    if (!c) return;
-    isCustom ? (c.style.display='block', c.focus()) : (c.style.display='none', c.value='');
-  }
+// ── category button selection (delegated click) ────────
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.cat-opt');
+  if (!btn) return;
+  const selector = btn.closest('.cat-selector');
+  if (!selector) return;
+  selector.querySelectorAll('.cat-opt').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selector.dataset.val = btn.dataset.val;
+  const customId = selector.dataset.customId;
+  if (!customId) return;
+  const c = document.getElementById(customId);
+  if (!c) return;
+  if (btn.dataset.val === '__custom__') { c.style.display='block'; c.focus(); }
+  else { c.style.display='none'; c.value=''; }
 });
-function getSelectedCat(name, customId) {
-  const checked = document.querySelector(`input[name="${name}"]:checked`);
-  if (!checked) return '';
-  if (checked.value === '__custom__') return (document.getElementById(customId)?.value||'').trim();
-  return checked.value;
+
+function getSelectedCat(selectorId, customId) {
+  const sel = document.getElementById(selectorId);
+  const val = sel ? (sel.dataset.val || '') : '';
+  if (val === '__custom__') return (document.getElementById(customId)?.value || '').trim();
+  return val;
 }
 
-// ── edit (open on long press) ──────────────────────────
+// ── edit form ──────────────────────────────────────────
 function openEdit(id) {
   document.querySelectorAll('.edit-form.visible').forEach(f => {
     if (f.id !== 'edit-'+id) f.classList.remove('visible');
   });
   const form = document.getElementById('edit-'+id);
+  if (!form) return;
   const opening = !form.classList.contains('visible');
   form.classList.toggle('visible');
-  if (opening) document.getElementById('edit-text-'+id).focus();
+  if (opening) document.getElementById('edit-text-'+id)?.focus();
 }
-function closeEdit(id) { document.getElementById('edit-'+id).classList.remove('visible'); }
+function closeEdit(id) { document.getElementById('edit-'+id)?.classList.remove('visible'); }
 async function saveEdit(id) {
   const text     = document.getElementById('edit-text-'+id).value.trim();
-  const category = getSelectedCat('cat'+id, 'edit-cat-custom-'+id);
+  const category = getSelectedCat('ecat-'+id, 'edit-cat-custom-'+id);
   if (!text) { alert('タスク名を入力してください'); return; }
   await api({ action:'edit', id, text, category });
   loadTodos();
@@ -298,9 +297,11 @@ async function addTodo() {
   const input = document.getElementById('new-todo');
   const text  = input.value.trim();
   if (!text) return;
-  const category = getSelectedCat('addcat', 'new-cat-custom');
+  const category = getSelectedCat('add-cat-selector', 'new-cat-custom');
   input.value = '';
-  document.querySelectorAll('input[name="addcat"]').forEach(r => { r.checked = false; });
+  const sel = document.getElementById('add-cat-selector');
+  sel.querySelectorAll('.cat-opt').forEach(b => b.classList.remove('selected'));
+  sel.dataset.val = '';
   document.getElementById('new-cat-custom').value = '';
   document.getElementById('new-cat-custom').style.display = 'none';
   await api({ action:'add', text, category });
@@ -336,7 +337,7 @@ function attachSwipeHandlers() {
     let sx, sy, cx=0, tracking=false, isOpen=false;
     const SNAP=80, THR=40;
     item.addEventListener('touchstart', e => {
-      if (dragState || e.target.closest('.drag-handle') || e.target.closest('.edit-form')) return;
+      if (dragState || e.target.closest('.edit-form')) return;
       sx=e.touches[0].clientX; sy=e.touches[0].clientY; tracking=true;
       item.style.transition='none';
     }, {passive:true});
@@ -369,101 +370,151 @@ document.addEventListener('touchstart', e => {
 }, {passive:true});
 async function swipeDelete(id) { closeSwipeItem(openSwipeItem); await api({action:'delete',id}); loadTodos(); }
 
-// ── drag to reorder (custom sort mode only) ────────────
+// ── drag to reorder ────────────────────────────────────
 let dragState = null;
-function attachDragHandlers() {
-  document.querySelectorAll('#pending-list .drag-handle').forEach(handle => {
-    handle.addEventListener('touchstart', e => {
-      if (sortMode !== 'custom') return;
-      e.preventDefault();
-      e.stopPropagation();
-      startDrag(handle.dataset.id, e);
-    }, {passive: false});
-  });
-}
 function startDrag(id, e) {
   closeSwipeItem(openSwipeItem);
-  const wrap=document.getElementById('wrap-'+id);
-  const r=wrap.getBoundingClientRect();
-  const t=e.touches[0];
-  const ghost=wrap.cloneNode(true);
+  const wrap = document.getElementById('wrap-'+id);
+  if (!wrap) return;
+  const r = wrap.getBoundingClientRect();
+  const t = e.touches[0];
+  const ghost = wrap.cloneNode(true);
   ghost.removeAttribute('id');
-  ghost.style.cssText=`position:fixed;width:${r.width}px;top:${r.top}px;left:${r.left}px;z-index:1000;opacity:0.9;box-shadow:0 8px 24px rgba(0,0,0,0.25);pointer-events:none;border-radius:12px;transition:none;`;
+  ghost.style.cssText = `position:fixed;width:${r.width}px;top:${r.top}px;left:${r.left}px;z-index:1000;opacity:0.9;box-shadow:0 8px 24px rgba(0,0,0,0.25);pointer-events:none;border-radius:12px;transition:none;`;
   document.body.appendChild(ghost);
-  wrap.style.opacity='0.3';
-  dragState={id,wrap,ghost,offsetY:t.clientY-r.top};
-  document.addEventListener('touchmove',onDragMove,{passive:false});
-  document.addEventListener('touchend', onDragEnd, {passive:false});
+  wrap.style.opacity = '0.3';
+  dragState = {id, wrap, ghost, offsetY: t.clientY - r.top};
+  document.addEventListener('touchmove', onDragMove, {passive:false});
+  document.addEventListener('touchend',  onDragEnd,  {passive:false});
 }
 function onDragMove(e) {
   if (!dragState) return;
   e.preventDefault();
-  dragState.ghost.style.top=(e.touches[0].clientY-dragState.offsetY)+'px';
+  dragState.ghost.style.top = (e.touches[0].clientY - dragState.offsetY) + 'px';
   updateDropIndicator(e.touches[0].clientY);
 }
 function onDragEnd(e) {
   if (!dragState) return;
-  document.removeEventListener('touchmove',onDragMove);
-  document.removeEventListener('touchend', onDragEnd);
-  const y=e.changedTouches[0].clientY;
-  const newIdx=getDropIndex(y);
+  document.removeEventListener('touchmove', onDragMove);
+  document.removeEventListener('touchend',  onDragEnd);
+  const y = e.changedTouches[0].clientY;
+  const newIdx = getDropIndex(y);
   dragState.ghost.remove();
-  dragState.wrap.style.opacity='';
-  const ind=document.getElementById('drop-indicator');
+  dragState.wrap.style.opacity = '';
+  const ind = document.getElementById('drop-indicator');
   if (ind) ind.remove();
-  if (newIdx!==null) applyReorder(dragState.id,newIdx);
-  dragState=null;
+  applyReorder(dragState.id, newIdx);
+  dragState = null;
 }
 function updateDropIndicator(y) {
-  let ind=document.getElementById('drop-indicator');
-  if (!ind) { ind=document.createElement('div'); ind.id='drop-indicator'; ind.className='drop-indicator'; }
-  const list=document.getElementById('pending-list');
-  const items=[...list.querySelectorAll('.item-wrap')].filter(el=>el!==dragState.wrap);
-  let before=null;
+  let ind = document.getElementById('drop-indicator');
+  if (!ind) { ind = document.createElement('div'); ind.id='drop-indicator'; ind.className='drop-indicator'; }
+  const list  = document.getElementById('pending-list');
+  const items = [...list.querySelectorAll('.item-wrap')].filter(el => el !== dragState.wrap);
+  let before = null;
   for (const item of items) { const r=item.getBoundingClientRect(); if (y<r.top+r.height/2){before=item;break;} }
-  before ? list.insertBefore(ind,before) : list.appendChild(ind);
+  before ? list.insertBefore(ind, before) : list.appendChild(ind);
 }
 function getDropIndex(y) {
-  const items=[...document.querySelectorAll('#pending-list .item-wrap')];
-  for (let i=0;i<items.length;i++) {
+  const items = [...document.querySelectorAll('#pending-list .item-wrap')];
+  for (let i=0; i<items.length; i++) {
     if (items[i]===dragState.wrap) continue;
-    if (y<items[i].getBoundingClientRect().top+items[i].getBoundingClientRect().height/2) return i;
+    if (y < items[i].getBoundingClientRect().top + items[i].getBoundingClientRect().height/2) return i;
   }
   return items.length;
 }
-function applyReorder(id,newIdx) {
-  const items=[...document.querySelectorAll('#pending-list .item-wrap')];
-  const ids=items.map(el=>el.id.replace('wrap-',''));
-  const cur=ids.indexOf(id);
-  ids.splice(cur,1);
-  ids.splice(newIdx>cur?newIdx-1:newIdx,0,id);
+function applyReorder(id, newIdx) {
+  const items = [...document.querySelectorAll('#pending-list .item-wrap')];
+  const ids   = items.map(el => el.id.replace('wrap-',''));
+  const cur   = ids.indexOf(id);
+  ids.splice(cur, 1);
+  ids.splice(newIdx > cur ? newIdx-1 : newIdx, 0, id);
   ids.forEach((tid,i) => { const t=allTodos.find(t=>t.id===tid); if(t) t.order=i+1; });
   render(allTodos);
-  api({action:'reorder',ids:ids.join(',')});
+  api({action:'reorder', ids: ids.join(',')});
 }
 
-// ── long press to edit ─────────────────────────────────
-let lpTimer=null, lpX=0, lpY=0;
-function setupLongPress(listId) {
-  const list=document.getElementById(listId);
+// ── interaction: 500ms = edit, 1000ms = drag ───────────
+// Uses {passive:false} on touchstart so e.preventDefault() can stop iOS scroll
+// when a drag gesture is initiated (only called for .text touches in custom mode).
+let lpTimer=null, lpDragTimer=null, lpX=0, lpY=0, lpId=null, lpPhase=0;
+// lpPhase 0: none  1: edit-ready  2: drag-ready
+
+function setupInteraction(listId) {
+  const list = document.getElementById(listId);
+
   list.addEventListener('touchstart', e => {
-    const el=e.target.closest('.text');
+    if (dragState) return;
+    const el = e.target.closest('.text');
     if (!el) return;
-    const id=el.id.replace('text-','');
-    lpX=e.touches[0].clientX; lpY=e.touches[0].clientY;
-    lpTimer=setTimeout(()=>{ navigator.vibrate&&navigator.vibrate(50); openEdit(id); lpTimer=null; },500);
-  }, {passive:true});
+    // Prevent iOS from claiming scroll control when in custom mode
+    // so a subsequent touchmove can start a drag without scroll interference.
+    if (sortMode === 'custom') e.preventDefault();
+
+    lpId  = el.id.replace('text-', '');
+    lpX   = e.touches[0].clientX;
+    lpY   = e.touches[0].clientY;
+    lpPhase = 0;
+
+    lpTimer = setTimeout(() => {
+      lpTimer  = null;
+      lpPhase  = 1;
+      navigator.vibrate && navigator.vibrate(30);
+      if (sortMode === 'custom') {
+        lpDragTimer = setTimeout(() => {
+          lpDragTimer = null;
+          lpPhase = 2;
+          navigator.vibrate && navigator.vibrate([0, 60]);
+          const item = document.getElementById('item-' + lpId);
+          if (item) item.classList.add('drag-ready');
+        }, 500);
+      }
+    }, 500);
+  }, {passive: false});
+
   list.addEventListener('touchmove', e => {
-    if(!lpTimer) return;
-    const dx=e.touches[0].clientX-lpX, dy=e.touches[0].clientY-lpY;
-    if(Math.abs(dx)>10||Math.abs(dy)>10) cancelLP();
-  }, {passive:true});
-  list.addEventListener('touchend',   cancelLP, {passive:true});
-  list.addEventListener('touchcancel',cancelLP, {passive:true});
+    if (dragState || !lpId) return;
+    const dx = e.touches[0].clientX - lpX;
+    const dy = e.touches[0].clientY - lpY;
+    if (lpPhase === 2 && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+      // Transition to drag
+      clearTimeout(lpTimer); clearTimeout(lpDragTimer);
+      lpTimer = lpDragTimer = null;
+      const id = lpId;
+      lpId = null; lpPhase = 0;
+      const item = document.getElementById('item-' + id);
+      if (item) item.classList.remove('drag-ready');
+      const wrap = document.getElementById('wrap-' + id);
+      if (wrap && document.getElementById('pending-list').contains(wrap)) {
+        startDrag(id, e);
+      }
+    } else if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      cancelLP();
+    }
+  }, {passive: false});
+
+  list.addEventListener('touchend', () => {
+    clearTimeout(lpTimer); clearTimeout(lpDragTimer);
+    lpTimer = lpDragTimer = null;
+    const phase = lpPhase;
+    const id    = lpId;
+    lpId = null; lpPhase = 0;
+    if (id) document.getElementById('item-'+id)?.classList.remove('drag-ready');
+    if (phase >= 1 && id) openEdit(id);
+  }, {passive: true});
+
+  list.addEventListener('touchcancel', cancelLP, {passive: true});
 }
-function cancelLP() { if(lpTimer){clearTimeout(lpTimer);lpTimer=null;} }
-setupLongPress('pending-list');
-setupLongPress('done-list');
+
+function cancelLP() {
+  clearTimeout(lpTimer); clearTimeout(lpDragTimer);
+  lpTimer = lpDragTimer = null;
+  if (lpId) document.getElementById('item-'+lpId)?.classList.remove('drag-ready');
+  lpId = null; lpPhase = 0;
+}
+
+setupInteraction('pending-list');
+setupInteraction('done-list');
 
 init();
 </script>
