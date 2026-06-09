@@ -20,10 +20,9 @@
     .btn-primary { padding: 10px 18px; background: #007aff; color: #fff; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .btn-primary:active { opacity: 0.7; }
 
-    /* category pills — JS manages .selected class via data-val attribute */
-    .cat-selector { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-    .cat-opt { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; border: 1.5px solid #d1d1d6; background: #f2f2f7; color: #636366; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-    .cat-opt.selected { background: #007aff; color: #fff; border-color: #007aff; }
+    /* category select */
+    .cat-select { width: 100%; margin-top: 6px; padding: 8px 12px; border: 1.5px solid #d1d1d6; border-radius: 10px; font-size: 14px; background: #f2f2f7; color: #1c1c1e; }
+    .cat-select:focus { outline: none; border-color: #007aff; background: #fff; }
     .custom-cat-input { display: none; width: 100%; margin-top: 6px; padding: 8px 12px; border: 1px solid #007aff; border-radius: 10px; font-size: 14px; outline: none; -webkit-appearance: none; background: #fff; }
 
     /* sort / filter */
@@ -72,7 +71,7 @@
 
 <div id="main-view" style="display:none">
   <header>
-    <h1>TODO</h1>
+    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260610</span></h1>
     <div class="add-area">
       <div class="add-row">
         <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
@@ -81,11 +80,12 @@
         </button>
         <button type="button" class="btn-primary" onclick="addTodo()">追加</button>
       </div>
-      <div class="cat-selector" id="add-cat-selector" data-val="" data-custom-id="new-cat-custom">
-        <button type="button" class="cat-opt" data-val="会社" onclick="selectCat('add-cat-selector','会社')">会社</button>
-        <button type="button" class="cat-opt" data-val="プライベート" onclick="selectCat('add-cat-selector','プライベート')">プライベート</button>
-        <button type="button" class="cat-opt" data-val="__custom__" onclick="selectCat('add-cat-selector','__custom__')">任意入力</button>
-      </div>
+      <select id="add-cat-sel" class="cat-select" onchange="onCatSelectChange(this,'new-cat-custom')">
+        <option value="">カテゴリなし</option>
+        <option value="会社">会社</option>
+        <option value="プライベート">プライベート</option>
+        <option value="__custom__">任意入力...</option>
+      </select>
       <input type="text" id="new-cat-custom" class="custom-cat-input" placeholder="カテゴリを入力...">
     </div>
   </header>
@@ -190,7 +190,6 @@ async function loadTodos() {
   try {
     const data = await api({ action: 'list' });
     allTodos = data.todos || [];
-    catMap.clear(); // selections are stale after a fetch
     updateFilterBar(); render(allTodos);
   } catch(e) { alert('読み込みに失敗しました。'); console.error(e); }
   finally { document.getElementById('spinner').style.display = 'none'; }
@@ -232,11 +231,13 @@ function itemHTML(t) {
     ${badge ? `<div>${badge}</div>` : ''}
     <div class="edit-form" id="edit-${t.id}">
       <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
-      <div class="cat-selector" id="ecat-${t.id}" data-val="${escAttr(initVal)}" data-custom-id="edit-cat-custom-${t.id}" style="margin-bottom:6px;">
-        <button type="button" class="cat-opt${t.category==='会社'?' selected':''}" data-val="会社" onclick="selectCat('ecat-${t.id}','会社')">会社</button>
-        <button type="button" class="cat-opt${t.category==='プライベート'?' selected':''}" data-val="プライベート" onclick="selectCat('ecat-${t.id}','プライベート')">プライベート</button>
-        <button type="button" class="cat-opt${isCust?' selected':''}" data-val="__custom__" onclick="selectCat('ecat-${t.id}','__custom__')">任意入力</button>
-      </div>
+      <select class="cat-select" id="ecat-${t.id}" onchange="onCatSelectChange(this,'edit-cat-custom-${t.id}')">
+        <option value="">カテゴリなし</option>
+        <option value="会社"${t.category==='会社'?' selected':''}>会社</option>
+        <option value="プライベート"${t.category==='プライベート'?' selected':''}>プライベート</option>
+        ${isCust?`<option value="${escAttr(t.category)}" selected>${escHtml(t.category)}</option>`:''}
+        <option value="__custom__">任意入力...</option>
+      </select>
       <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(isCust?t.category:'')}" style="${isCust?'display:block':''}">
       <div class="edit-form-actions">
         <button type="button" class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
@@ -250,48 +251,18 @@ function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'
 function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 
 // ── category selection ────────────────────────────────
-// catMap stores the user's current selection; more reliable than DOM dataset
-// because iOS can cancel 'click' events when a non-passive touchmove handler
-// exists on an ancestor (the list's setupInteraction uses {passive:false}).
-const catMap = new Map();
-
-function selectCat(selectorId, val) {
-  catMap.set(selectorId, val);
-  const sel = document.getElementById(selectorId);
-  if (!sel) return;
-  sel.querySelectorAll('.cat-opt').forEach(b => b.classList.remove('selected'));
-  [...sel.querySelectorAll('.cat-opt')].find(b => b.dataset.val === val)?.classList.add('selected');
-  sel.dataset.val = val;
-  const c = sel.dataset.customId ? document.getElementById(sel.dataset.customId) : null;
+function onCatSelectChange(sel, customId) {
+  const c = document.getElementById(customId);
   if (!c) return;
-  if (val === '__custom__') { c.style.display='block'; c.focus(); }
+  if (sel.value === '__custom__') { c.style.display='block'; c.focus(); }
   else { c.style.display='none'; c.value=''; }
 }
 
-function getSelectedCat(selectorId, customId) {
-  // Prefer catMap (set by user interaction) then fall back to dataset.val (set in itemHTML)
-  const val = catMap.has(selectorId) ? catMap.get(selectorId) : (document.getElementById(selectorId)?.dataset.val || '');
+function getSelectedCat(selectId, customId) {
+  const val = document.getElementById(selectId)?.value || '';
   if (val === '__custom__') return (document.getElementById(customId)?.value || '').trim();
   return val;
 }
-
-// touchend delegation for .cat-opt — fires before 'click' and works on iOS
-// even when the list's {passive:false} touchmove causes iOS to cancel clicks.
-let _catTx = 0, _catTy = 0;
-document.addEventListener('touchstart', e => {
-  const btn = e.target.closest('.cat-opt');
-  _catTx = btn ? e.touches[0].clientX : -9999;
-  _catTy = btn ? e.touches[0].clientY : -9999;
-}, {passive: true});
-document.addEventListener('touchend', e => {
-  const btn = e.target.closest('.cat-opt');
-  if (!btn) return;
-  const dx = (e.changedTouches[0]?.clientX ?? _catTx) - _catTx;
-  const dy = (e.changedTouches[0]?.clientY ?? _catTy) - _catTy;
-  if (Math.abs(dx) > 12 || Math.abs(dy) > 12) return; // moved too far — scrolling
-  const sel = btn.closest('.cat-selector');
-  if (sel) selectCat(sel.id, btn.dataset.val);
-}, {passive: true});
 
 // ── edit form ──────────────────────────────────────────
 function openEdit(id) {
@@ -318,12 +289,9 @@ async function addTodo() {
   const input = document.getElementById('new-todo');
   const text  = input.value.trim();
   if (!text) return;
-  const category = getSelectedCat('add-cat-selector', 'new-cat-custom');
+  const category = getSelectedCat('add-cat-sel', 'new-cat-custom');
   input.value = '';
-  const sel = document.getElementById('add-cat-selector');
-  sel.querySelectorAll('.cat-opt').forEach(b => b.classList.remove('selected'));
-  sel.dataset.val = '';
-  catMap.delete('add-cat-selector');
+  document.getElementById('add-cat-sel').value = '';
   document.getElementById('new-cat-custom').value = '';
   document.getElementById('new-cat-custom').style.display = 'none';
   await api({ action:'add', text, category });
