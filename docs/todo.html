@@ -24,7 +24,7 @@
     .cat-selector { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
     .cat-opt { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; border: 1.5px solid #d1d1d6; background: #f2f2f7; color: #636366; cursor: pointer; -webkit-tap-highlight-color: transparent; }
     .cat-opt input[type="radio"] { display: none; }
-    .cat-opt.selected { background: #007aff; color: #fff; border-color: #007aff; }
+    .cat-opt:has(input[type="radio"]:checked) { background: #007aff; color: #fff; border-color: #007aff; }
     .custom-cat-input { display: none; width: 100%; margin-top: 6px; padding: 8px 12px; border: 1px solid #007aff; border-radius: 10px; font-size: 14px; outline: none; -webkit-appearance: none; background: #fff; }
 
     /* sort / filter */
@@ -41,7 +41,7 @@
     .swipe-del-btn { position: absolute; right: 0; top: 0; bottom: 0; width: 80px; background: #ff3b30; color: #fff; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
     .item { position: relative; background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); -webkit-touch-callout: none; }
     .item-row { display: flex; align-items: center; gap: 10px; }
-    .drag-handle { display: none; color: #c7c7cc; font-size: 20px; line-height: 1; flex-shrink: 0; padding: 0 2px; touch-action: none; cursor: grab; }
+    .drag-handle { display: none; color: #c7c7cc; font-size: 20px; flex-shrink: 0; padding: 4px 10px; min-height: 44px; align-items: center; justify-content: center; touch-action: none; cursor: grab; }
     .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #c7c7cc; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
     .item.done .check { background: #34c759; border-color: #34c759; }
     .item.done .check::after { content: ''; width: 10px; height: 6px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translateY(-1px); display: block; }
@@ -235,9 +235,9 @@ function itemHTML(t) {
     <div class="edit-form" id="edit-${t.id}">
       <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
       <div class="cat-selector" style="margin-bottom:6px;">
-        <label class="cat-opt${t.category==='会社'?' selected':''}"><input type="radio" name="cat${t.id}" value="会社" ${t.category==='会社'?'checked':''}>会社</label>
-        <label class="cat-opt${t.category==='プライベート'?' selected':''}"><input type="radio" name="cat${t.id}" value="プライベート" ${t.category==='プライベート'?'checked':''}>プライベート</label>
-        <label class="cat-opt${isCust?' selected':''}"><input type="radio" name="cat${t.id}" value="__custom__" ${isCust?'checked':''}>任意入力</label>
+        <label class="cat-opt"><input type="radio" name="cat${t.id}" value="会社" ${t.category==='会社'?'checked':''}>会社</label>
+        <label class="cat-opt"><input type="radio" name="cat${t.id}" value="プライベート" ${t.category==='プライベート'?'checked':''}>プライベート</label>
+        <label class="cat-opt"><input type="radio" name="cat${t.id}" value="__custom__" ${isCust?'checked':''}>任意入力</label>
       </div>
       <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(isCust?t.category:'')}" style="${isCust?'display:block':''}">
       <div class="edit-form-actions">
@@ -255,9 +255,6 @@ function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot
 document.addEventListener('change', e => {
   if (e.target.type !== 'radio') return;
   const name = e.target.name;
-  document.querySelectorAll(`input[name="${name}"]`).forEach(r =>
-    r.closest('label.cat-opt').classList.toggle('selected', r.checked)
-  );
   const isCustom = e.target.value === '__custom__';
   if (name === 'addcat') {
     const c = document.getElementById('new-cat-custom');
@@ -301,10 +298,7 @@ async function addTodo() {
   if (!text) return;
   const category = getSelectedCat('addcat', 'new-cat-custom');
   input.value = '';
-  document.querySelectorAll('input[name="addcat"]').forEach(r => {
-    r.checked = false;
-    r.closest('label.cat-opt').classList.remove('selected');
-  });
+  document.querySelectorAll('input[name="addcat"]').forEach(r => { r.checked = false; });
   document.getElementById('new-cat-custom').value = '';
   document.getElementById('new-cat-custom').style.display = 'none';
   await api({ action:'add', text, category });
@@ -439,16 +433,21 @@ function applyReorder(id,newIdx) {
 }
 
 // ── long press to edit ─────────────────────────────────
-let lpTimer=null;
+let lpTimer=null, lpX=0, lpY=0;
 function setupLongPress(listId) {
   const list=document.getElementById(listId);
   list.addEventListener('touchstart', e => {
     const el=e.target.closest('.text');
     if (!el) return;
     const id=el.id.replace('text-','');
-    lpTimer=setTimeout(()=>{ navigator.vibrate&&navigator.vibrate(50); openEdit(id); lpTimer=null; },600);
+    lpX=e.touches[0].clientX; lpY=e.touches[0].clientY;
+    lpTimer=setTimeout(()=>{ navigator.vibrate&&navigator.vibrate(50); openEdit(id); lpTimer=null; },500);
   }, {passive:true});
-  list.addEventListener('touchmove',  cancelLP, {passive:true});
+  list.addEventListener('touchmove', e => {
+    if(!lpTimer) return;
+    const dx=e.touches[0].clientX-lpX, dy=e.touches[0].clientY-lpY;
+    if(Math.abs(dx)>10||Math.abs(dy)>10) cancelLP();
+  }, {passive:true});
   list.addEventListener('touchend',   cancelLP, {passive:true});
   list.addEventListener('touchcancel',cancelLP, {passive:true});
 }
