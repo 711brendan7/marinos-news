@@ -23,10 +23,11 @@
       z-index: 10;
     }
     h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .add-area { margin-top: 10px; }
     .add-row {
       display: flex;
       gap: 8px;
-      margin-top: 10px;
+      margin-bottom: 6px;
     }
     .add-row input {
       flex: 1;
@@ -39,7 +40,23 @@
       -webkit-appearance: none;
     }
     .add-row input:focus { border-color: #007aff; background: #fff; }
-    .add-row button {
+    .add-cat-row {
+      display: flex;
+      gap: 8px;
+    }
+    .add-cat-row input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #d1d1d6;
+      border-radius: 10px;
+      font-size: 14px;
+      background: #f2f2f7;
+      outline: none;
+      -webkit-appearance: none;
+      color: #636366;
+    }
+    .add-cat-row input:focus { border-color: #007aff; background: #fff; }
+    .btn-primary {
       padding: 10px 18px;
       background: #007aff;
       color: #fff;
@@ -50,7 +67,33 @@
       cursor: pointer;
       white-space: nowrap;
     }
-    .add-row button:active { opacity: 0.7; }
+    .btn-primary:active { opacity: 0.7; }
+    .sort-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .sort-label { font-size: 12px; color: #8e8e93; white-space: nowrap; flex-shrink: 0; }
+    .sort-btn {
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid #d1d1d6;
+      background: #fff;
+      cursor: pointer;
+      white-space: nowrap;
+      color: #636366;
+      flex-shrink: 0;
+    }
+    .sort-btn.active {
+      background: #007aff;
+      color: #fff;
+      border-color: #007aff;
+    }
     .section-label {
       font-size: 13px;
       font-weight: 600;
@@ -64,11 +107,13 @@
       background: #fff;
       border-radius: 12px;
       margin-bottom: 8px;
+      padding: 12px 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .item-row {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 14px 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      gap: 10px;
     }
     .check {
       width: 26px; height: 26px;
@@ -91,25 +136,84 @@
       transform: rotate(-45deg) translateY(-1px);
       display: block;
     }
-    .text { flex: 1; font-size: 17px; line-height: 1.3; }
+    .text { flex: 1; font-size: 17px; line-height: 1.3; word-break: break-word; }
     .item.done .text { color: #8e8e93; text-decoration: line-through; }
+    .edit-btn {
+      color: #c7c7cc;
+      font-size: 15px;
+      cursor: pointer;
+      padding: 2px 4px;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    .edit-btn:active { color: #007aff; }
     .del {
       color: #c7c7cc;
       font-size: 22px;
       cursor: pointer;
       padding: 0 2px;
       line-height: 1;
+      flex-shrink: 0;
     }
     .del:active { color: #ff3b30; }
-    .setup-banner {
-      margin: 16px;
-      padding: 16px;
-      background: #fff3cd;
-      border-radius: 12px;
-      font-size: 14px;
-      line-height: 1.5;
+    .cat-tag {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 2px 8px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
     }
-    .setup-banner a { color: #007aff; }
+    .edit-form { display: none; margin-top: 10px; }
+    .edit-form.visible { display: block; }
+    .edit-form input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #007aff;
+      border-radius: 8px;
+      font-size: 15px;
+      margin-bottom: 6px;
+      outline: none;
+      -webkit-appearance: none;
+    }
+    .edit-form-cat {
+      display: flex;
+      gap: 6px;
+    }
+    .edit-form-cat input {
+      flex: 1;
+      padding: 7px 10px;
+      border: 1px solid #d1d1d6;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #636366;
+      outline: none;
+      -webkit-appearance: none;
+      margin-bottom: 0;
+      width: auto;
+    }
+    .edit-form-cat input:focus { border-color: #007aff; }
+    .btn-save {
+      padding: 7px 14px;
+      background: #007aff;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-cancel {
+      padding: 7px 10px;
+      background: #f2f2f7;
+      color: #636366;
+      border: 1px solid #d1d1d6;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
     #setup-form { padding: 16px; }
     #setup-form label { font-size: 14px; color: #8e8e93; display: block; margin-bottom: 4px; }
     #setup-form input {
@@ -144,11 +248,24 @@
 <div id="main-view" style="display:none">
   <header>
     <h1>TODO</h1>
-    <div class="add-row">
-      <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
-      <button onclick="addTodo()">追加</button>
+    <div class="add-area">
+      <div class="add-row">
+        <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
+      </div>
+      <div class="add-cat-row">
+        <input type="text" id="new-cat" list="cat-suggestions" placeholder="カテゴリ（任意）">
+        <datalist id="cat-suggestions"></datalist>
+        <button class="btn-primary" onclick="addTodo()">追加</button>
+      </div>
     </div>
   </header>
+
+  <div class="sort-bar">
+    <span class="sort-label">並び順:</span>
+    <button class="sort-btn" data-sort="date-desc" onclick="setSort('date-desc')">新着順</button>
+    <button class="sort-btn" data-sort="date-asc" onclick="setSort('date-asc')">古い順</button>
+    <button class="sort-btn" data-sort="category" onclick="setSort('category')">カテゴリ順</button>
+  </div>
 
   <div id="spinner" class="spinner">読み込み中...</div>
 
@@ -181,14 +298,18 @@
 <script>
 const LS_URL   = 'todo_gas_url';
 const LS_TOKEN = 'todo_gas_token';
+const LS_SORT  = 'todo_sort';
 
-let gasUrl = localStorage.getItem(LS_URL) || '';
-let token  = localStorage.getItem(LS_TOKEN) || '';
+let gasUrl   = localStorage.getItem(LS_URL)   || '';
+let token    = localStorage.getItem(LS_TOKEN) || '';
+let sortMode = localStorage.getItem(LS_SORT)  || 'date-desc';
+let allTodos = [];
 
 function init() {
   if (gasUrl && token) {
     document.getElementById('setup-view').style.display = 'none';
     document.getElementById('main-view').style.display  = 'block';
+    updateSortButtons();
     loadTodos();
   } else {
     document.getElementById('setup-view').style.display = 'block';
@@ -206,6 +327,19 @@ function saveConfig() {
   init();
 }
 
+function setSort(mode) {
+  sortMode = mode;
+  localStorage.setItem(LS_SORT, mode);
+  updateSortButtons();
+  render(allTodos);
+}
+
+function updateSortButtons() {
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sort === sortMode);
+  });
+}
+
 async function api(params) {
   const qs = new URLSearchParams({ token, ...params }).toString();
   const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
@@ -217,7 +351,9 @@ async function loadTodos() {
   spinner.style.display = 'block';
   try {
     const data = await api({ action: 'list' });
-    render(data.todos || []);
+    allTodos = data.todos || [];
+    updateCatSuggestions();
+    render(allTodos);
   } catch(e) {
     alert('読み込みに失敗しました。URLとトークンを確認してください。');
     console.error(e);
@@ -226,38 +362,103 @@ async function loadTodos() {
   }
 }
 
+function updateCatSuggestions() {
+  const cats = [...new Set(allTodos.map(t => t.category).filter(Boolean))];
+  const dl = document.getElementById('cat-suggestions');
+  dl.innerHTML = cats.map(c => `<option value="${escAttr(c)}">`).join('');
+}
+
+function sortedTodos(todos) {
+  const arr = [...todos];
+  if (sortMode === 'date-asc') {
+    arr.sort((a, b) => (a.created || '').localeCompare(b.created || ''));
+  } else if (sortMode === 'category') {
+    arr.sort((a, b) =>
+      (a.category || '').localeCompare(b.category || '', 'ja') ||
+      (b.created || '').localeCompare(a.created || '')
+    );
+  } else {
+    arr.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+  }
+  return arr;
+}
+
 function render(todos) {
-  const pending = todos.filter(t => t.status !== 'done');
-  const done    = todos.filter(t => t.status === 'done');
+  const pending = sortedTodos(todos.filter(t => t.status !== 'done'));
+  const done    = sortedTodos(todos.filter(t => t.status === 'done'));
 
-  const pl = document.getElementById('pending-list');
-  const dl = document.getElementById('done-list');
-
-  pl.innerHTML = pending.length ? pending.map(itemHTML).join('') : '<div class="empty">タスクなし</div>';
-  dl.innerHTML = done.length    ? done.map(itemHTML).join('')    : '<div class="empty">まだ完了したタスクはありません</div>';
+  document.getElementById('pending-list').innerHTML =
+    pending.length ? pending.map(itemHTML).join('') : '<div class="empty">タスクなし</div>';
+  document.getElementById('done-list').innerHTML =
+    done.length ? done.map(itemHTML).join('') : '<div class="empty">まだ完了したタスクはありません</div>';
 
   document.getElementById('done-section').style.display = done.length ? '' : 'none';
 }
 
+function catColor(cat) {
+  if (!cat) return '#8e8e93';
+  let h = 0;
+  for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) & 0xffff;
+  return `hsl(${h % 360}, 55%, 42%)`;
+}
+
 function itemHTML(t) {
   const cls = t.status === 'done' ? 'item done' : 'item';
+  const catBadge = t.category
+    ? `<span class="cat-tag" style="background:${catColor(t.category)}">${escHtml(t.category)}</span>`
+    : '';
   return `<div class="${cls}" id="item-${t.id}">
-    <div class="check" onclick="toggleDone('${t.id}')"></div>
-    <div class="text">${escHtml(t.text)}</div>
-    <div class="del" onclick="deleteTodo('${t.id}')">×</div>
+    <div class="item-row">
+      <div class="check" onclick="toggleDone('${t.id}')"></div>
+      <div class="text">${escHtml(t.text)}</div>
+      <div class="edit-btn" onclick="openEdit('${t.id}')">✎</div>
+      <div class="del" onclick="deleteTodo('${t.id}')">×</div>
+    </div>
+    ${catBadge ? `<div>${catBadge}</div>` : ''}
+    <div class="edit-form" id="edit-${t.id}">
+      <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
+      <div class="edit-form-cat">
+        <input type="text" id="edit-cat-${t.id}" value="${escAttr(t.category || '')}" list="cat-suggestions" placeholder="カテゴリ（任意）">
+        <button class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
+        <button class="btn-cancel" onclick="closeEdit('${t.id}')">×</button>
+      </div>
+    </div>
   </div>`;
 }
 
 function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+}
+
+function openEdit(id) {
+  document.getElementById(`edit-${id}`).classList.add('visible');
+  document.getElementById(`edit-text-${id}`).focus();
+}
+
+function closeEdit(id) {
+  document.getElementById(`edit-${id}`).classList.remove('visible');
+}
+
+async function saveEdit(id) {
+  const text     = document.getElementById(`edit-text-${id}`).value.trim();
+  const category = document.getElementById(`edit-cat-${id}`).value.trim();
+  if (!text) { alert('タスク名を入力してください'); return; }
+  await api({ action: 'edit', id, text, category });
+  loadTodos();
 }
 
 async function addTodo() {
-  const input = document.getElementById('new-todo');
-  const text  = input.value.trim();
+  const input    = document.getElementById('new-todo');
+  const catInput = document.getElementById('new-cat');
+  const text     = input.value.trim();
   if (!text) return;
-  input.value = '';
-  await api({ action: 'add', text });
+  const category = catInput.value.trim();
+  input.value    = '';
+  catInput.value = '';
+  await api({ action: 'add', text, category });
   loadTodos();
 }
 
