@@ -82,9 +82,9 @@
         <button type="button" class="btn-primary" onclick="addTodo()">追加</button>
       </div>
       <div class="cat-selector" id="add-cat-selector" data-val="" data-custom-id="new-cat-custom">
-        <button type="button" class="cat-opt" data-val="会社">会社</button>
-        <button type="button" class="cat-opt" data-val="プライベート">プライベート</button>
-        <button type="button" class="cat-opt" data-val="__custom__">任意入力</button>
+        <button type="button" class="cat-opt" data-val="会社" onclick="selectCat('add-cat-selector','会社')">会社</button>
+        <button type="button" class="cat-opt" data-val="プライベート" onclick="selectCat('add-cat-selector','プライベート')">プライベート</button>
+        <button type="button" class="cat-opt" data-val="__custom__" onclick="selectCat('add-cat-selector','__custom__')">任意入力</button>
       </div>
       <input type="text" id="new-cat-custom" class="custom-cat-input" placeholder="カテゴリを入力...">
     </div>
@@ -232,9 +232,9 @@ function itemHTML(t) {
     <div class="edit-form" id="edit-${t.id}">
       <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
       <div class="cat-selector" id="ecat-${t.id}" data-val="${escAttr(initVal)}" data-custom-id="edit-cat-custom-${t.id}" style="margin-bottom:6px;">
-        <button type="button" class="cat-opt${t.category==='会社'?' selected':''}" data-val="会社">会社</button>
-        <button type="button" class="cat-opt${t.category==='プライベート'?' selected':''}" data-val="プライベート">プライベート</button>
-        <button type="button" class="cat-opt${isCust?' selected':''}" data-val="__custom__">任意入力</button>
+        <button type="button" class="cat-opt${t.category==='会社'?' selected':''}" data-val="会社" onclick="selectCat('ecat-${t.id}','会社')">会社</button>
+        <button type="button" class="cat-opt${t.category==='プライベート'?' selected':''}" data-val="プライベート" onclick="selectCat('ecat-${t.id}','プライベート')">プライベート</button>
+        <button type="button" class="cat-opt${isCust?' selected':''}" data-val="__custom__" onclick="selectCat('ecat-${t.id}','__custom__')">任意入力</button>
       </div>
       <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(isCust?t.category:'')}" style="${isCust?'display:block':''}">
       <div class="edit-form-actions">
@@ -248,22 +248,21 @@ function itemHTML(t) {
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 
-// ── category button selection (delegated click) ────────
-document.addEventListener('click', e => {
-  const btn = e.target.closest('.cat-opt');
-  if (!btn) return;
-  const selector = btn.closest('.cat-selector');
-  if (!selector) return;
-  selector.querySelectorAll('.cat-opt').forEach(b => b.classList.remove('selected'));
-  btn.classList.add('selected');
-  selector.dataset.val = btn.dataset.val;
-  const customId = selector.dataset.customId;
+// ── category button selection ──────────────────────────
+function selectCat(selectorId, val) {
+  const sel = document.getElementById(selectorId);
+  if (!sel) return;
+  sel.querySelectorAll('.cat-opt').forEach(b => b.classList.remove('selected'));
+  const btn = [...sel.querySelectorAll('.cat-opt')].find(b => b.dataset.val === val);
+  if (btn) btn.classList.add('selected');
+  sel.dataset.val = val;
+  const customId = sel.dataset.customId;
   if (!customId) return;
   const c = document.getElementById(customId);
   if (!c) return;
-  if (btn.dataset.val === '__custom__') { c.style.display='block'; c.focus(); }
+  if (val === '__custom__') { c.style.display='block'; c.focus(); }
   else { c.style.display='none'; c.value=''; }
-});
+}
 
 function getSelectedCat(selectorId, customId) {
   const sel = document.getElementById(selectorId);
@@ -371,7 +370,7 @@ document.addEventListener('touchstart', e => {
 async function swipeDelete(id) { closeSwipeItem(openSwipeItem); await api({action:'delete',id}); loadTodos(); }
 
 // ── drag to reorder ────────────────────────────────────
-let dragState = null;
+let dragState = null, lastDragY = 0;
 function startDrag(id, e) {
   closeSwipeItem(openSwipeItem);
   const wrap = document.getElementById('wrap-'+id);
@@ -390,21 +389,25 @@ function startDrag(id, e) {
 function onDragMove(e) {
   if (!dragState) return;
   e.preventDefault();
-  dragState.ghost.style.top = (e.touches[0].clientY - dragState.offsetY) + 'px';
-  updateDropIndicator(e.touches[0].clientY);
+  lastDragY = e.touches[0].clientY;
+  dragState.ghost.style.top = (lastDragY - dragState.offsetY) + 'px';
+  updateDropIndicator(lastDragY);
 }
 function onDragEnd(e) {
   if (!dragState) return;
   document.removeEventListener('touchmove', onDragMove);
   document.removeEventListener('touchend',  onDragEnd);
-  const y = e.changedTouches[0].clientY;
-  const newIdx = getDropIndex(y);
-  dragState.ghost.remove();
-  dragState.wrap.style.opacity = '';
+  const { id, wrap, ghost } = dragState;
+  // Read drop position from indicator BEFORE removing it
   const ind = document.getElementById('drop-indicator');
+  const newIdx = ind
+    ? dropIdxFromIndicator(ind, wrap)
+    : dropIdxFromY(e.changedTouches[0]?.clientY ?? lastDragY, wrap);
+  ghost.remove();
+  wrap.style.opacity = '';
   if (ind) ind.remove();
-  applyReorder(dragState.id, newIdx);
-  dragState = null;
+  dragState = null; // clear before render
+  applyReorder(id, newIdx);
 }
 function updateDropIndicator(y) {
   let ind = document.getElementById('drop-indicator');
@@ -415,23 +418,33 @@ function updateDropIndicator(y) {
   for (const item of items) { const r=item.getBoundingClientRect(); if (y<r.top+r.height/2){before=item;break;} }
   before ? list.insertBefore(ind, before) : list.appendChild(ind);
 }
-function getDropIndex(y) {
-  const items = [...document.querySelectorAll('#pending-list .item-wrap')];
+// Returns insert index among non-dragged items by reading indicator's DOM position
+function dropIdxFromIndicator(ind, wrap) {
+  const list = document.getElementById('pending-list');
+  return [...list.children]
+    .slice(0, [...list.children].indexOf(ind))
+    .filter(el => el.classList.contains('item-wrap') && el !== wrap)
+    .length;
+}
+// Fallback: calculate from touch Y (used when indicator was never created)
+function dropIdxFromY(y, wrap) {
+  const items = [...document.querySelectorAll('#pending-list .item-wrap')].filter(el => el !== wrap);
   for (let i=0; i<items.length; i++) {
-    if (items[i]===dragState.wrap) continue;
     if (y < items[i].getBoundingClientRect().top + items[i].getBoundingClientRect().height/2) return i;
   }
   return items.length;
 }
+// newIdx = insert position in the array AFTER the dragged item has been removed
 function applyReorder(id, newIdx) {
   const items = [...document.querySelectorAll('#pending-list .item-wrap')];
   const ids   = items.map(el => el.id.replace('wrap-',''));
   const cur   = ids.indexOf(id);
+  if (cur === -1) return;
   ids.splice(cur, 1);
-  ids.splice(newIdx > cur ? newIdx-1 : newIdx, 0, id);
+  ids.splice(newIdx, 0, id);
   ids.forEach((tid,i) => { const t=allTodos.find(t=>t.id===tid); if(t) t.order=i+1; });
   render(allTodos);
-  api({action:'reorder', ids: ids.join(',')});
+  api({action:'reorder', ids: ids.join(',')}).then(loadTodos).catch(console.error);
 }
 
 // ── interaction: 500ms = edit, 1000ms = drag ───────────
