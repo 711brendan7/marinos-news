@@ -20,10 +20,11 @@
     .btn-primary { padding: 10px 18px; background: #007aff; color: #fff; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .btn-primary:active { opacity: 0.7; }
 
-    /* category select */
-    .cat-select { width: 100%; margin-top: 6px; padding: 8px 12px; border: 1.5px solid #d1d1d6; border-radius: 10px; font-size: 14px; background: #f2f2f7; color: #1c1c1e; }
-    .cat-select:focus { outline: none; border-color: #007aff; background: #fff; }
-    .custom-cat-input { display: none; width: 100%; margin-top: 6px; padding: 8px 12px; border: 1px solid #007aff; border-radius: 10px; font-size: 14px; outline: none; -webkit-appearance: none; background: #fff; }
+    /* category text input */
+    .cat-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+    .cat-text-input { flex: 1; min-width: 0; padding: 8px 10px; border: 1.5px solid #d1d1d6; border-radius: 10px; font-size: 14px; background: #f2f2f7; color: #1c1c1e; -webkit-appearance: none; }
+    .cat-text-input:focus { outline: none; border-color: #007aff; background: #fff; }
+    .cat-preset-btn { padding: 8px 10px; border-radius: 10px; font-size: 13px; font-weight: 500; border: 1.5px solid #d1d1d6; background: #f2f2f7; color: #636366; white-space: nowrap; flex-shrink: 0; }
 
     /* sort / filter */
     .sort-bar { display: flex; align-items: center; gap: 6px; padding: 10px 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -71,7 +72,7 @@
 
 <div id="main-view" style="display:none">
   <header>
-    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260610</span></h1>
+    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260610b</span></h1>
     <div class="add-area">
       <div class="add-row">
         <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
@@ -80,13 +81,11 @@
         </button>
         <button type="button" class="btn-primary" onclick="addTodo()">追加</button>
       </div>
-      <select id="add-cat-sel" class="cat-select" onchange="onCatSelectChange(this,'new-cat-custom')">
-        <option value="">カテゴリなし</option>
-        <option value="会社">会社</option>
-        <option value="プライベート">プライベート</option>
-        <option value="__custom__">任意入力...</option>
-      </select>
-      <input type="text" id="new-cat-custom" class="custom-cat-input" placeholder="カテゴリを入力...">
+      <div class="cat-row">
+        <input type="text" id="add-cat" class="cat-text-input" placeholder="カテゴリ（省略可）">
+        <button type="button" class="cat-preset-btn" onclick="document.getElementById('add-cat').value='会社'">会社</button>
+        <button type="button" class="cat-preset-btn" onclick="document.getElementById('add-cat').value='プライベート'">プライベート</button>
+      </div>
     </div>
   </header>
 
@@ -216,8 +215,6 @@ function catColor(cat) {
 }
 function itemHTML(t) {
   const cls    = t.status === 'done' ? 'item done' : 'item';
-  const isCust = t.category && t.category !== '会社' && t.category !== 'プライベート';
-  const initVal= isCust ? '__custom__' : (t.category || '');
   const badge  = t.category
     ? `<span class="cat-tag" style="background:${catColor(t.category)}">${escHtml(t.category)}</span>`
     : '';
@@ -231,14 +228,7 @@ function itemHTML(t) {
     ${badge ? `<div>${badge}</div>` : ''}
     <div class="edit-form" id="edit-${t.id}">
       <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
-      <select class="cat-select" id="ecat-${t.id}" onchange="onCatSelectChange(this,'edit-cat-custom-${t.id}')">
-        <option value="">カテゴリなし</option>
-        <option value="会社"${t.category==='会社'?' selected':''}>会社</option>
-        <option value="プライベート"${t.category==='プライベート'?' selected':''}>プライベート</option>
-        ${isCust?`<option value="${escAttr(t.category)}" selected>${escHtml(t.category)}</option>`:''}
-        <option value="__custom__">任意入力...</option>
-      </select>
-      <input type="text" id="edit-cat-custom-${t.id}" class="custom-cat-input" placeholder="カテゴリを入力..." value="${escAttr(isCust?t.category:'')}" style="${isCust?'display:block':''}">
+      <input type="text" id="ecat-${t.id}" class="cat-text-input" placeholder="カテゴリ（省略可）" value="${escAttr(t.category||'')}">
       <div class="edit-form-actions">
         <button type="button" class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
         <button type="button" class="btn-cancel" onclick="closeEdit('${t.id}')">×</button>
@@ -250,19 +240,7 @@ function itemHTML(t) {
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 
-// ── category selection ────────────────────────────────
-function onCatSelectChange(sel, customId) {
-  const c = document.getElementById(customId);
-  if (!c) return;
-  if (sel.value === '__custom__') { c.style.display='block'; c.focus(); }
-  else { c.style.display='none'; c.value=''; }
-}
-
-function getSelectedCat(selectId, customId) {
-  const val = document.getElementById(selectId)?.value || '';
-  if (val === '__custom__') return (document.getElementById(customId)?.value || '').trim();
-  return val;
-}
+// ── category ──────────────────────────────────────────
 
 // ── edit form ──────────────────────────────────────────
 function openEdit(id) {
@@ -278,7 +256,7 @@ function openEdit(id) {
 function closeEdit(id) { document.getElementById('edit-'+id)?.classList.remove('visible'); }
 async function saveEdit(id) {
   const text     = document.getElementById('edit-text-'+id).value.trim();
-  const category = getSelectedCat('ecat-'+id, 'edit-cat-custom-'+id);
+  const category = (document.getElementById('ecat-'+id)?.value || '').trim();
   if (!text) { alert('タスク名を入力してください'); return; }
   await api({ action:'edit', id, text, category });
   loadTodos();
@@ -289,11 +267,10 @@ async function addTodo() {
   const input = document.getElementById('new-todo');
   const text  = input.value.trim();
   if (!text) return;
-  const category = getSelectedCat('add-cat-sel', 'new-cat-custom');
+  const catEl = document.getElementById('add-cat');
+  const category = catEl.value.trim();
   input.value = '';
-  document.getElementById('add-cat-sel').value = '';
-  document.getElementById('new-cat-custom').value = '';
-  document.getElementById('new-cat-custom').style.display = 'none';
+  catEl.value = '';
   await api({ action:'add', text, category });
   loadTodos();
 }
