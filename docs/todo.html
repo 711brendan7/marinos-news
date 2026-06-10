@@ -189,6 +189,8 @@ async function loadTodos() {
   try {
     const data = await api({ action: 'list' });
     allTodos = data.todos || [];
+    const last = allTodos[allTodos.length - 1];
+    alert('最新todo: text="' + last?.text + '" category="' + last?.category + '"');
     updateFilterBar(); render(allTodos);
   } catch(e) { alert('読み込みに失敗しました。'); console.error(e); }
   finally { document.getElementById('spinner').style.display = 'none'; }
