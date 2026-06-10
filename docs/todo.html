@@ -285,11 +285,28 @@ async function toggleDone(id) { await api({ action:'done', id }); loadTodos(); }
 document.getElementById('new-todo').addEventListener('keydown', e => { if (e.key==='Enter') addTodo(); });
 
 // ── voice input ────────────────────────────────────────
+function showToast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;font-size:13px;padding:8px 16px;border-radius:20px;z-index:9999;pointer-events:none;transition:opacity 0.3s;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+}
+
 function startVoiceInput() {
   const input = document.getElementById('new-todo');
-  if (window.navigator.standalone) { input.focus(); return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { input.focus(); return; }
+  if (!SR) {
+    input.focus();
+    showToast('キーボードの🎤で音声入力できます');
+    return;
+  }
   const mic = document.querySelector('.mic-btn');
   const rec = new SR();
   rec.lang = 'ja-JP'; rec.interimResults = false; rec.maxAlternatives = 1;
@@ -298,7 +315,10 @@ function startVoiceInput() {
   rec.onresult = e => { input.value = e.results[0][0].transcript; };
   rec.onerror  = e => {
     mic.classList.remove('listening');
-    if (e.error==='service-not-allowed'||e.error==='not-allowed') input.focus();
+    input.focus();
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      showToast('キーボードの🎤で音声入力できます');
+    }
   };
   try { rec.start(); } catch(e) { mic.classList.remove('listening'); input.focus(); }
 }
