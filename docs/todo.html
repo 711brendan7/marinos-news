@@ -95,7 +95,6 @@
   <div class="sort-bar">
     <span class="sort-label">並び順:</span>
     <button class="sort-btn" data-sort="date-desc" onclick="setSort('date-desc')">新着順</button>
-    <button class="sort-btn" data-sort="date-asc"  onclick="setSort('date-asc')">古い順</button>
     <button class="sort-btn" data-sort="category"  onclick="setSort('category')">カテゴリ順</button>
     <button class="sort-btn" data-sort="custom"    onclick="setSort('custom')">並び替え</button>
   </div>
@@ -125,12 +124,14 @@
 const LS_URL     = 'todo_gas_url';
 const LS_TOKEN   = 'todo_gas_token';
 const LS_SORT    = 'todo_sort';
-const LS_CAT_DIR = 'todo_cat_dir';
+const LS_CAT_DIR  = 'todo_cat_dir';
+const LS_DATE_DIR = 'todo_date_dir';
 
-let gasUrl    = localStorage.getItem(LS_URL)     || '';
-let token     = localStorage.getItem(LS_TOKEN)   || '';
-let sortMode  = localStorage.getItem(LS_SORT)    || 'date-desc';
-let catSortDir= localStorage.getItem(LS_CAT_DIR) || 'asc';
+let gasUrl    = localStorage.getItem(LS_URL)      || '';
+let token     = localStorage.getItem(LS_TOKEN)    || '';
+let sortMode  = localStorage.getItem(LS_SORT)     || 'date-desc';
+let catSortDir = localStorage.getItem(LS_CAT_DIR) || 'asc';
+let dateSortDir= localStorage.getItem(LS_DATE_DIR)|| 'desc';
 let allTodos  = [];
 let filterCat = '';
 
@@ -156,6 +157,10 @@ function saveConfig() {
 
 // ── sort / filter ──────────────────────────────────────
 function setSort(mode) {
+  if (mode === 'date-desc' && sortMode === 'date-desc') {
+    dateSortDir = dateSortDir === 'desc' ? 'asc' : 'desc';
+    localStorage.setItem(LS_DATE_DIR, dateSortDir);
+  }
   if (mode === 'category' && sortMode === 'category') {
     catSortDir = catSortDir === 'asc' ? 'desc' : 'asc';
     localStorage.setItem(LS_CAT_DIR, catSortDir);
@@ -166,6 +171,11 @@ function setSort(mode) {
 function updateSortButtons() {
   document.querySelectorAll('.sort-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.sort === sortMode);
+    if (b.dataset.sort === 'date-desc') {
+      b.textContent = sortMode === 'date-desc'
+        ? '新着順 ' + (dateSortDir === 'desc' ? '↓' : '↑')
+        : '新着順';
+    }
     if (b.dataset.sort === 'category') {
       b.textContent = sortMode === 'category'
         ? 'カテゴリ ' + (catSortDir === 'asc' ? '↑' : '↓')
@@ -187,8 +197,11 @@ function setFilter(cat) {
 }
 function sortedTodos(arr) {
   const a = [...arr];
-  if      (sortMode === 'date-asc')  a.sort((x,y) => (x.created||'').localeCompare(y.created||''));
-  else if (sortMode === 'category') {
+  if (sortMode === 'date-desc') {
+    dateSortDir === 'desc'
+      ? a.sort((x,y) => (y.created||'').localeCompare(x.created||''))
+      : a.sort((x,y) => (x.created||'').localeCompare(y.created||''));
+  } else if (sortMode === 'category') {
     const dir = catSortDir === 'asc' ? 1 : -1;
     a.sort((x,y) => dir * (x.category||'zzz').localeCompare(y.category||'zzz','ja') || (y.created||'').localeCompare(x.created||''));
   }
