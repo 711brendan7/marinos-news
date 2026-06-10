@@ -50,6 +50,31 @@
     .item-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
     .item-date { font-size: 11px; color: #aeaeb2; }
 
+    /* attachments */
+    .attach-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
+    .attach-thumb { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; background: #f2f2f7; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+    .attach-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .attach-icon { font-size: 30px; line-height: 1; }
+    .attach-del { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; line-height: 18px; text-align: center; cursor: pointer; border: none; padding: 0; }
+    .attach-add-btn { width: 56px; height: 56px; border-radius: 10px; background: #f2f2f7; border: 1.5px dashed #c7c7cc; font-size: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; color: #636366; }
+    /* attachment sheet */
+    #attach-sheet { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 2000; align-items: flex-end; }
+    #attach-sheet.open { display: flex; }
+    .attach-sheet-inner { background: #fff; width: 100%; border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+    .attach-sheet-title { text-align: center; font-size: 13px; font-weight: 600; color: #8e8e93; margin-bottom: 8px; }
+    .attach-sheet-btn { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 4px; background: none; border: none; border-top: 1px solid #f2f2f7; font-size: 17px; color: #1c1c1e; cursor: pointer; text-align: left; }
+    .attach-sheet-btn:first-of-type { border-top: none; }
+    .attach-cancel-btn { margin-top: 8px; width: 100%; padding: 14px; background: #f2f2f7; border: none; border-radius: 12px; font-size: 17px; font-weight: 600; color: #007aff; cursor: pointer; }
+    /* voice recorder */
+    #voice-recorder { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 2001; flex-direction: column; align-items: center; justify-content: center; gap: 24px; }
+    #voice-recorder.open { display: flex; }
+    .rec-timer { font-size: 48px; font-weight: 200; color: #fff; font-variant-numeric: tabular-nums; }
+    .rec-status { font-size: 14px; color: #aeaeb2; }
+    .rec-btn { width: 80px; height: 80px; border-radius: 50%; background: #ff3b30; border: 4px solid rgba(255,255,255,0.3); font-size: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .rec-btn.recording { animation: rpulse 1.2s infinite; }
+    @keyframes rpulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,59,48,0.4)} 50%{box-shadow:0 0 0 16px rgba(255,59,48,0)} }
+    .rec-cancel { background: none; border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 10px 24px; border-radius: 20px; font-size: 15px; cursor: pointer; }
+
     /* edit form */
     .edit-form { display: none; margin-top: 10px; }
     .edit-form.visible { display: block; }
@@ -89,6 +114,8 @@
         <button type="button" class="cat-preset-btn" onclick="document.getElementById('add-cat').value='プライベート'">プライベート</button>
         <button type="button" class="cat-preset-btn" onclick="document.getElementById('add-cat').value='メモ'">メモ</button>
       </div>
+      <div id="add-attach-preview" class="attach-bar" style="margin-bottom:4px;"></div>
+      <button type="button" class="attach-add-btn" onclick="openAttachPicker('__add__')" style="margin-top:2px;width:36px;height:36px;font-size:16px;">📎</button>
     </div>
   </header>
 
@@ -107,6 +134,26 @@
   <div id="pending-section"><div class="section-label">未完了</div><div class="list" id="pending-list"></div></div>
   <div id="done-section"><div class="section-label">完了済み</div><div class="list" id="done-list"></div></div>
 </div>
+
+<!-- attachment sheet -->
+<div id="attach-sheet" onclick="if(event.target===this)closeAttachPicker()">
+  <div class="attach-sheet-inner">
+    <div class="attach-sheet-title">添付ファイルを追加</div>
+    <button class="attach-sheet-btn" onclick="attachPickCamera()"><span>📷</span> カメラで撮影</button>
+    <button class="attach-sheet-btn" onclick="attachPickGallery()"><span>🖼️</span> 写真・動画を選択</button>
+    <button class="attach-sheet-btn" onclick="openVoiceRecorder()"><span>🎤</span> 音声を録音</button>
+    <button class="attach-cancel-btn" onclick="closeAttachPicker()">キャンセル</button>
+  </div>
+</div>
+<!-- voice recorder -->
+<div id="voice-recorder">
+  <div class="rec-timer" id="rec-timer">0:00</div>
+  <div class="rec-status" id="rec-status">準備中...</div>
+  <button class="rec-btn" id="rec-btn" onclick="stopRecording()">⏹</button>
+  <button class="rec-cancel" onclick="cancelRecording()">キャンセル</button>
+</div>
+<!-- hidden file input -->
+<input type="file" id="attach-file-input" style="display:none" accept="image/*,video/*">
 
 <div id="setup-view">
   <header><h1>TODO セットアップ</h1></header>
@@ -253,15 +300,35 @@ function fmtDate(s) {
   const m = d.getMonth() + 1, day = d.getDate();
   return d.getFullYear() === now.getFullYear() ? `${m}/${day}` : `${d.getFullYear()}/${m}/${day}`;
 }
+function attachThumb(a, todoId, editable) {
+  const url  = `https://drive.google.com/file/d/${a.id}/view`;
+  const isImg = a.mime && a.mime.startsWith('image/');
+  const isAud = a.mime && a.mime.startsWith('audio/');
+  const inner = isImg
+    ? `<img src="https://drive.google.com/thumbnail?id=${a.id}&sz=w120" loading="lazy">`
+    : `<span class="attach-icon">${isAud ? '🎤' : '🎬'}</span>`;
+  const del = editable
+    ? `<button class="attach-del" onclick="event.stopPropagation();deleteAttachment('${todoId}','${a.id}')">×</button>`
+    : '';
+  return `<div class="attach-thumb" onclick="window.open('${url}','_blank')">${inner}${del}</div>`;
+}
 function itemHTML(t) {
-  const cls    = t.status === 'done' ? 'item done' : 'item';
-  const badge  = t.category
+  const cls   = t.status === 'done' ? 'item done' : 'item';
+  const badge = t.category
     ? `<span class="cat-tag" style="background:${catColor(t.category)}">${escHtml(t.category)}</span>`
     : '';
-  const date   = fmtDate(t.created);
-  const meta   = (badge || date)
+  const date  = fmtDate(t.created);
+  const meta  = (badge || date)
     ? `<div class="item-meta">${badge}${date ? `<span class="item-date">${date}</span>` : ''}</div>`
     : '';
+  const atts  = t.attachments || [];
+  const attachView = atts.length
+    ? `<div class="attach-bar">${atts.map(a => attachThumb(a, t.id, false)).join('')}</div>`
+    : '';
+  const attachEdit = `<div class="attach-bar" style="margin:6px 0;">
+    ${atts.map(a => attachThumb(a, t.id, true)).join('')}
+    <button class="attach-add-btn" onclick="openAttachPicker('${t.id}')">📎</button>
+  </div>`;
   return `<div class="item-wrap" id="wrap-${t.id}">
   <button type="button" class="swipe-del-btn" onclick="swipeDelete('${t.id}')">削除</button>
   <div class="${cls}" id="item-${t.id}">
@@ -269,7 +336,7 @@ function itemHTML(t) {
       <div class="check" onclick="toggleDone('${t.id}')"></div>
       <div class="text" id="text-${t.id}">${escHtml(t.text)}</div>
     </div>
-    ${meta}
+    ${meta}${attachView}
     <div class="edit-form" id="edit-${t.id}">
       <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
       <div class="cat-row" style="margin-bottom:6px;flex-wrap:wrap;">
@@ -279,6 +346,7 @@ function itemHTML(t) {
         <button type="button" class="cat-preset-btn" style="color:#ff3b30;border-color:#ff3b30;" onclick="document.getElementById('ecat-${t.id}').value=''">×</button>
       </div>
       <input type="text" id="ecat-${t.id}" class="cat-text-input" placeholder="カテゴリ（省略可）" value="${escAttr(t.category||'')}">
+      ${attachEdit}
       <div class="edit-form-actions">
         <button type="button" class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
         <button type="button" class="btn-cancel" onclick="closeEdit('${t.id}')">×</button>
@@ -316,12 +384,163 @@ async function saveEdit(id) {
 async function addTodo() {
   const input = document.getElementById('new-todo');
   const text  = input.value.trim();
-  if (!text) return;
+  if (!text && !pendingAddFile) return;
   const catEl = document.getElementById('add-cat');
   const category = catEl.value.trim();
-  input.value = '';
-  catEl.value = '';
-  await api({ action:'add', text, category });
+  input.value = ''; catEl.value = '';
+  const res = await api({ action:'add', text: text || '（添付ファイル）', category });
+  if (res.id && pendingAddFile) {
+    await uploadAttachment(res.id, pendingAddFile);
+    pendingAddFile = null;
+    document.getElementById('add-attach-preview').innerHTML = '';
+  }
+  loadTodos();
+}
+
+// ── attachments ────────────────────────────────────────
+let attachCtx = null;
+let pendingAddFile = null;
+let mediaRecorder = null, audioChunks = [], recTimer = null, recSec = 0;
+
+async function apiPost(body) {
+  const res = await fetch(gasUrl, {
+    method: 'POST', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ token, ...body })
+  });
+  return res.json();
+}
+
+async function fileToBase64(file) {
+  return new Promise(resolve => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result.split(',')[1]);
+    r.readAsDataURL(file);
+  });
+}
+
+async function compressImage(file) {
+  return new Promise(resolve => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1200, scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(resolve, 'image/jpeg', 0.82);
+    };
+    img.src = url;
+  });
+}
+
+async function uploadAttachment(todoId, file) {
+  const isImg  = file.type.startsWith('image/');
+  const upload = isImg ? await compressImage(file) : file;
+  const ext    = isImg ? 'jpg' : (file.name?.split('.').pop() || 'bin');
+  const mime   = isImg ? 'image/jpeg' : file.type;
+  const fname  = `attach_${Date.now()}.${ext}`;
+  const base64 = await fileToBase64(new File([upload], fname, { type: mime }));
+  return apiPost({ action:'attach', todoId, base64, mime, filename: fname });
+}
+
+function openAttachPicker(todoId) {
+  attachCtx = todoId;
+  document.getElementById('attach-sheet').classList.add('open');
+}
+function closeAttachPicker() {
+  document.getElementById('attach-sheet').classList.remove('open');
+}
+function attachPickCamera() {
+  closeAttachPicker();
+  const inp = document.getElementById('attach-file-input');
+  inp.accept = 'image/*,video/*'; inp.setAttribute('capture','environment'); inp.click();
+}
+function attachPickGallery() {
+  closeAttachPicker();
+  const inp = document.getElementById('attach-file-input');
+  inp.accept = 'image/*,video/*'; inp.removeAttribute('capture'); inp.click();
+}
+
+document.getElementById('attach-file-input').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return; e.target.value = '';
+  if (attachCtx === '__add__') {
+    pendingAddFile = file;
+    const prev = document.getElementById('add-attach-preview');
+    const isImg = file.type.startsWith('image/');
+    prev.innerHTML = isImg
+      ? `<div class="attach-thumb"><img src="${URL.createObjectURL(file)}"><button class="attach-del" onclick="pendingAddFile=null;this.parentNode.parentNode.innerHTML=''">×</button></div>`
+      : `<div class="attach-thumb"><span class="attach-icon">${file.type.startsWith('audio/')?' 🎤':'🎬'}</span><button class="attach-del" onclick="pendingAddFile=null;this.parentNode.parentNode.innerHTML=''">×</button></div>`;
+    return;
+  }
+  showToast('アップロード中...');
+  const res = await uploadAttachment(attachCtx, file);
+  res.success ? (showToast('添付しました'), loadTodos()) : showToast('失敗: ' + (res.error||''));
+});
+
+// voice recorder
+function openVoiceRecorder() {
+  closeAttachPicker();
+  recSec = 0;
+  document.getElementById('rec-timer').textContent = '0:00';
+  document.getElementById('rec-status').textContent = 'マイクを起動中...';
+  document.getElementById('rec-btn').classList.remove('recording');
+  document.getElementById('voice-recorder').classList.add('open');
+  startRecording();
+}
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
+    const mime = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
+    mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstart = () => {
+      document.getElementById('rec-btn').classList.add('recording');
+      document.getElementById('rec-status').textContent = '録音中 — ⏹ を押して停止';
+      clearInterval(recTimer);
+      recTimer = setInterval(() => {
+        recSec++;
+        document.getElementById('rec-timer').textContent =
+          Math.floor(recSec/60) + ':' + String(recSec%60).padStart(2,'0');
+      }, 1000);
+    };
+    mediaRecorder.onstop = async () => {
+      clearInterval(recTimer);
+      const stream2 = mediaRecorder.stream; stream2?.getTracks().forEach(t=>t.stop());
+      document.getElementById('voice-recorder').classList.remove('open');
+      if (recSec < 1 || !attachCtx) return;
+      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+      const ext  = mediaRecorder.mimeType.includes('mp4') ? 'm4a' : 'webm';
+      const fname = `voice_${Date.now()}.${ext}`;
+      if (attachCtx === '__add__') {
+        pendingAddFile = new File([blob], fname, { type: blob.type });
+        const prev = document.getElementById('add-attach-preview');
+        prev.innerHTML = `<div class="attach-thumb"><span class="attach-icon">🎤</span><button class="attach-del" onclick="pendingAddFile=null;this.parentNode.parentNode.innerHTML=''">×</button></div>`;
+        return;
+      }
+      showToast('アップロード中...');
+      const base64 = await fileToBase64(new File([blob], fname, { type: blob.type }));
+      const res = await apiPost({ action:'attach', todoId: attachCtx, base64, mime: blob.type, filename: fname });
+      res.success ? (showToast('音声を添付しました'), loadTodos()) : showToast('失敗: ' + (res.error||''));
+    };
+    mediaRecorder.start();
+  } catch(err) {
+    document.getElementById('rec-status').textContent = 'マイクを許可してください';
+  }
+}
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+  else cancelRecording();
+}
+function cancelRecording() {
+  clearInterval(recTimer);
+  if (mediaRecorder) { try { mediaRecorder.stream?.getTracks().forEach(t=>t.stop()); } catch(e){} mediaRecorder=null; }
+  audioChunks = []; recSec = 0;
+  document.getElementById('voice-recorder').classList.remove('open');
+}
+async function deleteAttachment(todoId, fileId) {
+  await api({ action:'detach', id:todoId, fileId });
   loadTodos();
 }
 async function toggleDone(id) { await api({ action:'done', id }); loadTodos(); }
