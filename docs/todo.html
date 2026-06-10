@@ -52,7 +52,7 @@
 
     /* attachments */
     .attach-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
-    .attach-thumb { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; background: #f2f2f7; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+    .attach-thumb { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; background: #f2f2f7; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; text-decoration: none; color: inherit; }
     .attach-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .attach-icon { font-size: 30px; line-height: 1; }
     .attach-del { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; line-height: 18px; text-align: center; cursor: pointer; border: none; padding: 0; }
@@ -301,16 +301,16 @@ function fmtDate(s) {
   return d.getFullYear() === now.getFullYear() ? `${m}/${day}` : `${d.getFullYear()}/${m}/${day}`;
 }
 function attachThumb(a, todoId, editable) {
-  const url  = `https://drive.google.com/file/d/${a.id}/view`;
+  const url   = `https://drive.google.com/file/d/${a.id}/view`;
   const isImg = a.mime && a.mime.startsWith('image/');
   const isAud = a.mime && a.mime.startsWith('audio/');
   const inner = isImg
-    ? `<img src="https://drive.google.com/thumbnail?id=${a.id}&sz=w120" loading="lazy">`
+    ? `<img src="https://drive.google.com/thumbnail?id=${a.id}&sz=w120" loading="lazy" onerror="this.style.display='none';this.insertAdjacentHTML('afterend','<span class=attach-icon>🖼️</span>')">`
     : `<span class="attach-icon">${isAud ? '🎤' : '🎬'}</span>`;
   const del = editable
-    ? `<button class="attach-del" onclick="event.stopPropagation();deleteAttachment('${todoId}','${a.id}')">×</button>`
+    ? `<button class="attach-del" onclick="event.preventDefault();event.stopPropagation();deleteAttachment('${todoId}','${a.id}')">×</button>`
     : '';
-  return `<div class="attach-thumb" onclick="window.open('${url}','_blank')">${inner}${del}</div>`;
+  return `<a class="attach-thumb" href="${url}" target="_blank" rel="noopener">${inner}${del}</a>`;
 }
 function itemHTML(t) {
   const cls   = t.status === 'done' ? 'item done' : 'item';
@@ -390,9 +390,10 @@ async function addTodo() {
   input.value = ''; catEl.value = '';
   const res = await api({ action:'add', text: text || '（添付ファイル）', category });
   if (res.id && pendingAddFile) {
-    await uploadAttachment(res.id, pendingAddFile);
+    const ur = await uploadAttachment(res.id, pendingAddFile);
     pendingAddFile = null;
     document.getElementById('add-attach-preview').innerHTML = '';
+    if (!ur || !ur.success) showToast('添付失敗: ' + (ur?.error || 'エラー'));
   }
   loadTodos();
 }
