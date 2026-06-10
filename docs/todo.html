@@ -38,7 +38,7 @@
     /* item */
     .item-wrap { position: relative; overflow: hidden; border-radius: 12px; margin-bottom: 8px; }
     .swipe-del-btn { position: absolute; right: 0; top: 0; bottom: 0; width: 80px; background: #ff3b30; color: #fff; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
-    .item { position: relative; background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); -webkit-touch-callout: none; transition: box-shadow 0.15s, transform 0.15s; }
+    .item { position: relative; background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); -webkit-touch-callout: none; transition: box-shadow 0.15s, transform 0.15s; will-change: transform; touch-action: pan-y; }
     .item.drag-ready { box-shadow: 0 6px 20px rgba(0,0,0,0.18); transform: scale(1.02); }
     .item-row { display: flex; align-items: center; gap: 10px; }
     .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #c7c7cc; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
@@ -335,7 +335,14 @@ function closeSwipeItem(item) {
 document.addEventListener('touchstart', e => {
   if (openSwipeItem&&!openSwipeItem.contains(e.target)) closeSwipeItem(openSwipeItem);
 }, {passive:true});
-async function swipeDelete(id) { closeSwipeItem(openSwipeItem); await api({action:'delete',id}); loadTodos(); }
+function swipeDelete(id) {
+  openSwipeItem = null;
+  const wrap = document.getElementById('wrap-' + id);
+  if (wrap) wrap.remove();
+  allTodos = allTodos.filter(t => t.id !== id);
+  updateFilterBar();
+  api({ action: 'delete', id }).catch(() => loadTodos());
+}
 
 // ── drag to reorder ────────────────────────────────────
 let dragState = null, lastDragY = 0;
