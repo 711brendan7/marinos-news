@@ -72,7 +72,7 @@
 
 <div id="main-view" style="display:none">
   <header>
-    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260610c-debug</span></h1>
+    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260610d-debug</span></h1>
     <div class="add-area">
       <div class="add-row">
         <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
@@ -189,8 +189,6 @@ async function loadTodos() {
   try {
     const data = await api({ action: 'list' });
     allTodos = data.todos || [];
-    const last = allTodos[allTodos.length - 1];
-    alert('最新todo: text="' + last?.text + '" category="' + last?.category + '"');
     updateFilterBar(); render(allTodos);
   } catch(e) { alert('読み込みに失敗しました。'); console.error(e); }
   finally { document.getElementById('spinner').style.display = 'none'; }
@@ -264,6 +262,20 @@ async function saveEdit(id) {
   loadTodos();
 }
 
+function dbg(msg) {
+  let p = document.getElementById('dbg-panel');
+  if (!p) {
+    p = document.createElement('div');
+    p.id = 'dbg-panel';
+    p.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#000c;color:#0f0;font:11px monospace;padding:8px;max-height:180px;overflow-y:auto;z-index:9999;';
+    document.body.appendChild(p);
+  }
+  const d = document.createElement('div');
+  d.textContent = new Date().toISOString().slice(11,19) + ' ' + msg;
+  p.appendChild(d);
+  p.scrollTop = p.scrollHeight;
+}
+
 // ── add todo ───────────────────────────────────────────
 async function addTodo() {
   const input = document.getElementById('new-todo');
@@ -271,12 +283,24 @@ async function addTodo() {
   if (!text) return;
   const catEl = document.getElementById('add-cat');
   const category = catEl.value.trim();
-  alert('DEBUG\ntext: "' + text + '"\ncategory: "' + category + '"');
+  dbg('ADD: text="' + text + '" category="' + category + '"');
   input.value = '';
   catEl.value = '';
-  const res = await api({ action:'add', text, category });
-  alert('GAS response: ' + JSON.stringify(res));
-  loadTodos();
+  try {
+    const res = await api({ action:'add', text, category });
+    dbg('ADD res: ' + JSON.stringify(res));
+  } catch(e) {
+    dbg('ADD err: ' + e);
+  }
+  try {
+    const data = await api({ action: 'list' });
+    const last = data.todos?.[data.todos.length - 1];
+    dbg('LIST last: text="' + last?.text + '" cat="' + last?.category + '"');
+    allTodos = data.todos || [];
+    updateFilterBar(); render(allTodos);
+  } catch(e) {
+    dbg('LIST err: ' + e);
+  }
 }
 async function toggleDone(id) { await api({ action:'done', id }); loadTodos(); }
 document.getElementById('new-todo').addEventListener('keydown', e => { if (e.key==='Enter') addTodo(); });
