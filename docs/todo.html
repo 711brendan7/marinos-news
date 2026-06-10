@@ -85,6 +85,7 @@
         <input type="text" id="add-cat" class="cat-text-input" placeholder="カテゴリ（省略可）">
         <button type="button" class="cat-preset-btn" onclick="document.getElementById('add-cat').value='会社'">会社</button>
         <button type="button" class="cat-preset-btn" onclick="document.getElementById('add-cat').value='プライベート'">プライベート</button>
+        <button type="button" class="cat-preset-btn" onclick="document.getElementById('add-cat').value='メモ'">メモ</button>
       </div>
     </div>
   </header>
@@ -228,6 +229,12 @@ function itemHTML(t) {
     ${badge ? `<div>${badge}</div>` : ''}
     <div class="edit-form" id="edit-${t.id}">
       <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
+      <div class="cat-row" style="margin-bottom:6px;flex-wrap:wrap;">
+        <button type="button" class="cat-preset-btn" onclick="document.getElementById('ecat-${t.id}').value='会社'">会社</button>
+        <button type="button" class="cat-preset-btn" onclick="document.getElementById('ecat-${t.id}').value='プライベート'">プライベート</button>
+        <button type="button" class="cat-preset-btn" onclick="document.getElementById('ecat-${t.id}').value='メモ'">メモ</button>
+        <button type="button" class="cat-preset-btn" style="color:#ff3b30;border-color:#ff3b30;" onclick="document.getElementById('ecat-${t.id}').value=''">×</button>
+      </div>
       <input type="text" id="ecat-${t.id}" class="cat-text-input" placeholder="カテゴリ（省略可）" value="${escAttr(t.category||'')}">
       <div class="edit-form-actions">
         <button type="button" class="btn-save" onclick="saveEdit('${t.id}')">保存</button>
