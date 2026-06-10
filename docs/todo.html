@@ -46,7 +46,9 @@
     .item.done .check::after { content: ''; width: 10px; height: 6px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translateY(-1px); display: block; }
     .text { flex: 1; font-size: 17px; line-height: 1.3; word-break: break-word; -webkit-user-select: none; user-select: none; }
     .item.done .text { color: #8e8e93; text-decoration: line-through; }
-    .cat-tag { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; color: #fff; }
+    .cat-tag { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; color: #fff; }
+    .item-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+    .item-date { font-size: 11px; color: #aeaeb2; }
 
     /* edit form */
     .edit-form { display: none; margin-top: 10px; }
@@ -120,15 +122,17 @@
 </div>
 
 <script>
-const LS_URL  = 'todo_gas_url';
-const LS_TOKEN= 'todo_gas_token';
-const LS_SORT = 'todo_sort';
+const LS_URL     = 'todo_gas_url';
+const LS_TOKEN   = 'todo_gas_token';
+const LS_SORT    = 'todo_sort';
+const LS_CAT_DIR = 'todo_cat_dir';
 
-let gasUrl   = localStorage.getItem(LS_URL)   || '';
-let token    = localStorage.getItem(LS_TOKEN) || '';
-let sortMode = localStorage.getItem(LS_SORT)  || 'date-desc';
-let allTodos = [];
-let filterCat= '';
+let gasUrl    = localStorage.getItem(LS_URL)     || '';
+let token     = localStorage.getItem(LS_TOKEN)   || '';
+let sortMode  = localStorage.getItem(LS_SORT)    || 'date-desc';
+let catSortDir= localStorage.getItem(LS_CAT_DIR) || 'asc';
+let allTodos  = [];
+let filterCat = '';
 
 // ── init ──────────────────────────────────────────────
 function init() {
@@ -152,11 +156,22 @@ function saveConfig() {
 
 // ── sort / filter ──────────────────────────────────────
 function setSort(mode) {
+  if (mode === 'category' && sortMode === 'category') {
+    catSortDir = catSortDir === 'asc' ? 'desc' : 'asc';
+    localStorage.setItem(LS_CAT_DIR, catSortDir);
+  }
   sortMode = mode; localStorage.setItem(LS_SORT, mode);
   updateSortButtons(); render(allTodos);
 }
 function updateSortButtons() {
-  document.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === sortMode));
+  document.querySelectorAll('.sort-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.sort === sortMode);
+    if (b.dataset.sort === 'category') {
+      b.textContent = sortMode === 'category'
+        ? 'カテゴリ ' + (catSortDir === 'asc' ? '↑' : '↓')
+        : 'カテゴリ順';
+    }
+  });
 }
 function updateFilterBar() {
   const cats = [...new Set(allTodos.map(t => t.category).filter(Boolean))];
@@ -173,7 +188,10 @@ function setFilter(cat) {
 function sortedTodos(arr) {
   const a = [...arr];
   if      (sortMode === 'date-asc')  a.sort((x,y) => (x.created||'').localeCompare(y.created||''));
-  else if (sortMode === 'category')  a.sort((x,y) => (x.category||'').localeCompare(y.category||'','ja') || (y.created||'').localeCompare(x.created||''));
+  else if (sortMode === 'category') {
+    const dir = catSortDir === 'asc' ? 1 : -1;
+    a.sort((x,y) => dir * (x.category||'zzz').localeCompare(y.category||'zzz','ja') || (y.created||'').localeCompare(x.created||''));
+  }
   else if (sortMode === 'custom')    a.sort((x,y) => (x.order??999999)-(y.order??999999));
   else                               a.sort((x,y) => (y.created||'').localeCompare(x.created||''));
   return a;
@@ -214,10 +232,22 @@ function catColor(cat) {
   let h = 0; for (let i = 0; i < cat.length; i++) h = (h*31+cat.charCodeAt(i))&0xffff;
   return `hsl(${h%360},55%,42%)`;
 }
+function fmtDate(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d)) return '';
+  const now = new Date();
+  const m = d.getMonth() + 1, day = d.getDate();
+  return d.getFullYear() === now.getFullYear() ? `${m}/${day}` : `${d.getFullYear()}/${m}/${day}`;
+}
 function itemHTML(t) {
   const cls    = t.status === 'done' ? 'item done' : 'item';
   const badge  = t.category
     ? `<span class="cat-tag" style="background:${catColor(t.category)}">${escHtml(t.category)}</span>`
+    : '';
+  const date   = fmtDate(t.created);
+  const meta   = (badge || date)
+    ? `<div class="item-meta">${badge}${date ? `<span class="item-date">${date}</span>` : ''}</div>`
     : '';
   return `<div class="item-wrap" id="wrap-${t.id}">
   <button type="button" class="swipe-del-btn" onclick="swipeDelete('${t.id}')">削除</button>
@@ -226,7 +256,7 @@ function itemHTML(t) {
       <div class="check" onclick="toggleDone('${t.id}')"></div>
       <div class="text" id="text-${t.id}">${escHtml(t.text)}</div>
     </div>
-    ${badge ? `<div>${badge}</div>` : ''}
+    ${meta}
     <div class="edit-form" id="edit-${t.id}">
       <input type="text" id="edit-text-${t.id}" value="${escAttr(t.text)}" placeholder="タスク名">
       <div class="cat-row" style="margin-bottom:6px;flex-wrap:wrap;">
