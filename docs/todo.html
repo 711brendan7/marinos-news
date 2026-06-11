@@ -38,7 +38,10 @@
     /* item */
     .item-wrap { position: relative; overflow: hidden; border-radius: 12px; margin-bottom: 8px; }
     .swipe-del-btn { position: absolute; right: 0; top: 0; bottom: 0; width: 80px; background: #ff3b30; color: #fff; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
-    .item { position: relative; background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); -webkit-touch-callout: none; transition: box-shadow 0.15s, transform 0.15s; will-change: transform; touch-action: pan-y; }
+    .item { position: relative; background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); -webkit-touch-callout: none; transition: box-shadow 0.15s, transform 0.15s; will-change: transform; touch-action: pan-y; border-left: 3px solid transparent; }
+    .item.important { border-left-color: #ff9500; background: #fffaf3; }
+    .star-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #c7c7cc; padding: 0 0 0 6px; flex-shrink: 0; line-height: 1; -webkit-tap-highlight-color: transparent; }
+    .star-btn.on { color: #ff9500; }
     .item.drag-ready { box-shadow: 0 6px 20px rgba(0,0,0,0.18); transform: scale(1.02); }
     .item-row { display: flex; align-items: center; gap: 10px; }
     .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #c7c7cc; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
@@ -99,7 +102,7 @@
 
 <div id="main-view" style="display:none">
   <header>
-    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260610</span></h1>
+    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260611</span></h1>
     <div class="add-area">
       <div class="add-row">
         <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
@@ -251,9 +254,13 @@ function sortedTodos(arr) {
   } else if (sortMode === 'category') {
     const dir = catSortDir === 'asc' ? 1 : -1;
     a.sort((x,y) => dir * (x.category||'zzz').localeCompare(y.category||'zzz','ja') || (y.created||'').localeCompare(x.created||''));
+  } else if (sortMode === 'custom') {
+    a.sort((x,y) => (x.order??999999)-(y.order??999999));
+  } else {
+    a.sort((x,y) => (y.created||'').localeCompare(x.created||''));
   }
-  else if (sortMode === 'custom')    a.sort((x,y) => (x.order??999999)-(y.order??999999));
-  else                               a.sort((x,y) => (y.created||'').localeCompare(x.created||''));
+  // important tasks always float to top (stable)
+  a.sort((x,y) => (y.important ? 1 : 0) - (x.important ? 1 : 0));
   return a;
 }
 
@@ -313,7 +320,9 @@ function attachThumb(a, todoId, editable) {
   return `<a class="attach-thumb" href="${url}" target="_blank" rel="noopener">${inner}${del}</a>`;
 }
 function itemHTML(t) {
-  const cls   = t.status === 'done' ? 'item done' : 'item';
+  const imp   = t.important ? ' important' : '';
+  const cls   = (t.status === 'done' ? 'item done' : 'item') + imp;
+  const star  = `<button type="button" class="star-btn${t.important?' on':''}" onclick="event.stopPropagation();toggleImportant('${t.id}')">${t.important?'★':'☆'}</button>`;
   const badge = t.category
     ? `<span class="cat-tag" style="background:${catColor(t.category)}">${escHtml(t.category)}</span>`
     : '';
@@ -335,6 +344,7 @@ function itemHTML(t) {
     <div class="item-row">
       <div class="check" onclick="toggleDone('${t.id}')"></div>
       <div class="text" id="text-${t.id}">${escHtml(t.text)}</div>
+      ${star}
     </div>
     ${meta}${attachView}
     <div class="edit-form" id="edit-${t.id}">
@@ -545,6 +555,13 @@ async function deleteAttachment(todoId, fileId) {
   loadTodos();
 }
 async function toggleDone(id) { await api({ action:'done', id }); loadTodos(); }
+async function toggleImportant(id) {
+  const t = allTodos.find(x => x.id === id);
+  if (!t) return;
+  t.important = !t.important;
+  render(allTodos);
+  await api({ action:'important', id, value: t.important ? 'true' : 'false' });
+}
 document.getElementById('new-todo').addEventListener('keydown', e => { if (e.key==='Enter') addTodo(); });
 
 // ── voice input ────────────────────────────────────────

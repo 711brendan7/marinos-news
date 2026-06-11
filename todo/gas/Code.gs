@@ -5,13 +5,14 @@ function doGet(e) {
   const p = e.parameter;
   if (p.token !== SECRET_TOKEN) return makeResponse({ error: 'Unauthorized' });
   const action = p.action || 'list';
-  if (action === 'list')    return makeResponse(listTodos());
-  if (action === 'add')     return makeResponse(addTodo(p.text, p.category));
-  if (action === 'done')    return makeResponse(doneTodo(p.id));
-  if (action === 'delete')  return makeResponse(deleteTodo(p.id));
-  if (action === 'edit')    return makeResponse(editTodo(p.id, p.text, p.category));
-  if (action === 'reorder') return makeResponse(reorderTodos(p.ids));
-  if (action === 'detach')  return makeResponse(detachFile(p.id, p.fileId));
+  if (action === 'list')      return makeResponse(listTodos());
+  if (action === 'add')       return makeResponse(addTodo(p.text, p.category));
+  if (action === 'done')      return makeResponse(doneTodo(p.id));
+  if (action === 'delete')    return makeResponse(deleteTodo(p.id));
+  if (action === 'edit')      return makeResponse(editTodo(p.id, p.text, p.category));
+  if (action === 'reorder')   return makeResponse(reorderTodos(p.ids));
+  if (action === 'detach')    return makeResponse(detachFile(p.id, p.fileId));
+  if (action === 'important') return makeResponse(setImportant(p.id, p.value));
   return makeResponse({ error: 'Unknown action' });
 }
 
@@ -42,7 +43,8 @@ function listTodos() {
       id: r[0], text: r[1], status: r[2], created: r[3], done_at: r[4],
       category: r[5] || '',
       order: (r[6] !== '' && r[6] != null) ? Number(r[6]) : (i + 1) * 100,
-      attachments: r[7] ? (function() { try { return JSON.parse(r[7]); } catch(e) { return []; } })() : []
+      attachments: r[7] ? (function() { try { return JSON.parse(r[7]); } catch(e) { return []; } })() : [],
+      important: r[8] === true || r[8] === 'TRUE'
     }))
   };
 }
@@ -145,6 +147,18 @@ function attachFile(todoId, base64, mime, filename) {
   } catch(e) {
     return { error: String(e) };
   }
+}
+
+function setImportant(id, value) {
+  const sheet = getSheet();
+  const data  = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === id) {
+      sheet.getRange(i + 1, 9).setValue(value === 'true');
+      return { success: true };
+    }
+  }
+  return { error: 'Not found' };
 }
 
 function detachFile(todoId, fileId) {
