@@ -662,7 +662,7 @@ async function submitAddBook() {
   const author = document.getElementById('new-author').value.trim();
   const notes  = document.getElementById('new-notes').value.trim();
   try {
-    const data = await apiPost({ action: 'addBook', title, author, notes });
+    const data = await api({ action: 'addBook', title, author, notes });
     if (data.success) {
       closeAddBook();
       toast(`「${title}」を追加しました`);

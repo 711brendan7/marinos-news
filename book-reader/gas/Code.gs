@@ -2,6 +2,13 @@ const BOOKS_SHEET = 'Books';
 const PAGES_SHEET = 'Pages';
 const DRIVE_FOLDER = 'BookReader';
 
+// GAS エディタで一度だけ実行してトークンを設定する
+function initialSetup() {
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('TOKEN', 'E9mGkYlHqwpBwBqYMV5s_7BZIiNT1rqP');
+  Logger.log('TOKEN を設定しました: ' + props.getProperty('TOKEN'));
+}
+
 function getToken() {
   return PropertiesService.getScriptProperties().getProperty('TOKEN');
 }
@@ -22,6 +29,7 @@ function ok(data) {
 // ── GET ──────────────────────────────────────────────────────────────
 function doGet(e) {
   const p = e.parameter;
+
   if (!auth(p)) return ok({ error: 'unauthorized' });
 
   if (p.action === 'listBooks')  return ok(listBooks());
@@ -30,6 +38,8 @@ function doGet(e) {
   if (p.action === 'deleteBook') return ok(deleteBook(p.bookId));
   if (p.action === 'deletePage') return ok(deletePage(p.pageId));
   if (p.action === 'transcribe') return ok(transcribePage(p.pageId));
+  if (p.action === 'addBook')    return ok(addBook({ title: p.title, author: p.author, notes: p.notes }));
+  if (p.action === 'editBook')   return ok(editBook({ bookId: p.bookId, title: p.title, author: p.author, notes: p.notes }));
 
   return ok({ error: 'unknown action' });
 }
