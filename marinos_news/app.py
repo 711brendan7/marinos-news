@@ -52,7 +52,7 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.markdown('<p style="font-size:1em;font-weight:700;margin:0 0 4px;">⚽ 最新ニュース</p>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size:1.2em;font-weight:700;margin:0 0 4px;">⚽ 最新ニュース</p>', unsafe_allow_html=True)
     pin_input = st.text_input("PINコードを入力してください", type="password", max_chars=8)
     if st.button("ログイン", type="primary"):
         correct_pin = st.secrets.get("APP_PIN", "")
@@ -81,7 +81,7 @@ def get_cat_color(cat: str) -> str:
     return CATEGORY_COLORS[idx % len(CATEGORY_COLORS)]
 
 
-st.markdown('<p style="font-size:1em;font-weight:700;margin:0 0 4px;">⚽ 最新ニュース</p>', unsafe_allow_html=True)
+st.markdown('<p style="font-size:1.2em;font-weight:700;margin:0 0 4px;">⚽ 最新ニュース</p>', unsafe_allow_html=True)
 st.caption("Google ニュース・Yahoo!ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
 st.components.v1.html("""
@@ -347,7 +347,7 @@ if "df_news" in st.session_state:
             f'border-left:4px solid #1C83E1;'
             f'padding:10px 14px;'
             f'border-radius:4px;'
-            f'font-size:0.72em;'
+            f'font-size:0.85em;'
             f'line-height:1.5;'
             f'margin-bottom:1rem;'
             f'">{st.session_state.overall_summary}</div>',
