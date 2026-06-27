@@ -41,6 +41,21 @@ def save_settings(data):
         pass
 
 
+def _save_all_settings():
+    checked = [c for c in st.session_state.get("categories", [])
+               if st.session_state.get(f"cat_{c}", True)]
+    save_settings({
+        "categories": st.session_state.get("categories", []),
+        "keyword_map": st.session_state.get("keyword_map", {}),
+        "checked_cats": checked,
+        "max_items": st.session_state.get("opt_max_items", 20),
+        "days": st.session_state.get("opt_days", 3),
+        "summary_enabled": st.session_state.get("opt_summary", True),
+        "youtube_enabled": st.session_state.get("opt_youtube", False),
+        "cat_mode": st.session_state.get("opt_cat_mode", "OR"),
+    })
+
+
 st.set_page_config(
     page_title="サッカー 最新ニュース",
     page_icon="⚽",
@@ -68,7 +83,13 @@ if "settings_loaded" not in st.session_state:
     saved = load_settings()
     st.session_state.categories = saved.get("categories", DEFAULT_CATEGORIES.copy())
     st.session_state.keyword_map = {**DEFAULT_KEYWORD_MAP, **saved.get("keyword_map", {})}
-    st.session_state.default_checked = saved.get("default_checked", DEFAULT_CATEGORIES.copy())
+    raw_checked = saved.get("checked_cats", saved.get("default_checked", None))
+    st.session_state.checked_cats = set(raw_checked) if raw_checked is not None else set(st.session_state.categories)
+    st.session_state.opt_max_items = saved.get("max_items", 20)
+    st.session_state.opt_days = saved.get("days", 3)
+    st.session_state.opt_summary = saved.get("summary_enabled", True)
+    st.session_state.opt_youtube = saved.get("youtube_enabled", False)
+    st.session_state.opt_cat_mode = saved.get("cat_mode", "OR")
     st.session_state.settings_loaded = True
 
 for cat in st.session_state.categories:
@@ -151,12 +172,12 @@ with st.sidebar:
 
     st.subheader("カテゴリ")
 
-    cat_mode = st.radio("絞り込みモード", ["OR", "AND"], horizontal=True)
+    cat_mode = st.radio("絞り込みモード", ["OR", "AND"], key="opt_cat_mode", horizontal=True)
     use_and = (cat_mode == "AND")
 
     for cat in st.session_state.categories:
         if f"cat_{cat}" not in st.session_state:
-            st.session_state[f"cat_{cat}"] = cat in st.session_state.default_checked
+            st.session_state[f"cat_{cat}"] = cat in st.session_state.get("checked_cats", set())
 
     col_all, col_none = st.columns(2)
     with col_all:
@@ -192,64 +213,38 @@ with st.sidebar:
                 if name not in st.session_state.categories:
                     st.session_state.categories.append(name)
                     st.session_state.keyword_map[name] = name
-                    save_settings({
-                        "categories": st.session_state.categories,
-                        "keyword_map": st.session_state.keyword_map,
-                        "default_checked": st.session_state.default_checked,
-                    })
+                    st.session_state.checked_cats = st.session_state.get("checked_cats", set())
+                    st.session_state.checked_cats.add(name)
+                    _save_all_settings()
                 st.rerun()
 
-        st.write("デフォルト選択・削除:")
+        st.write("削除:")
         to_delete = None
-        toggle_cat = None
         for cat in st.session_state.categories:
             color = get_cat_color(cat)
-            is_default = cat in st.session_state.default_checked
-            col_name, col_def, col_del = st.columns([4, 2, 2])
+            col_name, col_del = st.columns([5, 2])
             with col_name:
                 st.markdown(
                     f'<span style="display:inline-block;width:8px;height:8px;border-radius:2px;'
                     f'background:{color};margin-right:4px;vertical-align:middle;"></span>{cat}',
                     unsafe_allow_html=True,
                 )
-            with col_def:
-                label = "✅ON" if is_default else "⬜OFF"
-                if st.button(label, key=f"def_{cat}", use_container_width=True):
-                    toggle_cat = cat
             with col_del:
                 if st.button("削除", key=f"del_{cat}", use_container_width=True):
                     to_delete = cat
 
-        if toggle_cat:
-            dc = st.session_state.default_checked
-            if toggle_cat in dc:
-                dc.remove(toggle_cat)
-            else:
-                dc.append(toggle_cat)
-            save_settings({
-                "categories": st.session_state.categories,
-                "keyword_map": st.session_state.keyword_map,
-                "default_checked": dc,
-            })
-            st.rerun()
-
         if to_delete:
             st.session_state.categories.remove(to_delete)
             st.session_state.keyword_map.pop(to_delete, None)
-            if to_delete in st.session_state.default_checked:
-                st.session_state.default_checked.remove(to_delete)
-            save_settings({
-                "categories": st.session_state.categories,
-                "keyword_map": st.session_state.keyword_map,
-                "default_checked": st.session_state.default_checked,
-            })
+            st.session_state.get("checked_cats", set()).discard(to_delete)
+            _save_all_settings()
             st.rerun()
 
     st.subheader("オプション")
-    max_items = st.slider("最大取得件数（カテゴリごと）", min_value=5, max_value=50, value=20, step=5)
-    days = st.slider("過去N日以内", min_value=1, max_value=30, value=3, step=1)
-    summary_enabled = st.checkbox("AI要約を表示する", value=True)
-    youtube_enabled = st.checkbox("YouTube動画も取得する", value=False)
+    max_items = st.slider("最大取得件数（カテゴリごと）", min_value=5, max_value=50, step=5, key="opt_max_items")
+    days = st.slider("過去N日以内", min_value=1, max_value=30, step=1, key="opt_days")
+    summary_enabled = st.checkbox("AI要約を表示する", key="opt_summary")
+    youtube_enabled = st.checkbox("YouTube動画も取得する", key="opt_youtube")
 
 
 def generate_overall_summary(df: pd.DataFrame) -> str:
@@ -588,3 +583,6 @@ Google ニュース・Yahoo! ニュース・スポニチ・日刊スポーツ・
 | 過去N日以内 | 何日前までの記事を取得するか（1〜30日） |
 | YouTube動画も取得する | YouTube の関連動画も一緒に取得する |
     """)
+
+# ── 設定保存（毎回） ──────────────────────────────────────────
+_save_all_settings()
