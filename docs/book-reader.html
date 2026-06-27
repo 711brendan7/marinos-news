@@ -583,7 +583,7 @@ async function loadPages(bookId) {
 function renderPages() {
   const grid = document.getElementById('pages-grid');
   if (!currentPages.length) {
-    grid.innerHTML = '<div class="loading" style="grid-column:1/-1">ページがありません<br><small>iOSショートカットから撮影して追加してください</small></div>';
+    grid.innerHTML = '<div class="loading" style="grid-column:1/-1">ページがありません<br><small>右下の 📷 ボタンで撮影して追加してください</small></div>';
     return;
   }
   grid.innerHTML = currentPages.map(p => `
