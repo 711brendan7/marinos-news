@@ -495,7 +495,8 @@ function api(params) {
 function apiPost(body) {
   return fetch(cfg.url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ ...body, token: cfg.token })
   }).then(r => r.json());
 }
