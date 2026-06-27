@@ -383,7 +383,12 @@
   <div class="scrollable">
     <div id="pages-grid" class="pages-grid"></div>
   </div>
+  <button class="add-btn" onclick="openCamera()" title="ページを撮影">📷</button>
 </div>
+
+<!-- hidden camera input -->
+<input type="file" id="camera-input" accept="image/*" capture="environment"
+  style="display:none" onchange="handlePhotoCapture(this)">
 
 <!-- ── Speed Reader View ── -->
 <div id="speed-view" class="view">
@@ -592,6 +597,55 @@ function renderPages() {
       </div>
     </div>
   `).join('');
+}
+
+// ── Camera & Upload ──────────────────────────────────────────────────
+function openCamera() {
+  const input = document.getElementById('camera-input');
+  input.value = '';
+  input.click();
+}
+
+async function handlePhotoCapture(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  toast('アップロード中…');
+  try {
+    const base64 = await compressToBase64(file);
+    const data = await apiPost({
+      action: 'addPage',
+      bookId: currentBook.id,
+      imageBase64: base64,
+      imageMime: 'image/jpeg',
+      ocr: true,
+      ocrLanguage: 'ja'
+    });
+    if (data.success) {
+      toast(data.transcript ? '保存・文字起こし完了' : '保存しました');
+      await loadPages(currentBook.id);
+    } else {
+      toast(data.error || 'エラーが発生しました');
+    }
+  } catch (_) { toast('アップロードに失敗しました'); }
+}
+
+function compressToBase64(file) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1200;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width  = Math.round(img.width  * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const dataUrl = c.toDataURL('image/jpeg', 0.8);
+      resolve(dataUrl.split(',')[1]);
+    };
+    img.src = url;
+  });
 }
 
 // ── Image Viewer ─────────────────────────────────────────────────────
