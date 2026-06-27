@@ -227,20 +227,29 @@ function deletePage(pageId) {
 }
 
 function runOcr(blob, id, lang) {
-  try {
-    const resource = { title: `${id}_ocr`, mimeType: 'application/vnd.google-apps.document' };
-    const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: lang || 'ja' });
-    const docId = ocrFile.getId();
-    const exportUrl = `https://docs.google.com/feeds/download/documents/export/Export?id=${docId}&exportFormat=txt`;
-    const text = UrlFetchApp.fetch(exportUrl, {
-      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
-    }).getContentText('UTF-8').trim();
-    DriveApp.getFileById(docId).setTrashed(true);
-    return text;
-  } catch (err) {
-    Logger.log('OCR error: ' + err);
-    return '';
-  }
+  const token = ScriptApp.getOAuthToken();
+  const boundary = 'ocrboundary' + id.replace(/-/g, '');
+  const meta = JSON.stringify({ name: id + '_ocr', mimeType: 'application/vnd.google-apps.document' });
+  const header = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${blob.getContentType()}\r\n\r\n`;
+  const footer = `\r\n--${boundary}--`;
+  const body = Utilities.newBlob(header).getBytes().concat(blob.getBytes()).concat(Utilities.newBlob(footer).getBytes());
+
+  const up = UrlFetchApp.fetch(
+    `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&ocrLanguage=${lang || 'ja'}`,
+    { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': `multipart/related; boundary=${boundary}` }, payload: body, muteHttpExceptions: true }
+  );
+  const docId = JSON.parse(up.getContentText()).id;
+  if (!docId) { Logger.log('OCR upload failed: ' + up.getContentText()); return ''; }
+
+  const text = UrlFetchApp.fetch(
+    `https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain`,
+    { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true }
+  ).getContentText('UTF-8').trim();
+
+  UrlFetchApp.fetch(`https://www.googleapis.com/drive/v3/files/${docId}`,
+    { method: 'DELETE', headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
+
+  return text;
 }
 
 function transcribePage(pageId) {

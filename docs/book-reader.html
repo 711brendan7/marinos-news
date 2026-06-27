@@ -132,6 +132,25 @@
       display: flex; align-items: center; justify-content: center;
     }
 
+    /* shelf list mode */
+    .shelf-list { display: flex; flex-direction: column; gap: 10px; }
+    .book-list-item {
+      display: flex; gap: 12px; align-items: center;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px; cursor: pointer;
+    }
+    .book-list-item:active { opacity: 0.8; }
+    .book-list-thumb {
+      width: 56px; height: 74px; border-radius: 6px;
+      background: var(--surface2); overflow: hidden; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 28px;
+    }
+    .book-list-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .book-list-info { flex: 1; min-width: 0; }
+    .book-list-title { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+    .book-list-author { font-size: 12px; color: var(--text2); }
+    .book-list-notes { font-size: 11px; color: var(--text2); margin-top: 4px; font-style: italic; }
+
     /* ── Pages view ── */
     .pages-grid {
       display: grid;
@@ -407,6 +426,7 @@
 <div id="shelf-view" class="view">
   <div class="topbar">
     <h1>📚 本棚</h1>
+    <button class="ctrl-btn" onclick="cycleShelfMode()" id="shelf-mode-btn" style="font-size:16px;padding:6px 10px">📷</button>
     <button class="ctrl-btn" onclick="showSetup()" style="font-size:12px">設定</button>
   </div>
   <div class="scrollable">
@@ -574,7 +594,8 @@ let books = [];
 let currentBook = null;
 let currentPages = [];
 let viewerPage = null;
-let viewMode = 'grid'; // 'grid' | 'list' | 'slide'
+let viewMode = 'grid';
+let shelfMode = 'grid';
 const VIEW_MODES = ['grid','list','slide'];
 const VIEW_ICONS = { grid:'📷', list:'📋', slide:'📖' };
 
@@ -591,23 +612,47 @@ async function loadBooks() {
   }
 }
 
+function cycleShelfMode() {
+  shelfMode = shelfMode === 'grid' ? 'list' : 'grid';
+  document.getElementById('shelf-mode-btn').textContent = shelfMode === 'grid' ? '📷' : '📋';
+  renderShelf();
+}
+
 function renderShelf() {
-  const grid = document.getElementById('shelf-grid');
+  const el = document.getElementById('shelf-grid');
   if (!books.length) {
-    grid.innerHTML = '<div class="loading">本がありません。＋から追加してください</div>';
+    el.className = 'shelf-grid';
+    el.innerHTML = '<div class="loading">本がありません。＋から追加してください</div>';
     return;
   }
-  grid.innerHTML = books.map(b => `
-    <div class="book-card" onclick="openBook('${b.id}')">
-      <div class="book-cover">
-        ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+  if (shelfMode === 'list') {
+    el.className = 'shelf-list';
+    el.innerHTML = books.map(b => `
+      <div class="book-list-item" onclick="openBook('${b.id}')">
+        <div class="book-list-thumb">
+          ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+        </div>
+        <div class="book-list-info">
+          <div class="book-list-title">${esc(b.title)}</div>
+          <div class="book-list-author">${esc(b.author || '')}</div>
+          ${b.notes ? `<div class="book-list-notes">${esc(b.notes)}</div>` : ''}
+        </div>
       </div>
-      <div class="book-info">
-        <div class="book-title">${esc(b.title)}</div>
-        <div class="book-author">${esc(b.author || '')}</div>
+    `).join('');
+  } else {
+    el.className = 'shelf-grid';
+    el.innerHTML = books.map(b => `
+      <div class="book-card" onclick="openBook('${b.id}')">
+        <div class="book-cover">
+          ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+        </div>
+        <div class="book-info">
+          <div class="book-title">${esc(b.title)}</div>
+          <div class="book-author">${esc(b.author || '')}</div>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+  }
 }
 
 async function openBook(bookId) {
