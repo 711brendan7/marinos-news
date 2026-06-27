@@ -62,22 +62,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── PIN認証 ───────────────────────────────────────────────────
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-    st.markdown('<p style="font-size:1.2em;font-weight:700;margin:0 0 4px;">⚽ 最新ニュース</p>', unsafe_allow_html=True)
-    pin_input = st.text_input("PINコードを入力してください", type="password", max_chars=8)
-    if st.button("ログイン", type="primary"):
-        correct_pin = st.secrets.get("APP_PIN", "")
-        if pin_input == correct_pin:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("PINコードが正しくありません")
-    st.stop()
-
 # ── 永続設定の読み込み（セッション初回のみ） ──────────────────
 if "settings_loaded" not in st.session_state:
     saved = load_settings()
@@ -256,6 +240,11 @@ def generate_overall_summary(df: pd.DataFrame) -> str:
         return ""
     titles = df["タイトル"].tolist()[:40]
     titles_text = "\n".join(f"・{t}" for t in titles)
+    cats = sorted(set(
+        c for row_cats in df.get("カテゴリー", pd.Series(dtype=object)).tolist()
+        for c in (row_cats if isinstance(row_cats, list) else [])
+    ))
+    topic = "、".join(cats) if cats else "ニュース"
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -263,7 +252,7 @@ def generate_overall_summary(df: pd.DataFrame) -> str:
         messages=[{
             "role": "user",
             "content": (
-                "以下のサッカーニュースの見出し一覧を3〜5文で日本語で要約してください。"
+                f"以下の「{topic}」に関するニュース見出し一覧を3〜5文で日本語で要約してください。"
                 "トレンドや注目の話題を中心に簡潔にまとめてください。\n\n" + titles_text
             ),
         }],
@@ -308,12 +297,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:transpar
 .bm.on{visibility:visible}
 .title{font-size:13.5px;font-weight:600;line-height:1.4;color:#1c1c1e;margin:3px 0 2px}
 .meta{font-size:11px;color:#999}
+.item.read .title{color:#aaa;font-weight:400}
+.item.read .meta{color:#ccc}
 .empty{padding:20px;text-align:center;color:#999;font-size:13px}
 </style>
 <div id="list"></div>
 <script>
 var BLOCKED_KEY='blocked_news_urls';
 var SAVED_KEY='saved_news_urls';
+var READ_KEY='read_news_urls';
 var articles=__ARTICLES__;
 var catColors=__COLORS__;
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -321,10 +313,12 @@ function getSet(k){try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'))
 function saveSet(k,s){localStorage.setItem(k,JSON.stringify([...s]));}
 function addBlocked(url){var s=getSet(BLOCKED_KEY);s.add(url);saveSet(BLOCKED_KEY,s);}
 function toggleSaved(url){var s=getSet(SAVED_KEY);if(s.has(url)){s.delete(url);}else{s.add(url);}saveSet(SAVED_KEY,s);return s.has(url);}
+function addRead(url){var s=getSet(READ_KEY);s.add(url);saveSet(READ_KEY,s);}
 var swipeMoved=false;
 function render(){
   var blocked=getSet(BLOCKED_KEY);
   var saved=getSet(SAVED_KEY);
+  var read=getSet(READ_KEY);
   var visible=articles.filter(function(a){return !blocked.has(a.url);});
   var list=document.getElementById('list');
   if(!visible.length){list.innerHTML='<div class="empty">表示できるニュースがありません</div>';return;}
@@ -333,20 +327,38 @@ function render(){
       return '<span class="badge" style="background:'+(catColors[c]||'#8e8e93')+'">'+esc(c)+'</span>';
     }).join('');
     var bm='<span class="bm'+(saved.has(a.url)?' on':'')+'">🔖</span>';
+    var readCls=read.has(a.url)?' read':'';
     return '<div class="wrap" id="w'+i+'">'
-      +'<div class="item" id="it'+i+'">'
+      +'<div class="item'+readCls+'" id="it'+i+'">'
       +'<div class="row"><div class="badges">'+badges+'</div>'+bm+'</div>'
       +'<div class="title">'+esc(a.title)+'</div>'
       +'<div class="meta">'+esc(a.source)+' ｜ '+esc(a.date)+'</div>'
       +'</div></div>';
   }).join('');
+  function markRead(item,url){
+    addRead(url);
+    item.classList.add('read');
+    var t=item.querySelector('.title');var m=item.querySelector('.meta');
+    if(t){t.style.color='#aaa';t.style.fontWeight='400';}
+    if(m){m.style.color='#ccc';}
+  }
   visible.forEach(function(a,i){
     var item=document.getElementById('it'+i);
-    item.addEventListener('click',function(){if(!swipeMoved&&a.url.startsWith('http'))window.open(a.url,'_blank');});
-    attachSwipe(item,a.url,i);
+    if(read.has(a.url)){
+      var t=item.querySelector('.title');var m=item.querySelector('.meta');
+      if(t){t.style.color='#aaa';t.style.fontWeight='400';}
+      if(m){m.style.color='#ccc';}
+    }
+    item.addEventListener('click',function(){
+      if(!swipeMoved&&a.url.startsWith('http')){
+        markRead(item,a.url);
+        window.open(a.url,'_blank');
+      }
+    });
+    attachSwipe(item,a.url,i,function(){markRead(item,a.url);});
   });
 }
-function attachSwipe(item,url,idx){
+function attachSwipe(item,url,idx,onTap){
   var sx,sy,cx=0,tracking=false;
   var DEL_THR=100,SAVE_THR=60;
   item.addEventListener('touchstart',function(e){
@@ -357,7 +369,7 @@ function attachSwipe(item,url,idx){
     if(!tracking)return;
     var dx=e.touches[0].clientX-sx,dy=e.touches[0].clientY-sy;
     if(!swipeMoved&&Math.abs(dy)>Math.abs(dx)+5){tracking=false;return;}
-    if(Math.abs(dx)>8)swipeMoved=true;
+    if(Math.abs(dx)>15)swipeMoved=true;
     cx=dx;
     item.style.transform='translateX('+cx+'px)';
     if(cx<-20){item.style.background='rgba(255,59,48,'+Math.min(0.25,(-cx-20)/200)+')';}
@@ -390,6 +402,7 @@ function attachSwipe(item,url,idx){
     }else{
       item.style.transition='transform 0.2s ease';
       item.style.transform='translateX(0)';
+      if(!swipeMoved&&onTap)onTap();
     }
     cx=0;
   },{passive:true});
@@ -506,21 +519,21 @@ with tab_news:
                 c for row_cats in df_news["カテゴリー"].tolist()
                 for c in (row_cats if isinstance(row_cats, list) else [])
             ))
-            c1, c2, c3 = st.columns([2, 2, 2])
+            c1, c2 = st.columns([2, 2])
             with c1:
                 st.success(f"{len(df_news)} 件")
             with c2:
                 sort_key = st.selectbox("並び順", SORT_OPTIONS, label_visibility="collapsed")
-            with c3:
-                cat_filter = st.selectbox(
-                    "カテゴリー",
-                    ["すべて"] + cats_in_data,
-                    label_visibility="collapsed",
-                )
+            cat_filter = st.multiselect(
+                "カテゴリーで絞り込み",
+                cats_in_data,
+                placeholder="全カテゴリー（絞り込みなし）",
+                label_visibility="collapsed",
+            )
             df_view = sort_df(df_news, sort_key)
-            if cat_filter != "すべて":
+            if cat_filter:
                 df_view = df_view[df_view["カテゴリー"].apply(
-                    lambda x: cat_filter in (x if isinstance(x, list) else [])
+                    lambda x: bool(set(cat_filter) & set(x if isinstance(x, list) else []))
                 )].reset_index(drop=True)
             render_articles(df_view)
 

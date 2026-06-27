@@ -12,8 +12,33 @@ RSS_SOURCES = [
         "keyword_in_url": True,
     },
     {
-        "name": "Yahoo!ニュース",
+        "name": "Yahoo!ニュース(スポーツ)",
         "url": "https://news.yahoo.co.jp/rss/topics/sports.xml",
+        "keyword_in_url": False,
+    },
+    {
+        "name": "Yahoo!ニュース(国内)",
+        "url": "https://news.yahoo.co.jp/rss/topics/domestic.xml",
+        "keyword_in_url": False,
+    },
+    {
+        "name": "Yahoo!ニュース(国際)",
+        "url": "https://news.yahoo.co.jp/rss/topics/world.xml",
+        "keyword_in_url": False,
+    },
+    {
+        "name": "Yahoo!ニュース(経済)",
+        "url": "https://news.yahoo.co.jp/rss/topics/business.xml",
+        "keyword_in_url": False,
+    },
+    {
+        "name": "Yahoo!ニュース(エンタメ)",
+        "url": "https://news.yahoo.co.jp/rss/topics/entertainment.xml",
+        "keyword_in_url": False,
+    },
+    {
+        "name": "NHKニュース",
+        "url": "https://www.nhk.or.jp/rss/news/cat0.xml",
         "keyword_in_url": False,
     },
     {
