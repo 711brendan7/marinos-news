@@ -198,15 +198,7 @@ function addPage(body) {
   // OCR (requires Drive Advanced Service enabled)
   let transcript = '';
   if (body.ocr !== false) {
-    try {
-      const resource = { title: `${id}_ocr`, mimeType: 'application/vnd.google-apps.document' };
-      const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: body.ocrLanguage || 'ja' });
-      const doc = DocumentApp.openById(ocrFile.getId());
-      transcript = doc.getBody().getText().trim();
-      DriveApp.getFileById(ocrFile.getId()).setTrashed(true);
-    } catch (_) {
-      transcript = '';
-    }
+    transcript = runOcr(blob, id, body.ocrLanguage || 'ja');
   }
 
   const sh = getSheet(PAGES_SHEET);
@@ -234,26 +226,37 @@ function deletePage(pageId) {
   return { error: 'not found' };
 }
 
+function runOcr(blob, id, lang) {
+  try {
+    const resource = { title: `${id}_ocr`, mimeType: 'application/vnd.google-apps.document' };
+    const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: lang || 'ja' });
+    const docId = ocrFile.getId();
+    const exportUrl = `https://docs.google.com/feeds/download/documents/export/Export?id=${docId}&exportFormat=txt`;
+    const text = UrlFetchApp.fetch(exportUrl, {
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+    }).getContentText('UTF-8').trim();
+    DriveApp.getFileById(docId).setTrashed(true);
+    return text;
+  } catch (err) {
+    Logger.log('OCR error: ' + err);
+    return '';
+  }
+}
+
 function transcribePage(pageId) {
   const sh = getSheet(PAGES_SHEET);
   const rows = sh.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] === pageId) {
       const fileId = rows[i][3];
-      let transcript = '';
       try {
-        const file = DriveApp.getFileById(fileId);
-        const blob = file.getBlob();
-        const resource = { title: `${pageId}_ocr`, mimeType: 'application/vnd.google-apps.document' };
-        const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'ja' });
-        const doc = DocumentApp.openById(ocrFile.getId());
-        transcript = doc.getBody().getText().trim();
-        DriveApp.getFileById(ocrFile.getId()).setTrashed(true);
+        const blob = DriveApp.getFileById(fileId).getBlob();
+        const transcript = runOcr(blob, pageId, 'ja');
+        sh.getRange(i + 1, 6).setValue(transcript);
+        return { success: true, transcript };
       } catch (err) {
         return { error: err.toString() };
       }
-      sh.getRange(i + 1, 6).setValue(transcript);
-      return { success: true, transcript };
     }
   }
   return { error: 'not found' };

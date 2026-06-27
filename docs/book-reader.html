@@ -138,6 +138,7 @@
       grid-template-columns: repeat(2, 1fr);
       gap: 12px;
     }
+    .pages-list { display: flex; flex-direction: column; gap: 10px; }
     .page-card {
       background: var(--surface);
       border-radius: 10px;
@@ -155,8 +156,57 @@
     .page-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .page-thumb .no-img { font-size: 32px; }
     .page-meta { padding: 8px; }
-    .page-num { font-size: 11px; color: var(--accent); }
+    .page-num { font-size: 11px; color: var(--accent); font-weight: 600; }
     .page-excerpt { font-size: 11px; color: var(--text2); line-height: 1.4; margin-top: 2px; }
+
+    /* list mode */
+    .page-list-item {
+      display: flex; gap: 12px; align-items: flex-start;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px; cursor: pointer;
+    }
+    .page-list-item:active { opacity: 0.8; }
+    .page-list-num {
+      font-size: 11px; color: var(--accent); font-weight: 700;
+      min-width: 28px; padding-top: 2px;
+    }
+    .page-list-thumb {
+      width: 60px; height: 80px; border-radius: 6px;
+      overflow: hidden; background: var(--surface2); flex-shrink: 0;
+    }
+    .page-list-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .page-list-text { flex: 1; min-width: 0; }
+    .page-list-excerpt {
+      font-size: 12px; color: var(--text2); line-height: 1.6;
+      display: -webkit-box; -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .page-list-empty { font-size: 12px; color: var(--text2); font-style: italic; }
+
+    /* slideshow mode */
+    .pages-slide {
+      display: flex; gap: 0; overflow-x: auto; scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch; height: calc(100dvh - 120px);
+      scrollbar-width: none;
+    }
+    .pages-slide::-webkit-scrollbar { display: none; }
+    .slide-item {
+      flex: 0 0 100%; scroll-snap-align: start;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 12px; gap: 10px;
+    }
+    .slide-item img {
+      max-width: 100%; max-height: 65dvh;
+      object-fit: contain; border-radius: 6px;
+    }
+    .slide-caption {
+      font-size: 12px; color: var(--text2); text-align: center;
+      max-height: 22dvh; overflow-y: auto; line-height: 1.6;
+      padding: 0 8px;
+    }
+    .slide-pagenum {
+      font-size: 11px; color: var(--accent); font-weight: 700;
+    }
 
     /* Reader controls */
     .reader-ctrl {
@@ -377,10 +427,12 @@
 <div id="pages-view" class="view">
   <div class="topbar">
     <button class="back-btn" onclick="goShelf()">‹ 戻る</button>
-    <h1 id="pages-title"></h1>
-    <button class="ctrl-btn accent" onclick="startSpeedReader()">速読</button>
+    <h1 id="pages-title" style="flex:1;font-size:16px"></h1>
+    <button class="ctrl-btn" onclick="cycleViewMode()" id="view-mode-btn" style="font-size:16px;padding:6px 10px">📷</button>
+    <button class="ctrl-btn accent" onclick="startSpeedReader()" style="font-size:12px">速読</button>
+    <button class="ctrl-btn" onclick="confirmDeleteBook()" style="font-size:16px;padding:6px 10px">🗑</button>
   </div>
-  <div class="scrollable">
+  <div class="scrollable" id="pages-scrollable">
     <div id="pages-grid" class="pages-grid"></div>
   </div>
   <button class="add-btn" onclick="openCamera()" title="ページを撮影">📷</button>
@@ -522,6 +574,9 @@ let books = [];
 let currentBook = null;
 let currentPages = [];
 let viewerPage = null;
+let viewMode = 'grid'; // 'grid' | 'list' | 'slide'
+const VIEW_MODES = ['grid','list','slide'];
+const VIEW_ICONS = { grid:'📷', list:'📋', slide:'📖' };
 
 // ── Shelf ────────────────────────────────────────────────────────────
 async function loadBooks() {
@@ -580,23 +635,66 @@ async function loadPages(bookId) {
   }
 }
 
+function cycleViewMode() {
+  const idx = VIEW_MODES.indexOf(viewMode);
+  viewMode = VIEW_MODES[(idx + 1) % VIEW_MODES.length];
+  document.getElementById('view-mode-btn').textContent = VIEW_ICONS[viewMode];
+  renderPages();
+}
+
 function renderPages() {
-  const grid = document.getElementById('pages-grid');
+  const container = document.getElementById('pages-grid');
+  const scrollable = document.getElementById('pages-scrollable');
+
   if (!currentPages.length) {
-    grid.innerHTML = '<div class="loading" style="grid-column:1/-1">ページがありません<br><small>右下の 📷 ボタンで撮影して追加してください</small></div>';
+    container.className = 'pages-grid';
+    container.innerHTML = '<div class="loading" style="grid-column:1/-1">ページがありません<br><small>右下の 📷 ボタンで撮影して追加してください</small></div>';
     return;
   }
-  grid.innerHTML = currentPages.map(p => `
-    <div class="page-card" onclick="openViewer('${p.id}')">
-      <div class="page-thumb">
-        ${p.image_url ? `<img src="${p.image_url}" loading="lazy">` : '<span class="no-img">📄</span>'}
+
+  if (viewMode === 'grid') {
+    container.className = 'pages-grid';
+    container.innerHTML = currentPages.map((p, i) => `
+      <div class="page-card" onclick="openViewer('${p.id}')">
+        <div class="page-thumb">
+          ${p.image_url ? `<img src="${p.image_url}" loading="lazy">` : '<span class="no-img">📄</span>'}
+        </div>
+        <div class="page-meta">
+          <div class="page-num">No.${i + 1}（p.${p.page_num}）</div>
+          <div class="page-excerpt">${esc((p.transcript || '').slice(0, 40)) || '（文字起こしなし）'}</div>
+        </div>
       </div>
-      <div class="page-meta">
-        <div class="page-num">p.${p.page_num}</div>
-        <div class="page-excerpt">${esc((p.transcript || '').slice(0, 40)) || '（文字起こしなし）'}</div>
+    `).join('');
+
+  } else if (viewMode === 'list') {
+    container.className = 'pages-list';
+    container.innerHTML = currentPages.map((p, i) => `
+      <div class="page-list-item" onclick="openViewer('${p.id}')">
+        <div class="page-list-num">No.${i + 1}</div>
+        <div class="page-list-thumb">
+          ${p.image_url ? `<img src="${p.image_url}" loading="lazy">` : ''}
+        </div>
+        <div class="page-list-text">
+          <div class="page-num" style="margin-bottom:4px">p.${p.page_num}</div>
+          ${p.transcript
+            ? `<div class="page-list-excerpt">${esc(p.transcript.slice(0, 150))}</div>`
+            : `<div class="page-list-empty">文字起こしなし</div>`}
+        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+
+  } else { // slide
+    container.className = '';
+    container.innerHTML = `<div class="pages-slide">${
+      currentPages.map((p, i) => `
+        <div class="slide-item" onclick="openViewer('${p.id}')">
+          <div class="slide-pagenum">No.${i + 1}　p.${p.page_num}</div>
+          ${p.image_url ? `<img src="${p.image_url}" loading="lazy">` : '<span style="font-size:64px">📄</span>'}
+          <div class="slide-caption">${esc(p.transcript || '（文字起こしなし）')}</div>
+        </div>
+      `).join('')
+    }</div>`;
+  }
 }
 
 // ── Camera & Upload ──────────────────────────────────────────────────
@@ -650,13 +748,20 @@ function compressToBase64(file) {
 
 // ── Image Viewer ─────────────────────────────────────────────────────
 function openViewer(pageId) {
-  viewerPage = currentPages.find(p => p.id === pageId);
+  const idx = currentPages.findIndex(p => p.id === pageId);
+  viewerPage = currentPages[idx];
   if (!viewerPage) return;
+  viewerPage._idx = idx;
   document.getElementById('viewer-img').src = viewerPage.image_url || '';
-  document.getElementById('viewer-page-label').textContent = `p.${viewerPage.page_num}`;
+  const no = idx + 1;
+  document.getElementById('viewer-page-label').textContent = `No.${no}　p.${viewerPage.page_num}`;
   const trans = document.getElementById('viewer-transcript');
   trans.textContent = viewerPage.transcript || '';
-  trans.classList.add('hidden');
+  if (viewerPage.transcript) {
+    trans.classList.remove('hidden');
+  } else {
+    trans.classList.add('hidden');
+  }
   document.getElementById('imgviewer').classList.add('open');
 }
 
@@ -676,13 +781,15 @@ async function runOCR() {
   btn.textContent = '変換中…'; btn.disabled = true;
   try {
     const data = await api({ action: 'transcribe', pageId: viewerPage.id });
-    if (data.transcript !== undefined) {
-      viewerPage.transcript = data.transcript;
+    if (data.success) {
+      const text = data.transcript || '';
+      viewerPage.transcript = text;
       const idx = currentPages.findIndex(p => p.id === viewerPage.id);
-      if (idx >= 0) currentPages[idx].transcript = data.transcript;
-      document.getElementById('viewer-transcript').textContent = data.transcript;
-      document.getElementById('viewer-transcript').classList.remove('hidden');
-      toast('文字起こし完了');
+      if (idx >= 0) currentPages[idx].transcript = text;
+      const el = document.getElementById('viewer-transcript');
+      el.textContent = text || '（テキストを認識できませんでした）';
+      el.classList.remove('hidden');
+      toast(text ? '文字起こし完了' : '文字を認識できませんでした');
       renderPages();
     } else {
       toast(data.error || 'エラーが発生しました');
@@ -698,6 +805,34 @@ function readThisPage() {
   }
   closeViewer();
   startSpeedReaderWithText(viewerPage.transcript, `p.${viewerPage.page_num}`);
+}
+
+// ── Delete Book ──────────────────────────────────────────────────────
+let deleteConfirmTimer = null;
+function confirmDeleteBook() {
+  if (deleteConfirmTimer) {
+    clearTimeout(deleteConfirmTimer);
+    deleteConfirmTimer = null;
+    execDeleteBook();
+  } else {
+    toast('もう一度タップで削除します');
+    deleteConfirmTimer = setTimeout(() => { deleteConfirmTimer = null; }, 3000);
+  }
+}
+async function execDeleteBook() {
+  if (!currentBook) return;
+  toast('削除中…');
+  try {
+    const data = await api({ action: 'deleteBook', bookId: currentBook.id });
+    if (data.success) {
+      goShelf();
+      await loadBooks();
+      toast(`「${currentBook.title}」を削除しました`);
+      currentBook = null;
+    } else {
+      toast(data.error || 'エラーが発生しました');
+    }
+  } catch (_) { toast('通信エラー'); }
 }
 
 // ── Add Book ─────────────────────────────────────────────────────────
