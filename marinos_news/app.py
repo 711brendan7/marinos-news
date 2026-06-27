@@ -81,6 +81,22 @@ def get_cat_color(cat: str) -> str:
     return CATEGORY_COLORS[idx % len(CATEGORY_COLORS)]
 
 
+SORT_OPTIONS = ["新着順 ↓", "古い順 ↑", "カテゴリー ↑", "カテゴリー ↓"]
+
+
+def sort_df(df: pd.DataFrame, sort_key: str) -> pd.DataFrame:
+    df = df.copy()
+    if sort_key == "古い順 ↑":
+        df = df.sort_values("公開日時", ascending=True, na_position="last")
+    elif sort_key in ("カテゴリー ↑", "カテゴリー ↓"):
+        asc = sort_key == "カテゴリー ↑"
+        df["_k"] = df["カテゴリー"].apply(lambda x: x[0] if isinstance(x, list) and x else "")
+        df = df.sort_values("_k", ascending=asc).drop(columns=["_k"])
+    else:
+        df = df.sort_values("公開日時", ascending=False, na_position="last")
+    return df.reset_index(drop=True)
+
+
 st.markdown('<p style="font-size:1.2em;font-weight:700;margin:0 0 4px;">⚽ 最新ニュース</p>', unsafe_allow_html=True)
 st.caption("Google ニュース・Yahoo!ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
@@ -239,28 +255,111 @@ def generate_overall_summary(df: pd.DataFrame) -> str:
 
 
 def render_articles(df: pd.DataFrame):
+    if df.empty:
+        st.warning("ニュースが見つかりませんでした。")
+        return
+
+    articles_data = []
     for _, row in df.iterrows():
-        url = row["URL"]
         cats = row.get("カテゴリー", [])
         if not isinstance(cats, list):
             cats = []
+        articles_data.append({
+            "url": str(row["URL"]),
+            "title": str(row["タイトル"]),
+            "source": str(row["配信元"]),
+            "date": str(row["公開日時"]),
+            "categories": cats,
+        })
 
-        badges = "".join(
-            f'<span class="cat-badge" style="background:{get_cat_color(c)};">{c}</span>'
-            for c in cats
-        )
+    cat_colors = {cat: get_cat_color(cat) for cat in st.session_state.categories}
+    articles_json = json.dumps(articles_data, ensure_ascii=False)
+    colors_json = json.dumps(cat_colors, ensure_ascii=False)
+    height = max(200, len(articles_data) * 82 + 30)
 
-        st.markdown(
-            f'<a class="article-link" href="{url}" target="_blank" rel="noopener noreferrer">'
-            f'{badges}'
-            f'<span style="font-weight:600;">{row["タイトル"]}</span><br>'
-            f'<span class="article-meta">{row["配信元"]} ｜ {row["公開日時"]}</span></a>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            '<hr style="margin:2px 0;border:none;border-top:1px solid #e0e0e0;">',
-            unsafe_allow_html=True,
-        )
+    html = (
+        """
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:transparent}
+.wrap{position:relative;overflow:hidden;border-bottom:1px solid #e8e8e8}
+.del-btn{position:absolute;right:0;top:0;bottom:0;width:72px;background:#ff3b30;color:#fff;border:none;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.item{background:#fff;padding:9px 4px;touch-action:pan-y;cursor:pointer;-webkit-user-select:none;user-select:none}
+.badge{display:inline-block;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:700;color:#fff;margin-right:3px}
+.title{font-size:13.5px;font-weight:600;line-height:1.4;color:#1c1c1e;margin:3px 0 2px}
+.meta{font-size:11px;color:#999}
+.empty{padding:20px;text-align:center;color:#999;font-size:13px}
+</style>
+<div id="list"></div>
+<script>
+var BLOCKED_KEY='blocked_news_urls';
+var articles=__ARTICLES__;
+var catColors=__COLORS__;
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function getBlocked(){try{return new Set(JSON.parse(localStorage.getItem(BLOCKED_KEY)||'[]'));}catch(e){return new Set();}}
+function addBlocked(url){var s=getBlocked();s.add(url);localStorage.setItem(BLOCKED_KEY,JSON.stringify([...s]));}
+var openSwipeItem=null,swipeMoved=false;
+function render(){
+  var blocked=getBlocked();
+  var visible=articles.filter(function(a){return !blocked.has(a.url);});
+  var list=document.getElementById('list');
+  if(!visible.length){list.innerHTML='<div class="empty">表示できるニュースがありません</div>';return;}
+  list.innerHTML=visible.map(function(a,i){
+    var badges=(a.categories||[]).map(function(c){
+      return '<span class="badge" style="background:'+(catColors[c]||'#8e8e93')+'">'+esc(c)+'</span>';
+    }).join('');
+    return '<div class="wrap" id="w'+i+'"><button class="del-btn" id="d'+i+'">削除</button>'
+      +'<div class="item" id="it'+i+'"><div>'+badges+'</div>'
+      +'<div class="title">'+esc(a.title)+'</div>'
+      +'<div class="meta">'+esc(a.source)+' ｜ '+esc(a.date)+'</div></div></div>';
+  }).join('');
+  visible.forEach(function(a,i){
+    document.getElementById('d'+i).addEventListener('click',function(e){
+      e.stopPropagation();addBlocked(a.url);
+      var w=document.getElementById('w'+i);if(w)w.remove();openSwipeItem=null;
+    });
+    var item=document.getElementById('it'+i);
+    item.addEventListener('click',function(){if(!swipeMoved&&a.url.startsWith('http'))window.open(a.url,'_blank');});
+    attachSwipe(item);
+  });
+}
+function attachSwipe(item){
+  var sx,sy,cx=0,tracking=false,open=false;
+  var SNAP=72,THR=32;
+  item.addEventListener('touchstart',function(e){
+    if(openSwipeItem&&openSwipeItem!==item)closeItem(openSwipeItem);
+    sx=e.touches[0].clientX;sy=e.touches[0].clientY;tracking=true;swipeMoved=false;
+    item.style.transition='none';
+  },{passive:true});
+  item.addEventListener('touchmove',function(e){
+    if(!tracking)return;
+    var dx=e.touches[0].clientX-sx,dy=e.touches[0].clientY-sy;
+    if(Math.abs(dy)>Math.abs(dx)+5){tracking=false;return;}
+    if(Math.abs(dx)>8)swipeMoved=true;
+    cx=Math.max(-SNAP,Math.min(0,(open?-SNAP:0)+dx));
+    item.style.transform='translateX('+cx+'px)';
+  },{passive:true});
+  item.addEventListener('touchend',function(){
+    if(!tracking)return;tracking=false;
+    item.style.transition='transform 0.2s ease';
+    if(cx<-THR){item.style.transform='translateX(-'+SNAP+'px)';open=true;openSwipeItem=item;}
+    else{item.style.transform='translateX(0)';open=false;if(openSwipeItem===item)openSwipeItem=null;}
+  },{passive:true});
+}
+function closeItem(el){
+  if(!el)return;el.style.transition='transform 0.2s ease';el.style.transform='translateX(0)';
+  if(openSwipeItem===el)openSwipeItem=null;
+}
+document.addEventListener('touchstart',function(e){
+  if(openSwipeItem&&!openSwipeItem.contains(e.target))closeItem(openSwipeItem);
+},{passive:true});
+render();
+</script>"""
+        .replace("__ARTICLES__", articles_json)
+        .replace("__COLORS__", colors_json)
+    )
+
+    st.components.v1.html(html, height=height, scrolling=False)
 
 
 # ── ニュース取得 ──────────────────────────────────────────────
@@ -357,8 +456,12 @@ if "df_news" in st.session_state:
     if st.session_state.df_news.empty:
         st.warning("ニュースが見つかりませんでした。")
     else:
-        st.success(f"{len(st.session_state.df_news)} 件のニュースを取得しました")
-        render_articles(st.session_state.df_news)
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            st.success(f"{len(st.session_state.df_news)} 件のニュースを取得しました")
+        with c2:
+            sort_key = st.selectbox("並び順", SORT_OPTIONS, label_visibility="collapsed")
+        render_articles(sort_df(st.session_state.df_news, sort_key))
 
     if youtube_enabled and "df_yt" in st.session_state and not st.session_state.df_yt.empty:
         st.subheader("▶️ YouTube 動画")
