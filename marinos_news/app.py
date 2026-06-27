@@ -282,10 +282,13 @@ def render_articles(df: pd.DataFrame):
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:transparent}
-.wrap{position:relative;overflow:hidden;border-bottom:1px solid #e8e8e8}
-.del-btn{position:absolute;right:0;top:0;bottom:0;width:72px;background:#ff3b30;color:#fff;border:none;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.item{background:#fff;padding:9px 4px;touch-action:pan-y;cursor:pointer;-webkit-user-select:none;user-select:none}
+.wrap{overflow:hidden;border-bottom:1px solid #e8e8e8}
+.item{background:#fff;padding:9px 4px;touch-action:pan-y;cursor:pointer;-webkit-user-select:none;user-select:none;will-change:transform}
+.row{display:flex;justify-content:space-between;align-items:flex-start}
+.badges{flex:1;min-width:0}
 .badge{display:inline-block;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:700;color:#fff;margin-right:3px}
+.bm{font-size:14px;flex-shrink:0;padding-left:4px;visibility:hidden}
+.bm.on{visibility:visible}
 .title{font-size:13.5px;font-weight:600;line-height:1.4;color:#1c1c1e;margin:3px 0 2px}
 .meta{font-size:11px;color:#999}
 .empty{padding:20px;text-align:center;color:#999;font-size:13px}
@@ -293,14 +296,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:transpar
 <div id="list"></div>
 <script>
 var BLOCKED_KEY='blocked_news_urls';
+var SAVED_KEY='saved_news_urls';
 var articles=__ARTICLES__;
 var catColors=__COLORS__;
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function getBlocked(){try{return new Set(JSON.parse(localStorage.getItem(BLOCKED_KEY)||'[]'));}catch(e){return new Set();}}
-function addBlocked(url){var s=getBlocked();s.add(url);localStorage.setItem(BLOCKED_KEY,JSON.stringify([...s]));}
-var openSwipeItem=null,swipeMoved=false;
+function getSet(k){try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'));}catch(e){return new Set();}}
+function saveSet(k,s){localStorage.setItem(k,JSON.stringify([...s]));}
+function addBlocked(url){var s=getSet(BLOCKED_KEY);s.add(url);saveSet(BLOCKED_KEY,s);}
+function toggleSaved(url){var s=getSet(SAVED_KEY);if(s.has(url)){s.delete(url);}else{s.add(url);}saveSet(SAVED_KEY,s);return s.has(url);}
+var swipeMoved=false;
 function render(){
-  var blocked=getBlocked();
+  var blocked=getSet(BLOCKED_KEY);
+  var saved=getSet(SAVED_KEY);
   var visible=articles.filter(function(a){return !blocked.has(a.url);});
   var list=document.getElementById('list');
   if(!visible.length){list.innerHTML='<div class="empty">表示できるニュースがありません</div>';return;}
@@ -308,51 +315,68 @@ function render(){
     var badges=(a.categories||[]).map(function(c){
       return '<span class="badge" style="background:'+(catColors[c]||'#8e8e93')+'">'+esc(c)+'</span>';
     }).join('');
-    return '<div class="wrap" id="w'+i+'"><button class="del-btn" id="d'+i+'">削除</button>'
-      +'<div class="item" id="it'+i+'"><div>'+badges+'</div>'
+    var bm='<span class="bm'+(saved.has(a.url)?' on':'')+'">🔖</span>';
+    return '<div class="wrap" id="w'+i+'">'
+      +'<div class="item" id="it'+i+'">'
+      +'<div class="row"><div class="badges">'+badges+'</div>'+bm+'</div>'
       +'<div class="title">'+esc(a.title)+'</div>'
-      +'<div class="meta">'+esc(a.source)+' ｜ '+esc(a.date)+'</div></div></div>';
+      +'<div class="meta">'+esc(a.source)+' ｜ '+esc(a.date)+'</div>'
+      +'</div></div>';
   }).join('');
   visible.forEach(function(a,i){
-    document.getElementById('d'+i).addEventListener('click',function(e){
-      e.stopPropagation();addBlocked(a.url);
-      var w=document.getElementById('w'+i);if(w)w.remove();openSwipeItem=null;
-    });
     var item=document.getElementById('it'+i);
     item.addEventListener('click',function(){if(!swipeMoved&&a.url.startsWith('http'))window.open(a.url,'_blank');});
-    attachSwipe(item);
+    attachSwipe(item,a.url,i);
   });
 }
-function attachSwipe(item){
-  var sx,sy,cx=0,tracking=false,open=false;
-  var SNAP=72,THR=32;
+function attachSwipe(item,url,idx){
+  var sx,sy,cx=0,tracking=false;
+  var DEL_THR=100,SAVE_THR=60;
   item.addEventListener('touchstart',function(e){
-    if(openSwipeItem&&openSwipeItem!==item)closeItem(openSwipeItem);
     sx=e.touches[0].clientX;sy=e.touches[0].clientY;tracking=true;swipeMoved=false;
-    item.style.transition='none';
+    item.style.transition='none';item.style.background='';
   },{passive:true});
   item.addEventListener('touchmove',function(e){
     if(!tracking)return;
     var dx=e.touches[0].clientX-sx,dy=e.touches[0].clientY-sy;
-    if(Math.abs(dy)>Math.abs(dx)+5){tracking=false;return;}
+    if(!swipeMoved&&Math.abs(dy)>Math.abs(dx)+5){tracking=false;return;}
     if(Math.abs(dx)>8)swipeMoved=true;
-    cx=Math.max(-SNAP,Math.min(0,(open?-SNAP:0)+dx));
+    cx=dx;
     item.style.transform='translateX('+cx+'px)';
+    if(cx<-20){item.style.background='rgba(255,59,48,'+Math.min(0.25,(-cx-20)/200)+')';}
+    else if(cx>15){item.style.background='rgba(52,199,89,'+Math.min(0.25,(cx-15)/120)+')';}
+    else{item.style.background='';}
   },{passive:true});
   item.addEventListener('touchend',function(){
     if(!tracking)return;tracking=false;
-    item.style.transition='transform 0.2s ease';
-    if(cx<-THR){item.style.transform='translateX(-'+SNAP+'px)';open=true;openSwipeItem=item;}
-    else{item.style.transform='translateX(0)';open=false;if(openSwipeItem===item)openSwipeItem=null;}
+    item.style.background='';
+    if(cx<-DEL_THR){
+      item.style.transition='transform 0.22s ease';
+      item.style.transform='translateX(-110%)';
+      setTimeout(function(){
+        addBlocked(url);
+        var w=document.getElementById('w'+idx);
+        if(w){w.style.overflow='hidden';w.style.transition='max-height 0.18s ease,opacity 0.18s ease';w.style.maxHeight=w.offsetHeight+'px';w.style.opacity='1';
+          requestAnimationFrame(function(){w.style.maxHeight='0';w.style.opacity='0';});
+          setTimeout(function(){if(w)w.remove();},200);}
+      },220);
+    }else if(cx>SAVE_THR){
+      var isSaved=toggleSaved(url);
+      item.style.transition='transform 0.2s ease';
+      item.style.transform='translateX(0)';
+      var bm=item.querySelector('.bm');
+      if(bm){bm.classList.toggle('on',isSaved);}
+      if(isSaved){
+        item.style.background='rgba(52,199,89,0.18)';
+        setTimeout(function(){item.style.transition='background 0.5s ease';item.style.background='';},300);
+      }
+    }else{
+      item.style.transition='transform 0.2s ease';
+      item.style.transform='translateX(0)';
+    }
+    cx=0;
   },{passive:true});
 }
-function closeItem(el){
-  if(!el)return;el.style.transition='transform 0.2s ease';el.style.transform='translateX(0)';
-  if(openSwipeItem===el)openSwipeItem=null;
-}
-document.addEventListener('touchstart',function(e){
-  if(openSwipeItem&&!openSwipeItem.contains(e.target))closeItem(openSwipeItem);
-},{passive:true});
 render();
 </script>"""
         .replace("__ARTICLES__", articles_json)
@@ -504,12 +528,16 @@ Google ニュース・Yahoo! ニュース・スポニチ・日刊スポーツ・
 | カテゴリー ↓ | カテゴリー名の降順 |
     """)
 
-    st.markdown("### ⬅️ スワイプして削除")
+    st.markdown("### スワイプ操作")
     st.markdown("""
-読み終わった記事や不要な記事は **左にスワイプ** すると「削除」ボタンが表示されます。
-タップすると記事が非表示になり、**次回以降も表示されません**。
+| スワイプ方向 | 動作 |
+|---|---|
+| ⬅️ 左にスワイプ（約100px以上） | 記事を**削除** — 次回以降も非表示 |
+| ➡️ 右にスワイプ（約60px以上） | 記事を**保存**🔖 — アプリを閉じても保持 |
 
-> 💡 削除した記事を元に戻したい場合は、ブラウザのローカルストレージ（`blocked_news_urls`）をクリアしてください。
+- 保存済み記事のタイトル右上に 🔖 マークが表示されます
+- もう一度右スワイプで保存解除
+- 削除・保存状態はブラウザのローカルストレージに永続保存されます
     """)
 
     st.markdown("### 🤖 AI要約")
