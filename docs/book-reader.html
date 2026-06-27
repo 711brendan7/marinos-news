@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="読書ノート">
+  <meta name="theme-color" content="#0f0f1a">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>読書ノート</title>
+  <style>
+    :root {
+      --bg: #0f0f1a;
+      --surface: #1a1a2e;
+      --surface2: #252545;
+      --accent: #e94560;
+      --accent-dim: rgba(233,69,96,0.15);
+      --text: #eaeaea;
+      --text2: #8892b0;
+      --border: #2a2a4a;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bot: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+      min-height: 100dvh;
+      overflow: hidden;
+    }
+
+    /* ── Layout ── */
+    .view {
+      display: none;
+      flex-direction: column;
+      height: 100dvh;
+      overflow: hidden;
+    }
+    .view.active { display: flex; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: calc(var(--safe-top) + 12px) 16px 12px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .topbar h1 { font-size: 18px; font-weight: 700; flex: 1; }
+    .topbar .back-btn {
+      background: none; border: none; color: var(--accent);
+      font-size: 16px; cursor: pointer; padding: 4px 8px 4px 0;
+    }
+
+    .scrollable {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 16px;
+    }
+
+    .bottombar {
+      display: flex;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 0 0 var(--safe-bot);
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      flex: 1; background: none; border: none; color: var(--text2);
+      padding: 10px 0; font-size: 10px; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+    }
+    .tab-btn .icon { font-size: 20px; }
+    .tab-btn.active { color: var(--accent); }
+
+    /* ── Setup view ── */
+    #setup-view .scrollable { display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+    .setup-title { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 8px; }
+    .setup-sub { color: var(--text2); font-size: 14px; text-align: center; }
+    .field label { display: block; color: var(--text2); font-size: 12px; margin-bottom: 4px; }
+    .field input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px;
+      padding: 10px 12px; outline: none;
+    }
+    .field input:focus { border-color: var(--accent); }
+    .btn-primary {
+      background: var(--accent); color: #fff; border: none; border-radius: 10px;
+      font-size: 16px; font-weight: 600; padding: 14px; width: 100%; cursor: pointer;
+    }
+
+    /* ── Shelf view ── */
+    .shelf-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    .book-card {
+      background: var(--surface);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: transform .1s;
+      active: transform scale(0.97);
+    }
+    .book-card:active { transform: scale(0.97); }
+    .book-cover {
+      width: 100%; aspect-ratio: 3/4;
+      background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 48px;
+      overflow: hidden;
+    }
+    .book-cover img { width: 100%; height: 100%; object-fit: cover; }
+    .book-info { padding: 10px; }
+    .book-title { font-size: 13px; font-weight: 600; line-height: 1.3; margin-bottom: 2px; }
+    .book-author { font-size: 11px; color: var(--text2); }
+    .book-count { font-size: 10px; color: var(--accent); margin-top: 4px; }
+
+    .add-btn {
+      position: fixed; right: 20px;
+      bottom: calc(60px + var(--safe-bot) + 16px);
+      width: 52px; height: 52px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      border: none; font-size: 26px; cursor: pointer;
+      box-shadow: 0 4px 16px rgba(233,69,96,0.4);
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ── Pages view ── */
+    .pages-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .page-card {
+      background: var(--surface);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .page-card:active { transform: scale(0.97); }
+    .page-thumb {
+      width: 100%; aspect-ratio: 3/4;
+      background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .page-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .page-thumb .no-img { font-size: 32px; }
+    .page-meta { padding: 8px; }
+    .page-num { font-size: 11px; color: var(--accent); }
+    .page-excerpt { font-size: 11px; color: var(--text2); line-height: 1.4; margin-top: 2px; }
+
+    /* Reader controls */
+    .reader-ctrl {
+      display: flex; gap: 8px; padding: 12px 16px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .ctrl-btn {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: 8px 12px;
+      font-size: 13px; cursor: pointer;
+    }
+    .ctrl-btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* ── Image viewer ── */
+    #imgviewer {
+      display: none; position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.95);
+      flex-direction: column;
+    }
+    #imgviewer.open { display: flex; }
+    #imgviewer .img-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: calc(var(--safe-top) + 12px) 16px 12px;
+      flex-shrink: 0;
+    }
+    #imgviewer .close-btn {
+      background: rgba(255,255,255,0.1); border: none; color: #fff;
+      font-size: 18px; border-radius: 50%; width: 34px; height: 34px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    #imgviewer .img-wrap {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      overflow: hidden; padding: 16px;
+    }
+    #imgviewer img {
+      max-width: 100%; max-height: 100%;
+      object-fit: contain; border-radius: 4px;
+    }
+    #imgviewer .img-transcript {
+      padding: 16px; max-height: 35%;
+      overflow-y: auto; font-size: 14px; line-height: 1.7;
+      color: var(--text); border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    #imgviewer .img-transcript.hidden { display: none; }
+    #imgviewer .img-actions {
+      display: flex; gap: 8px; padding: 12px 16px;
+      padding-bottom: calc(var(--safe-bot) + 12px);
+      background: var(--surface); border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #imgviewer .img-actions button {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: 10px;
+      font-size: 13px; cursor: pointer;
+    }
+    #imgviewer .img-actions button.accent { background: var(--accent); border-color: var(--accent); }
+
+    /* ── RSVP Speed Reader ── */
+    #speed-view {
+      background: var(--bg);
+    }
+    .rsvp-settings {
+      padding: 12px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 10px;
+      flex-shrink: 0;
+    }
+    .rsvp-wpm-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .rsvp-wpm-label { font-size: 13px; color: var(--text2); width: 72px; flex-shrink: 0; }
+    .rsvp-wpm-val { font-size: 13px; font-weight: 600; width: 48px; text-align: right; flex-shrink: 0; }
+    input[type=range] {
+      flex: 1; accent-color: var(--accent);
+      height: 4px; -webkit-appearance: none; background: var(--border); border-radius: 2px;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 20px; height: 20px;
+      border-radius: 50%; background: var(--accent);
+    }
+
+    .rsvp-stage {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 20px;
+      position: relative;
+    }
+    .rsvp-progress-bar {
+      width: 100%; height: 3px;
+      background: var(--border); border-radius: 2px;
+      margin-bottom: 32px;
+    }
+    .rsvp-progress-fill {
+      height: 100%; background: var(--accent); border-radius: 2px;
+      transition: width .1s linear;
+    }
+
+    .rsvp-word-wrap {
+      position: relative;
+      min-height: 80px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .rsvp-word {
+      font-size: 36px; font-weight: 600; line-height: 1;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+    .rsvp-word .orp {
+      color: var(--accent);
+    }
+    .rsvp-guide-left, .rsvp-guide-right {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 1px; height: 48px; background: var(--border);
+    }
+    .rsvp-guide-left { right: 50%; margin-right: 4px; }
+    .rsvp-guide-right { left: 50%; margin-left: 4px; }
+
+    .rsvp-counter {
+      margin-top: 24px; font-size: 13px; color: var(--text2);
+    }
+    .rsvp-controls {
+      display: flex; gap: 12px; margin-top: 24px;
+    }
+    .rsvp-btn {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 50%; width: 52px; height: 52px;
+      font-size: 22px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .rsvp-btn.play { background: var(--accent); border-color: var(--accent); }
+
+    .rsvp-empty {
+      text-align: center; color: var(--text2); font-size: 15px; padding: 40px 20px;
+    }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: calc(80px + var(--safe-bot)); left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: rgba(40,40,60,0.95); color: var(--text);
+      padding: 10px 18px; border-radius: 20px; font-size: 14px;
+      opacity: 0; transition: opacity .25s, transform .25s;
+      pointer-events: none; z-index: 200; white-space: nowrap;
+      max-width: 90vw; text-overflow: ellipsis; overflow: hidden;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Add book modal ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; z-index: 50;
+      background: rgba(0,0,0,0.7); align-items: flex-end;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-sheet {
+      width: 100%; background: var(--surface); border-radius: 20px 20px 0 0;
+      padding: 20px 16px calc(var(--safe-bot) + 20px);
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .modal-title { font-size: 17px; font-weight: 700; text-align: center; }
+    .modal-close {
+      position: absolute; top: 16px; right: 16px;
+      background: var(--surface2); border: none; color: var(--text2);
+      width: 28px; height: 28px; border-radius: 50%; font-size: 16px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+
+    .loading {
+      display: flex; align-items: center; justify-content: center;
+      padding: 60px 0; color: var(--text2); font-size: 15px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Setup View ── -->
+<div id="setup-view" class="view active">
+  <div class="topbar"><h1>📚 読書ノート</h1></div>
+  <div class="scrollable">
+    <p class="setup-title">初期設定</p>
+    <p class="setup-sub">Google Apps Script の URL とトークンを設定してください</p>
+    <div class="field">
+      <label>GAS URL</label>
+      <input id="input-url" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+    </div>
+    <div class="field">
+      <label>TOKEN</label>
+      <input id="input-token" type="text" placeholder="your_secret_token">
+    </div>
+    <button class="btn-primary" onclick="saveConfig()">保存して始める</button>
+  </div>
+</div>
+
+<!-- ── Shelf View ── -->
+<div id="shelf-view" class="view">
+  <div class="topbar">
+    <h1>📚 本棚</h1>
+    <button class="ctrl-btn" onclick="showSetup()" style="font-size:12px">設定</button>
+  </div>
+  <div class="scrollable">
+    <div id="shelf-grid" class="shelf-grid"></div>
+  </div>
+  <div class="bottombar">
+    <button class="tab-btn active" id="tab-shelf">
+      <span class="icon">📚</span>本棚
+    </button>
+    <button class="tab-btn" id="tab-speed" onclick="showSpeedFromShelf()">
+      <span class="icon">⚡</span>速読
+    </button>
+  </div>
+  <button class="add-btn" onclick="openAddBook()">＋</button>
+</div>
+
+<!-- ── Pages View ── -->
+<div id="pages-view" class="view">
+  <div class="topbar">
+    <button class="back-btn" onclick="goShelf()">‹ 戻る</button>
+    <h1 id="pages-title"></h1>
+    <button class="ctrl-btn accent" onclick="startSpeedReader()">速読</button>
+  </div>
+  <div class="scrollable">
+    <div id="pages-grid" class="pages-grid"></div>
+  </div>
+</div>
+
+<!-- ── Speed Reader View ── -->
+<div id="speed-view" class="view">
+  <div class="topbar">
+    <button class="back-btn" id="speed-back-btn" onclick="exitSpeed()">‹ 戻る</button>
+    <h1 id="speed-title">速読</h1>
+  </div>
+  <div class="rsvp-settings">
+    <div class="rsvp-wpm-row">
+      <span class="rsvp-wpm-label">速度 (WPM)</span>
+      <input type="range" id="wpm-slider" min="100" max="800" value="300" step="10" oninput="updateWpm(this.value)">
+      <span class="rsvp-wpm-val" id="wpm-val">300</span>
+    </div>
+  </div>
+  <div class="rsvp-stage" id="rsvp-stage">
+    <div class="rsvp-empty" id="rsvp-empty">本を選んで速読を開始してください</div>
+    <div id="rsvp-content" style="display:none; width:100%; text-align:center;">
+      <div class="rsvp-progress-bar"><div class="rsvp-progress-fill" id="rsvp-progress"></div></div>
+      <div class="rsvp-word-wrap">
+        <div class="rsvp-guide-left"></div>
+        <div class="rsvp-guide-right"></div>
+        <div class="rsvp-word" id="rsvp-word"></div>
+      </div>
+      <div class="rsvp-counter" id="rsvp-counter"></div>
+      <div class="rsvp-controls">
+        <button class="rsvp-btn" onclick="stepBack()">⏮</button>
+        <button class="rsvp-btn play" id="play-btn" onclick="togglePlay()">▶</button>
+        <button class="rsvp-btn" onclick="stepForward()">⏭</button>
+      </div>
+    </div>
+  </div>
+  <div class="bottombar">
+    <button class="tab-btn" onclick="goShelf(); switchTab('tab-shelf')">
+      <span class="icon">📚</span>本棚
+    </button>
+    <button class="tab-btn active">
+      <span class="icon">⚡</span>速読
+    </button>
+  </div>
+</div>
+
+<!-- ── Image Viewer ── -->
+<div id="imgviewer">
+  <div class="img-topbar">
+    <button class="close-btn" onclick="closeViewer()">✕</button>
+    <span id="viewer-page-label" style="font-size:13px;color:var(--text2)"></span>
+    <button id="viewer-ocr-btn" class="ctrl-btn" onclick="runOCR()" style="font-size:12px">文字起こし</button>
+  </div>
+  <div class="img-wrap">
+    <img id="viewer-img" src="" alt="">
+  </div>
+  <div class="img-transcript" id="viewer-transcript"></div>
+  <div class="img-actions">
+    <button onclick="toggleTranscript()">テキスト表示</button>
+    <button class="accent" onclick="readThisPage()">⚡ この内容を速読</button>
+  </div>
+</div>
+
+<!-- ── Add Book Modal ── -->
+<div class="modal-overlay" id="add-book-modal">
+  <div class="modal-sheet" style="position:relative">
+    <button class="modal-close" onclick="closeAddBook()">✕</button>
+    <p class="modal-title">本を追加</p>
+    <div class="field">
+      <label>タイトル</label>
+      <input id="new-title" type="text" placeholder="本のタイトル">
+    </div>
+    <div class="field">
+      <label>著者（省略可）</label>
+      <input id="new-author" type="text" placeholder="著者名">
+    </div>
+    <div class="field">
+      <label>メモ（省略可）</label>
+      <input id="new-notes" type="text" placeholder="一言メモ">
+    </div>
+    <button class="btn-primary" onclick="submitAddBook()">追加</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────
+const CFG_KEY = 'book_reader_config';
+let cfg = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+
+function saveConfig() {
+  cfg.url   = document.getElementById('input-url').value.trim();
+  cfg.token = document.getElementById('input-token').value.trim();
+  if (!cfg.url || !cfg.token) { toast('URLとトークンを入力してください'); return; }
+  localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+  switchView('shelf-view');
+  loadBooks();
+}
+
+function showSetup() {
+  document.getElementById('input-url').value   = cfg.url   || '';
+  document.getElementById('input-token').value = cfg.token || '';
+  switchView('setup-view');
+}
+
+function api(params) {
+  const url = new URL(cfg.url);
+  url.searchParams.set('token', cfg.token);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  return fetch(url).then(r => r.json());
+}
+
+function apiPost(body) {
+  return fetch(cfg.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...body, token: cfg.token })
+  }).then(r => r.json());
+}
+
+// ── View switching ───────────────────────────────────────────────────
+function switchView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function switchTab(id) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+// ── State ────────────────────────────────────────────────────────────
+let books = [];
+let currentBook = null;
+let currentPages = [];
+let viewerPage = null;
+
+// ── Shelf ────────────────────────────────────────────────────────────
+async function loadBooks() {
+  const grid = document.getElementById('shelf-grid');
+  grid.innerHTML = '<div class="loading">読み込み中…</div>';
+  try {
+    const data = await api({ action: 'listBooks' });
+    books = data.books || [];
+    renderShelf();
+  } catch (_) {
+    grid.innerHTML = '<div class="loading">読み込みに失敗しました</div>';
+  }
+}
+
+function renderShelf() {
+  const grid = document.getElementById('shelf-grid');
+  if (!books.length) {
+    grid.innerHTML = '<div class="loading">本がありません。＋から追加してください</div>';
+    return;
+  }
+  grid.innerHTML = books.map(b => `
+    <div class="book-card" onclick="openBook('${b.id}')">
+      <div class="book-cover">
+        ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+      </div>
+      <div class="book-info">
+        <div class="book-title">${esc(b.title)}</div>
+        <div class="book-author">${esc(b.author || '')}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function openBook(bookId) {
+  currentBook = books.find(b => b.id === bookId);
+  document.getElementById('pages-title').textContent = currentBook.title;
+  switchView('pages-view');
+  await loadPages(bookId);
+}
+
+function goShelf() {
+  switchView('shelf-view');
+  switchTab('tab-shelf');
+}
+
+// ── Pages ────────────────────────────────────────────────────────────
+async function loadPages(bookId) {
+  const grid = document.getElementById('pages-grid');
+  grid.innerHTML = '<div class="loading">読み込み中…</div>';
+  try {
+    const data = await api({ action: 'listPages', bookId });
+    currentPages = data.pages || [];
+    renderPages();
+  } catch (_) {
+    grid.innerHTML = '<div class="loading">読み込みに失敗しました</div>';
+  }
+}
+
+function renderPages() {
+  const grid = document.getElementById('pages-grid');
+  if (!currentPages.length) {
+    grid.innerHTML = '<div class="loading" style="grid-column:1/-1">ページがありません<br><small>iOSショートカットから撮影して追加してください</small></div>';
+    return;
+  }
+  grid.innerHTML = currentPages.map(p => `
+    <div class="page-card" onclick="openViewer('${p.id}')">
+      <div class="page-thumb">
+        ${p.image_url ? `<img src="${p.image_url}" loading="lazy">` : '<span class="no-img">📄</span>'}
+      </div>
+      <div class="page-meta">
+        <div class="page-num">p.${p.page_num}</div>
+        <div class="page-excerpt">${esc((p.transcript || '').slice(0, 40)) || '（文字起こしなし）'}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Image Viewer ─────────────────────────────────────────────────────
+function openViewer(pageId) {
+  viewerPage = currentPages.find(p => p.id === pageId);
+  if (!viewerPage) return;
+  document.getElementById('viewer-img').src = viewerPage.image_url || '';
+  document.getElementById('viewer-page-label').textContent = `p.${viewerPage.page_num}`;
+  const trans = document.getElementById('viewer-transcript');
+  trans.textContent = viewerPage.transcript || '';
+  trans.classList.add('hidden');
+  document.getElementById('imgviewer').classList.add('open');
+}
+
+function closeViewer() {
+  document.getElementById('imgviewer').classList.remove('open');
+  viewerPage = null;
+}
+
+function toggleTranscript() {
+  const trans = document.getElementById('viewer-transcript');
+  trans.classList.toggle('hidden');
+}
+
+async function runOCR() {
+  if (!viewerPage) return;
+  const btn = document.getElementById('viewer-ocr-btn');
+  btn.textContent = '変換中…'; btn.disabled = true;
+  try {
+    const data = await api({ action: 'transcribe', pageId: viewerPage.id });
+    if (data.transcript !== undefined) {
+      viewerPage.transcript = data.transcript;
+      const idx = currentPages.findIndex(p => p.id === viewerPage.id);
+      if (idx >= 0) currentPages[idx].transcript = data.transcript;
+      document.getElementById('viewer-transcript').textContent = data.transcript;
+      document.getElementById('viewer-transcript').classList.remove('hidden');
+      toast('文字起こし完了');
+      renderPages();
+    } else {
+      toast(data.error || 'エラーが発生しました');
+    }
+  } catch (_) { toast('通信エラー'); }
+  btn.textContent = '文字起こし'; btn.disabled = false;
+}
+
+function readThisPage() {
+  if (!viewerPage || !viewerPage.transcript) {
+    toast('文字起こしがありません。先に文字起こしを実行してください');
+    return;
+  }
+  closeViewer();
+  startSpeedReaderWithText(viewerPage.transcript, `p.${viewerPage.page_num}`);
+}
+
+// ── Add Book ─────────────────────────────────────────────────────────
+function openAddBook() {
+  document.getElementById('new-title').value  = '';
+  document.getElementById('new-author').value = '';
+  document.getElementById('new-notes').value  = '';
+  document.getElementById('add-book-modal').classList.add('open');
+}
+function closeAddBook() {
+  document.getElementById('add-book-modal').classList.remove('open');
+}
+async function submitAddBook() {
+  const title = document.getElementById('new-title').value.trim();
+  if (!title) { toast('タイトルを入力してください'); return; }
+  const author = document.getElementById('new-author').value.trim();
+  const notes  = document.getElementById('new-notes').value.trim();
+  try {
+    const data = await apiPost({ action: 'addBook', title, author, notes });
+    if (data.success) {
+      closeAddBook();
+      toast(`「${title}」を追加しました`);
+      await loadBooks();
+    } else {
+      toast(data.error || 'エラーが発生しました');
+    }
+  } catch (_) { toast('通信エラー'); }
+}
+
+// ── RSVP Speed Reader ────────────────────────────────────────────────
+let rsvpWords   = [];
+let rsvpIdx     = 0;
+let rsvpTimer   = null;
+let rsvpPlaying = false;
+let wpm = 300;
+
+function updateWpm(val) {
+  wpm = parseInt(val);
+  document.getElementById('wpm-val').textContent = wpm;
+  if (rsvpPlaying) { pauseRsvp(); playRsvp(); }
+}
+
+function showSpeedFromShelf() {
+  switchView('speed-view');
+  switchTab('tab-speed');
+  if (!rsvpWords.length) {
+    document.getElementById('rsvp-empty').style.display = '';
+    document.getElementById('rsvp-content').style.display = 'none';
+  }
+}
+
+function startSpeedReader() {
+  const texts = currentPages
+    .filter(p => p.transcript)
+    .map(p => p.transcript)
+    .join('\n\n');
+  if (!texts) {
+    toast('文字起こしがありません。ページを開いて文字起こしを実行してください');
+    return;
+  }
+  const label = currentBook ? currentBook.title : '速読';
+  startSpeedReaderWithText(texts, label);
+}
+
+function startSpeedReaderWithText(text, label) {
+  rsvpWords = tokenize(text);
+  rsvpIdx   = 0;
+  rsvpPlaying = false;
+  document.getElementById('speed-title').textContent = label;
+  document.getElementById('rsvp-empty').style.display = 'none';
+  document.getElementById('rsvp-content').style.display = '';
+  renderWord();
+  switchView('speed-view');
+  switchTab('tab-speed');
+}
+
+function tokenize(text) {
+  // Japanese: split by characters (groups), Western: split by words
+  const tokens = [];
+  const words = text.split(/\s+/).filter(Boolean);
+  for (const w of words) {
+    // if word has Japanese chars, split into chunks of ~3 chars
+    if (/[　-鿿＀-￯]/.test(w)) {
+      const size = 4;
+      for (let i = 0; i < w.length; i += size) tokens.push(w.slice(i, i + size));
+    } else {
+      tokens.push(w);
+    }
+  }
+  return tokens;
+}
+
+function renderWord() {
+  if (!rsvpWords.length) return;
+  const word = rsvpWords[rsvpIdx] || '';
+  const total = rsvpWords.length;
+  const pct = total > 1 ? (rsvpIdx / (total - 1)) * 100 : 100;
+
+  // ORP: highlight char at ~30% position
+  const orpIdx = Math.max(0, Math.floor(word.length * 0.3));
+  const before = esc(word.slice(0, orpIdx));
+  const focal  = esc(word[orpIdx] || '');
+  const after  = esc(word.slice(orpIdx + 1));
+  document.getElementById('rsvp-word').innerHTML =
+    `${before}<span class="orp">${focal}</span>${after}`;
+
+  document.getElementById('rsvp-progress').style.width = pct + '%';
+  document.getElementById('rsvp-counter').textContent  = `${rsvpIdx + 1} / ${total}`;
+  document.getElementById('play-btn').textContent = rsvpPlaying ? '⏸' : '▶';
+}
+
+function togglePlay() {
+  if (rsvpPlaying) pauseRsvp(); else playRsvp();
+}
+
+function playRsvp() {
+  rsvpPlaying = true;
+  document.getElementById('play-btn').textContent = '⏸';
+  const delay = Math.round(60000 / wpm);
+  rsvpTimer = setInterval(() => {
+    if (rsvpIdx >= rsvpWords.length - 1) { pauseRsvp(); return; }
+    rsvpIdx++;
+    renderWord();
+  }, delay);
+}
+
+function pauseRsvp() {
+  rsvpPlaying = false;
+  clearInterval(rsvpTimer);
+  document.getElementById('play-btn').textContent = '▶';
+}
+
+function stepBack() {
+  pauseRsvp();
+  rsvpIdx = Math.max(0, rsvpIdx - 1);
+  renderWord();
+}
+
+function stepForward() {
+  pauseRsvp();
+  rsvpIdx = Math.min(rsvpWords.length - 1, rsvpIdx + 1);
+  renderWord();
+}
+
+function exitSpeed() {
+  pauseRsvp();
+  if (currentBook) {
+    openBook(currentBook.id);
+  } else {
+    goShelf();
+  }
+}
+
+// ── Util ─────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────
+(function init() {
+  if (cfg.url && cfg.token) {
+    switchView('shelf-view');
+    loadBooks();
+  } else {
+    switchView('setup-view');
+  }
+})();
+</script>
+</body>
+</html>
