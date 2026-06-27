@@ -68,6 +68,7 @@ if "settings_loaded" not in st.session_state:
     saved = load_settings()
     st.session_state.categories = saved.get("categories", DEFAULT_CATEGORIES.copy())
     st.session_state.keyword_map = {**DEFAULT_KEYWORD_MAP, **saved.get("keyword_map", {})}
+    st.session_state.default_checked = saved.get("default_checked", DEFAULT_CATEGORIES.copy())
     st.session_state.settings_loaded = True
 
 for cat in st.session_state.categories:
@@ -96,9 +97,6 @@ def sort_df(df: pd.DataFrame, sort_key: str) -> pd.DataFrame:
         df = df.sort_values("公開日時", ascending=False, na_position="last")
     return df.reset_index(drop=True)
 
-
-st.markdown('<p style="font-size:1.2em;font-weight:700;margin:0 0 4px;">⚽ 最新ニュース</p>', unsafe_allow_html=True)
-st.caption("Google ニュース・Yahoo!ニュース・スポニチ・日刊スポーツ・YouTube の情報を取得しています")
 
 st.components.v1.html("""
 <script>
@@ -158,7 +156,7 @@ with st.sidebar:
 
     for cat in st.session_state.categories:
         if f"cat_{cat}" not in st.session_state:
-            st.session_state[f"cat_{cat}"] = True
+            st.session_state[f"cat_{cat}"] = cat in st.session_state.default_checked
 
     col_all, col_none = st.columns(2)
     with col_all:
@@ -197,30 +195,53 @@ with st.sidebar:
                     save_settings({
                         "categories": st.session_state.categories,
                         "keyword_map": st.session_state.keyword_map,
+                        "default_checked": st.session_state.default_checked,
                     })
                 st.rerun()
 
-        st.write("削除:")
+        st.write("デフォルト選択・削除:")
         to_delete = None
+        toggle_cat = None
         for cat in st.session_state.categories:
             color = get_cat_color(cat)
-            col_name, col_del = st.columns([5, 2])
+            is_default = cat in st.session_state.default_checked
+            col_name, col_def, col_del = st.columns([4, 2, 2])
             with col_name:
                 st.markdown(
                     f'<span style="display:inline-block;width:8px;height:8px;border-radius:2px;'
                     f'background:{color};margin-right:4px;vertical-align:middle;"></span>{cat}',
                     unsafe_allow_html=True,
                 )
+            with col_def:
+                label = "✅ON" if is_default else "⬜OFF"
+                if st.button(label, key=f"def_{cat}", use_container_width=True):
+                    toggle_cat = cat
             with col_del:
                 if st.button("削除", key=f"del_{cat}", use_container_width=True):
                     to_delete = cat
 
-        if to_delete:
-            st.session_state.categories.remove(to_delete)
-            st.session_state.keyword_map.pop(to_delete, None)
+        if toggle_cat:
+            dc = st.session_state.default_checked
+            if toggle_cat in dc:
+                dc.remove(toggle_cat)
+            else:
+                dc.append(toggle_cat)
             save_settings({
                 "categories": st.session_state.categories,
                 "keyword_map": st.session_state.keyword_map,
+                "default_checked": dc,
+            })
+            st.rerun()
+
+        if to_delete:
+            st.session_state.categories.remove(to_delete)
+            st.session_state.keyword_map.pop(to_delete, None)
+            if to_delete in st.session_state.default_checked:
+                st.session_state.default_checked.remove(to_delete)
+            save_settings({
+                "categories": st.session_state.categories,
+                "keyword_map": st.session_state.keyword_map,
+                "default_checked": st.session_state.default_checked,
             })
             st.rerun()
 
