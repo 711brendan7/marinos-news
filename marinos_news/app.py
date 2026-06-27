@@ -362,110 +362,176 @@ render();
     st.components.v1.html(html, height=height, scrolling=False)
 
 
-# ── ニュース取得 ──────────────────────────────────────────────
+# ── タブ ────────────────────────────────────────────────────
 auto_fetch = "df_news" not in st.session_state
+tab_news, tab_help = st.tabs(["📰 ニュース", "❓ 使い方"])
 
-if fetch_button or auto_fetch:
-    if not selected:
-        st.warning("カテゴリを1つ以上選択してください。")
-        st.stop()
+# ── ニュース取得・表示 ────────────────────────────────────────
+with tab_news:
+    if fetch_button or auto_fetch:
+        if not selected:
+            st.warning("カテゴリを1つ以上選択してください。")
+            st.stop()
 
-    per_cat: dict = {}
-    with st.spinner("ニュースを取得中..."):
-        for label in selected:
-            kw = st.session_state.keyword_map.get(label, label)
-            df_kw = fetch_marinos_news(keyword=kw, max_items=max_items, days=days)
-            if not df_kw.empty:
-                df_kw = df_kw.copy()
-                df_kw["カテゴリー"] = [[label]] * len(df_kw)
-            per_cat[label] = df_kw
+        per_cat: dict = {}
+        with st.spinner("ニュースを取得中..."):
+            for label in selected:
+                kw = st.session_state.keyword_map.get(label, label)
+                df_kw = fetch_marinos_news(keyword=kw, max_items=max_items, days=days)
+                if not df_kw.empty:
+                    df_kw = df_kw.copy()
+                    df_kw["カテゴリー"] = [[label]] * len(df_kw)
+                per_cat[label] = df_kw
 
-    # URLごとにカテゴリーをマージ → OR/ANDフィルタ
-    url_cats: dict = {}
-    url_rows: dict = {}
-    for label, df_kw in per_cat.items():
-        for _, row in df_kw.iterrows():
-            url = row["URL"]
-            if url not in url_cats:
-                url_cats[url] = []
-                url_rows[url] = row.to_dict()
-            if label not in url_cats[url]:
-                url_cats[url].append(label)
+        # URLごとにカテゴリーをマージ → OR/ANDフィルタ
+        url_cats: dict = {}
+        url_rows: dict = {}
+        for label, df_kw in per_cat.items():
+            for _, row in df_kw.iterrows():
+                url = row["URL"]
+                if url not in url_cats:
+                    url_cats[url] = []
+                    url_rows[url] = row.to_dict()
+                if label not in url_cats[url]:
+                    url_cats[url].append(label)
 
-    selected_set = set(selected)
-    rows = []
-    for url, cats in url_cats.items():
-        if use_and and len(selected) > 1 and not selected_set.issubset(set(cats)):
-            continue
-        r = url_rows[url].copy()
-        r["カテゴリー"] = cats
-        rows.append(r)
+        selected_set = set(selected)
+        rows = []
+        for url, cats in url_cats.items():
+            if use_and and len(selected) > 1 and not selected_set.issubset(set(cats)):
+                continue
+            r = url_rows[url].copy()
+            r["カテゴリー"] = cats
+            rows.append(r)
 
-    df_news = pd.DataFrame(rows) if rows else pd.DataFrame()
-    if not df_news.empty:
-        df_news = df_news.sort_values("公開日時", ascending=False, na_position="last")
-        df_news = df_news.reset_index(drop=True)
-    st.session_state.df_news = df_news
+        df_news = pd.DataFrame(rows) if rows else pd.DataFrame()
+        if not df_news.empty:
+            df_news = df_news.sort_values("公開日時", ascending=False, na_position="last")
+            df_news = df_news.reset_index(drop=True)
+        st.session_state.df_news = df_news
 
-    with st.spinner("全体要約を生成中..."):
-        st.session_state.overall_summary = generate_overall_summary(st.session_state.df_news)
+        with st.spinner("全体要約を生成中..."):
+            st.session_state.overall_summary = generate_overall_summary(st.session_state.df_news)
 
-    df_yt = pd.DataFrame()
-    if youtube_enabled:
-        try:
-            api_key = st.secrets.get("YOUTUBE_API_KEY", "")
-        except FileNotFoundError:
-            api_key = ""
+        df_yt = pd.DataFrame()
+        if youtube_enabled:
+            try:
+                api_key = st.secrets.get("YOUTUBE_API_KEY", "")
+            except FileNotFoundError:
+                api_key = ""
 
-        if api_key:
-            yt_frames = []
-            with st.spinner("YouTube動画を取得中..."):
-                for label in selected:
-                    kw = st.session_state.keyword_map.get(label, label)
-                    df_kw = fetch_youtube_videos(keyword=kw, max_items=10, days=days, api_key=api_key)
-                    if not df_kw.empty:
-                        df_kw = df_kw.copy()
-                        df_kw["カテゴリー"] = [[label]] * len(df_kw)
-                        yt_frames.append(df_kw)
-            if yt_frames:
-                df_yt = pd.concat(yt_frames, ignore_index=True)
-                df_yt = df_yt.drop_duplicates(subset=["URL"])
-                df_yt = df_yt.sort_values("公開日時", ascending=False, na_position="last")
-                df_yt = df_yt.reset_index(drop=True)
+            if api_key:
+                yt_frames = []
+                with st.spinner("YouTube動画を取得中..."):
+                    for label in selected:
+                        kw = st.session_state.keyword_map.get(label, label)
+                        df_kw = fetch_youtube_videos(keyword=kw, max_items=10, days=days, api_key=api_key)
+                        if not df_kw.empty:
+                            df_kw = df_kw.copy()
+                            df_kw["カテゴリー"] = [[label]] * len(df_kw)
+                            yt_frames.append(df_kw)
+                if yt_frames:
+                    df_yt = pd.concat(yt_frames, ignore_index=True)
+                    df_yt = df_yt.drop_duplicates(subset=["URL"])
+                    df_yt = df_yt.sort_values("公開日時", ascending=False, na_position="last")
+                    df_yt = df_yt.reset_index(drop=True)
+            else:
+                st.warning("YouTube APIキーが設定されていません")
+        st.session_state.df_yt = df_yt
+
+    if "df_news" in st.session_state:
+        if st.session_state.get("overall_summary"):
+            st.markdown(
+                f'<div style="'
+                f'background:rgba(28,131,225,0.1);'
+                f'border-left:4px solid #1C83E1;'
+                f'padding:10px 14px;'
+                f'border-radius:4px;'
+                f'font-size:0.85em;'
+                f'line-height:1.5;'
+                f'margin-bottom:1rem;'
+                f'">{st.session_state.overall_summary}</div>',
+                unsafe_allow_html=True,
+            )
+
+        if st.session_state.df_news.empty:
+            st.warning("ニュースが見つかりませんでした。")
         else:
-            st.warning("YouTube APIキーが設定されていません")
-    st.session_state.df_yt = df_yt
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                st.success(f"{len(st.session_state.df_news)} 件のニュースを取得しました")
+            with c2:
+                sort_key = st.selectbox("並び順", SORT_OPTIONS, label_visibility="collapsed")
+            render_articles(sort_df(st.session_state.df_news, sort_key))
 
-
-# ── 表示 ────────────────────────────────────────────────────
-if "df_news" in st.session_state:
-    if st.session_state.get("overall_summary"):
-        st.markdown(
-            f'<div style="'
-            f'background:rgba(28,131,225,0.1);'
-            f'border-left:4px solid #1C83E1;'
-            f'padding:10px 14px;'
-            f'border-radius:4px;'
-            f'font-size:0.85em;'
-            f'line-height:1.5;'
-            f'margin-bottom:1rem;'
-            f'">{st.session_state.overall_summary}</div>',
-            unsafe_allow_html=True,
-        )
-
-    if st.session_state.df_news.empty:
-        st.warning("ニュースが見つかりませんでした。")
+        if youtube_enabled and "df_yt" in st.session_state and not st.session_state.df_yt.empty:
+            st.subheader("▶️ YouTube 動画")
+            st.success(f"{len(st.session_state.df_yt)} 件の動画を取得しました")
+            render_articles(st.session_state.df_yt)
     else:
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            st.success(f"{len(st.session_state.df_news)} 件のニュースを取得しました")
-        with c2:
-            sort_key = st.selectbox("並び順", SORT_OPTIONS, label_visibility="collapsed")
-        render_articles(sort_df(st.session_state.df_news, sort_key))
+        st.info("左のサイドバーにある「ニュースを取得する」ボタンを押してください。")
 
-    if youtube_enabled and "df_yt" in st.session_state and not st.session_state.df_yt.empty:
-        st.subheader("▶️ YouTube 動画")
-        st.success(f"{len(st.session_state.df_yt)} 件の動画を取得しました")
-        render_articles(st.session_state.df_yt)
-else:
-    st.info("左のサイドバーにある「ニュースを取得する」ボタンを押してください。")
+# ── 使い方 ────────────────────────────────────────────────────
+with tab_help:
+    st.markdown("## 使い方")
+
+    st.markdown("### 📰 ニュースを取得する")
+    st.markdown("""
+左のサイドバーにある **「ニュースを取得する」** ボタンを押すと、
+Google ニュース・Yahoo! ニュース・スポニチ・日刊スポーツ・YouTube から最新記事を取得します。
+アプリを開くと自動的に取得します。
+    """)
+
+    st.markdown("### 🔍 カテゴリーで絞り込む")
+    st.markdown("""
+サイドバーのチェックボックスで表示したいカテゴリーを選択します。
+
+| モード | 動作 |
+|---|---|
+| **OR** | 選択したカテゴリーのどれか1つが一致する記事を表示 |
+| **AND** | 選択したカテゴリーすべてが一致する記事を表示 |
+    """)
+
+    st.markdown("### ↕️ 並び替え")
+    st.markdown("""
+記事リスト上部のドロップダウンで並び順を切り替えられます。
+
+| オプション | 内容 |
+|---|---|
+| 新着順 ↓ | 新しい記事から順に表示（デフォルト） |
+| 古い順 ↑ | 古い記事から順に表示 |
+| カテゴリー ↑ | カテゴリー名の昇順 |
+| カテゴリー ↓ | カテゴリー名の降順 |
+    """)
+
+    st.markdown("### ⬅️ スワイプして削除")
+    st.markdown("""
+読み終わった記事や不要な記事は **左にスワイプ** すると「削除」ボタンが表示されます。
+タップすると記事が非表示になり、**次回以降も表示されません**。
+
+> 💡 削除した記事を元に戻したい場合は、ブラウザのローカルストレージ（`blocked_news_urls`）をクリアしてください。
+    """)
+
+    st.markdown("### 🤖 AI要約")
+    st.markdown("""
+ニュース取得時に、Claude AI が見出し一覧を自動で3〜5文に要約します。
+記事リストの上部に青いボックスで表示されます。
+    """)
+
+    st.markdown("### ➕ カテゴリーを追加・削除する")
+    st.markdown("""
+サイドバーの **「カテゴリー管理」** を開くと、キーワードの追加・削除ができます。
+
+- **追加**: キーワードを入力して「追加」ボタンをタップ
+- **削除**: 各カテゴリーの「削除」ボタンをタップ
+- 設定はこのデバイスに保存されます
+    """)
+
+    st.markdown("### ⚙️ 取得オプション")
+    st.markdown("""
+| オプション | 内容 |
+|---|---|
+| 最大取得件数 | カテゴリーごとに取得する記事の上限（5〜50件） |
+| 過去N日以内 | 何日前までの記事を取得するか（1〜30日） |
+| YouTube動画も取得する | YouTube の関連動画も一緒に取得する |
+    """)
