@@ -61,6 +61,7 @@
     .attach-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .attach-icon { font-size: 30px; line-height: 1; }
     .attach-del { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; line-height: 18px; text-align: center; cursor: pointer; border: none; padding: 0; }
+    .attach-ocr-btn { position: absolute; bottom: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,122,255,0.8); color: #fff; font-size: 10px; line-height: 18px; text-align: center; cursor: pointer; border: none; padding: 0; }
     .attach-add-btn { width: 56px; height: 56px; border-radius: 10px; background: #f2f2f7; border: 1.5px dashed #c7c7cc; font-size: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; color: #636366; }
     /* attachment sheet */
     #attach-sheet { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 2000; align-items: flex-end; }
@@ -104,7 +105,7 @@
 
 <div id="main-view" style="display:none">
   <header>
-    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260611</span></h1>
+    <h1>TODO <span style="font-size:11px;font-weight:400;color:#c7c7cc;vertical-align:middle;">v20260627</span></h1>
     <div class="add-area">
       <div class="add-row">
         <input type="text" id="new-todo" placeholder="新しいタスクを追加..." enterkeyhint="done">
@@ -156,6 +157,18 @@
   <div class="rec-status" id="rec-status">準備中...</div>
   <button class="rec-btn" id="rec-btn" onclick="stopRecording()">⏹</button>
   <button class="rec-cancel" onclick="cancelRecording()">キャンセル</button>
+</div>
+<!-- OCR result sheet -->
+<div id="ocr-sheet" onclick="if(event.target===this)closeOcrSheet()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:2000;align-items:flex-end;">
+  <div class="attach-sheet-inner">
+    <div class="attach-sheet-title">文字起こし結果</div>
+    <textarea id="ocr-result-text" style="width:100%;height:160px;padding:10px;border:1px solid #d1d1d6;border-radius:10px;font-size:15px;resize:vertical;margin-bottom:8px;-webkit-appearance:none;outline:none;"></textarea>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <button class="btn-primary" style="flex:1;" onclick="copyOcrText()">コピー</button>
+      <button class="btn-primary" style="flex:1;background:#34c759;" onclick="addOcrAsTask()">タスクに追加</button>
+    </div>
+    <button class="attach-cancel-btn" onclick="closeOcrSheet()">閉じる</button>
+  </div>
 </div>
 <!-- hidden file input -->
 <input type="file" id="attach-file-input" style="display:none" accept="image/*,video/*">
@@ -319,7 +332,10 @@ function attachThumb(a, todoId, editable) {
   const del = editable
     ? `<button class="attach-del" onclick="event.preventDefault();event.stopPropagation();deleteAttachment('${todoId}','${a.id}')">×</button>`
     : '';
-  return `<a class="attach-thumb" href="${url}" target="_blank" rel="noopener">${inner}${del}</a>`;
+  const ocr = isImg
+    ? `<button class="attach-ocr-btn" title="文字起こし" onclick="event.preventDefault();event.stopPropagation();runOcr('${a.id}')">📝</button>`
+    : '';
+  return `<a class="attach-thumb" href="${url}" target="_blank" rel="noopener">${inner}${del}${ocr}</a>`;
 }
 function itemHTML(t) {
   const imp   = t.important ? ' important' : '';
@@ -396,23 +412,25 @@ async function saveEdit(id) {
 async function addTodo() {
   const input = document.getElementById('new-todo');
   const text  = input.value.trim();
-  if (!text && !pendingAddFile) return;
+  if (!text && pendingAddFiles.length === 0) return;
   const catEl = document.getElementById('add-cat');
   const category = catEl.value.trim();
   input.value = ''; catEl.value = '';
   const res = await api({ action:'add', text: text || '（添付ファイル）', category });
-  if (res.id && pendingAddFile) {
-    const ur = await uploadAttachment(res.id, pendingAddFile);
-    pendingAddFile = null;
+  if (res.id && pendingAddFiles.length > 0) {
+    for (const file of pendingAddFiles) {
+      const ur = await uploadAttachment(res.id, file);
+      if (!ur || !ur.success) showToast('添付失敗: ' + (ur?.error || 'エラー'));
+    }
+    pendingAddFiles = [];
     document.getElementById('add-attach-preview').innerHTML = '';
-    if (!ur || !ur.success) showToast('添付失敗: ' + (ur?.error || 'エラー'));
   }
   loadTodos();
 }
 
 // ── attachments ────────────────────────────────────────
 let attachCtx = null;
-let pendingAddFile = null;
+let pendingAddFiles = [];
 let mediaRecorder = null, audioChunks = [], recTimer = null, recSec = 0;
 
 async function apiPost(body) {
@@ -467,28 +485,41 @@ function closeAttachPicker() {
 function attachPickCamera() {
   closeAttachPicker();
   const inp = document.getElementById('attach-file-input');
-  inp.accept = 'image/*,video/*'; inp.setAttribute('capture','environment'); inp.click();
+  inp.accept = 'image/*,video/*'; inp.removeAttribute('multiple'); inp.setAttribute('capture','environment'); inp.click();
 }
 function attachPickGallery() {
   closeAttachPicker();
   const inp = document.getElementById('attach-file-input');
-  inp.accept = 'image/*,video/*'; inp.removeAttribute('capture'); inp.click();
+  inp.accept = 'image/*,video/*'; inp.removeAttribute('capture'); inp.setAttribute('multiple',''); inp.click();
 }
 
 document.getElementById('attach-file-input').addEventListener('change', async e => {
-  const file = e.target.files[0]; if (!file) return; e.target.value = '';
+  const files = [...e.target.files]; e.target.value = '';
+  if (!files.length) return;
   if (attachCtx === '__add__') {
-    pendingAddFile = file;
     const prev = document.getElementById('add-attach-preview');
-    const isImg = file.type.startsWith('image/');
-    prev.innerHTML = isImg
-      ? `<div class="attach-thumb"><img src="${URL.createObjectURL(file)}"><button class="attach-del" onclick="pendingAddFile=null;this.parentNode.parentNode.innerHTML=''">×</button></div>`
-      : `<div class="attach-thumb"><span class="attach-icon">${file.type.startsWith('audio/')?' 🎤':'🎬'}</span><button class="attach-del" onclick="pendingAddFile=null;this.parentNode.parentNode.innerHTML=''">×</button></div>`;
+    files.forEach(file => {
+      pendingAddFiles.push(file);
+      const idx = pendingAddFiles.length - 1;
+      const isImg = file.type.startsWith('image/');
+      const thumb = document.createElement('div');
+      thumb.className = 'attach-thumb';
+      thumb.dataset.idx = idx;
+      thumb.innerHTML = (isImg
+        ? `<img src="${URL.createObjectURL(file)}">`
+        : `<span class="attach-icon">${file.type.startsWith('audio/') ? '🎤' : '🎬'}</span>`)
+        + `<button class="attach-del" onclick="removePendingFile(${idx})">×</button>`;
+      prev.appendChild(thumb);
+    });
     return;
   }
   showToast('アップロード中...');
-  const res = await uploadAttachment(attachCtx, file);
-  res.success ? (showToast('添付しました'), loadTodos()) : showToast('失敗: ' + (res.error||''));
+  for (const file of files) {
+    const res = await uploadAttachment(attachCtx, file);
+    if (!res.success) showToast('失敗: ' + (res.error||''));
+  }
+  showToast(files.length > 1 ? `${files.length}件 添付しました` : '添付しました');
+  loadTodos();
 });
 
 // voice recorder
@@ -527,9 +558,14 @@ async function startRecording() {
       const ext  = mediaRecorder.mimeType.includes('mp4') ? 'm4a' : 'webm';
       const fname = `voice_${Date.now()}.${ext}`;
       if (attachCtx === '__add__') {
-        pendingAddFile = new File([blob], fname, { type: blob.type });
+        const voiceFile = new File([blob], fname, { type: blob.type });
+        pendingAddFiles.push(voiceFile);
+        const idx = pendingAddFiles.length - 1;
         const prev = document.getElementById('add-attach-preview');
-        prev.innerHTML = `<div class="attach-thumb"><span class="attach-icon">🎤</span><button class="attach-del" onclick="pendingAddFile=null;this.parentNode.parentNode.innerHTML=''">×</button></div>`;
+        const thumb = document.createElement('div');
+        thumb.className = 'attach-thumb';
+        thumb.innerHTML = `<span class="attach-icon">🎤</span><button class="attach-del" onclick="removePendingFile(${idx})">×</button>`;
+        prev.appendChild(thumb);
         return;
       }
       showToast('アップロード中...');
@@ -556,6 +592,52 @@ async function deleteAttachment(todoId, fileId) {
   await api({ action:'detach', id:todoId, fileId });
   loadTodos();
 }
+function removePendingFile(idx) {
+  pendingAddFiles.splice(idx, 1);
+  const prev = document.getElementById('add-attach-preview');
+  prev.innerHTML = '';
+  pendingAddFiles.forEach((file, i) => {
+    const isImg = file.type.startsWith('image/');
+    const thumb = document.createElement('div');
+    thumb.className = 'attach-thumb';
+    thumb.innerHTML = (isImg
+      ? `<img src="${URL.createObjectURL(file)}">`
+      : `<span class="attach-icon">${file.type.startsWith('audio/') ? '🎤' : '🎬'}</span>`)
+      + `<button class="attach-del" onclick="removePendingFile(${i})">×</button>`;
+    prev.appendChild(thumb);
+  });
+}
+async function runOcr(fileId) {
+  showToast('読み取り中...', true);
+  try {
+    const res = await api({ action: 'ocr', fileId });
+    hideToast();
+    if (!res.success) { showToast('文字起こし失敗: ' + (res.error || '')); return; }
+    document.getElementById('ocr-result-text').value = res.text || '（テキストなし）';
+    const sheet = document.getElementById('ocr-sheet');
+    sheet.style.display = 'flex';
+  } catch(e) {
+    hideToast();
+    showToast('エラーが発生しました');
+  }
+}
+function closeOcrSheet() {
+  document.getElementById('ocr-sheet').style.display = 'none';
+}
+function copyOcrText() {
+  const text = document.getElementById('ocr-result-text').value;
+  navigator.clipboard?.writeText(text)
+    .then(() => showToast('コピーしました'))
+    .catch(() => showToast('コピーできませんでした'));
+}
+function addOcrAsTask() {
+  const text = document.getElementById('ocr-result-text').value.trim();
+  if (!text) return;
+  document.getElementById('new-todo').value = text;
+  closeOcrSheet();
+  showToast('タスク入力欄にセットしました');
+  document.getElementById('new-todo').focus();
+}
 async function toggleDone(id) { await api({ action:'done', id }); loadTodos(); }
 async function toggleImportant(id) {
   const t = allTodos.find(x => x.id === id);
@@ -567,7 +649,7 @@ async function toggleImportant(id) {
 document.getElementById('new-todo').addEventListener('keydown', e => { if (e.key==='Enter') addTodo(); });
 
 // ── voice input ────────────────────────────────────────
-function showToast(msg) {
+function showToast(msg, persist = false) {
   let t = document.getElementById('toast');
   if (!t) {
     t = document.createElement('div');
@@ -578,7 +660,11 @@ function showToast(msg) {
   t.textContent = msg;
   t.style.opacity = '1';
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+  if (!persist) t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+}
+function hideToast() {
+  const t = document.getElementById('toast');
+  if (t) { clearTimeout(t._timer); t.style.opacity = '0'; }
 }
 
 function startVoiceInput() {

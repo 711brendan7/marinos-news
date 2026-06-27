@@ -13,6 +13,7 @@ function doGet(e) {
   if (action === 'reorder')   return makeResponse(reorderTodos(p.ids));
   if (action === 'detach')    return makeResponse(detachFile(p.id, p.fileId));
   if (action === 'important') return makeResponse(setImportant(p.id, p.value));
+  if (action === 'ocr')       return makeResponse(ocrImage(p.fileId));
   return makeResponse({ error: 'Unknown action' });
 }
 
@@ -175,6 +176,37 @@ function detachFile(todoId, fileId) {
       }
     }
     return { error: 'Todo not found' };
+  } catch(e) {
+    return { error: String(e) };
+  }
+}
+
+function ocrImage(fileId) {
+  if (!fileId) return { error: 'fileId required' };
+  try {
+    var token = ScriptApp.getOAuthToken();
+    var copyRes = UrlFetchApp.fetch(
+      'https://www.googleapis.com/drive/v3/files/' + fileId + '/copy',
+      {
+        method: 'POST',
+        contentType: 'application/json',
+        headers: { Authorization: 'Bearer ' + token },
+        payload: JSON.stringify({ mimeType: 'application/vnd.google-apps.document', name: '_ocr_tmp_' + Date.now() }),
+        muteHttpExceptions: true
+      }
+    );
+    var docId = JSON.parse(copyRes.getContentText()).id;
+    if (!docId) return { error: 'OCR失敗: ' + copyRes.getContentText() };
+    var textRes = UrlFetchApp.fetch(
+      'https://www.googleapis.com/drive/v3/files/' + docId + '/export?mimeType=text%2Fplain',
+      { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true }
+    );
+    var text = textRes.getContentText();
+    UrlFetchApp.fetch(
+      'https://www.googleapis.com/drive/v3/files/' + docId,
+      { method: 'DELETE', headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true }
+    );
+    return { success: true, text: text.trim() };
   } catch(e) {
     return { error: String(e) };
   }
