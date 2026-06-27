@@ -227,6 +227,7 @@ with st.sidebar:
     st.subheader("オプション")
     max_items = st.slider("最大取得件数（カテゴリごと）", min_value=5, max_value=50, value=20, step=5)
     days = st.slider("過去N日以内", min_value=1, max_value=30, value=3, step=1)
+    summary_enabled = st.checkbox("AI要約を表示する", value=True)
     youtube_enabled = st.checkbox("YouTube動画も取得する", value=False)
 
 
@@ -434,8 +435,11 @@ with tab_news:
             df_news = df_news.reset_index(drop=True)
         st.session_state.df_news = df_news
 
-        with st.spinner("全体要約を生成中..."):
-            st.session_state.overall_summary = generate_overall_summary(st.session_state.df_news)
+        if summary_enabled:
+            with st.spinner("全体要約を生成中..."):
+                st.session_state.overall_summary = generate_overall_summary(st.session_state.df_news)
+        else:
+            st.session_state.overall_summary = ""
 
         df_yt = pd.DataFrame()
         if youtube_enabled:
