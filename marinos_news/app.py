@@ -501,12 +501,28 @@ with tab_news:
         if st.session_state.df_news.empty:
             st.warning("ニュースが見つかりませんでした。")
         else:
-            c1, c2 = st.columns([3, 2])
+            df_news = st.session_state.df_news
+            cats_in_data = sorted(set(
+                c for row_cats in df_news["カテゴリー"].tolist()
+                for c in (row_cats if isinstance(row_cats, list) else [])
+            ))
+            c1, c2, c3 = st.columns([2, 2, 2])
             with c1:
-                st.success(f"{len(st.session_state.df_news)} 件のニュースを取得しました")
+                st.success(f"{len(df_news)} 件")
             with c2:
                 sort_key = st.selectbox("並び順", SORT_OPTIONS, label_visibility="collapsed")
-            render_articles(sort_df(st.session_state.df_news, sort_key))
+            with c3:
+                cat_filter = st.selectbox(
+                    "カテゴリー",
+                    ["すべて"] + cats_in_data,
+                    label_visibility="collapsed",
+                )
+            df_view = sort_df(df_news, sort_key)
+            if cat_filter != "すべて":
+                df_view = df_view[df_view["カテゴリー"].apply(
+                    lambda x: cat_filter in (x if isinstance(x, list) else [])
+                )].reset_index(drop=True)
+            render_articles(df_view)
 
         if youtube_enabled and "df_yt" in st.session_state and not st.session_state.df_yt.empty:
             st.subheader("▶️ YouTube 動画")
