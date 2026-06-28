@@ -583,9 +583,6 @@
   </div>
 </div>
 
-<!-- hidden camera input -->
-<input type="file" id="camera-input" accept="image/*" capture="environment"
-  style="display:none" onchange="handlePhotoCapture(this)">
 
 <!-- ── Speed Reader View ── -->
 <div id="speed-view" class="view">
@@ -945,52 +942,25 @@ function renderPages() {
 
 // ── Camera & Upload ──────────────────────────────────────────────────
 function openCamera() {
-  const input = document.getElementById('camera-input');
-  input.value = '';
-  input.click();
-}
-
-async function handlePhotoCapture(input) {
-  if (!input.files || !input.files[0]) return;
-  const file = input.files[0];
-  toast('アップロード中…');
-  try {
-    const base64 = await compressToBase64(file);
-    const data = await apiPost({
-      action: 'addPage',
-      bookId: currentBook.id,
-      imageBase64: base64,
-      imageMime: 'image/jpeg',
-      ocr: true,
-      ocrLanguage: 'ja'
-    });
-    if (data.success) {
-      toast(data.transcript ? '保存・文字起こし完了' : '保存しました');
-      await loadPages(currentBook.id);
-    } else {
-      toast(data.error || 'エラーが発生しました');
-    }
-  } catch (_) { toast('アップロードに失敗しました'); }
-}
-
-function compressToBase64(file) {
-  return new Promise(resolve => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const MAX = 1200;
-      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-      const c = document.createElement('canvas');
-      c.width  = Math.round(img.width  * scale);
-      c.height = Math.round(img.height * scale);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      const dataUrl = c.toDataURL('image/jpeg', 0.8);
-      resolve(dataUrl.split(',')[1]);
-    };
-    img.src = url;
+  if (!currentBook) return;
+  _evPickPhoto(async file => {
+    const dataUrl = await _readFileAsDataUrl(file);
+    pendingCropUpload = { type: 'camera', bookId: currentBook.id };
+    openCropWithLocalDataUrl(dataUrl);
   });
 }
+
+async function uploadPageFromCamera(bookId, base64, mime) {
+  toast('保存中（OCR中）…');
+  try {
+    const data = await apiPost({ action: 'addPage', bookId, imageBase64: base64, imageMime: mime, ocr: true, ocrLanguage: 'ja' });
+    if (data.success) {
+      toast(data.transcript ? '保存・文字起こし完了' : '保存しました');
+      await loadPages(bookId);
+    } else { toast(data.error || 'エラーが発生しました'); }
+  } catch (_) { toast('保存に失敗しました'); }
+}
+
 
 // ── Crop ─────────────────────────────────────────────────────────────
 const cs = { imgX:0, imgY:0, imgW:0, imgH:0, natW:0, natH:0, boxX:0, boxY:0, boxW:0, boxH:0, drag:null, startT:null, startBox:null };
@@ -1057,9 +1027,12 @@ async function confirmCrop() {
   const sw = Math.round(cs.boxW * scaleX);
   const sh = Math.round(cs.boxH * scaleY);
 
+  const MAX_DIM = 1200;
+  const outScale = Math.min(1, MAX_DIM / Math.max(sw, sh));
+  const outW = Math.round(sw * outScale), outH = Math.round(sh * outScale);
   const canvas = document.createElement('canvas');
-  canvas.width = sw; canvas.height = sh;
-  canvas.getContext('2d').drawImage(document.getElementById('crop-img'), sx, sy, sw, sh, 0, 0, sw, sh);
+  canvas.width = outW; canvas.height = outH;
+  canvas.getContext('2d').drawImage(document.getElementById('crop-img'), sx, sy, sw, sh, 0, 0, outW, outH);
   const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
 
   cancelCrop();
@@ -1070,8 +1043,10 @@ async function confirmCrop() {
     pendingCropUpload = null;
     if (pcu.type === 'new') {
       await evUploadNewPage(base64, 'image/jpeg');
-    } else {
+    } else if (pcu.type === 'replace') {
       await evUploadReplaceImage(pcu.pageId, base64, 'image/jpeg');
+    } else if (pcu.type === 'camera') {
+      await uploadPageFromCamera(pcu.bookId, base64, 'image/jpeg');
     }
     return;
   }
