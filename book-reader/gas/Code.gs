@@ -100,7 +100,8 @@ function listBooks() {
     books.push({
       id: r[0], title: r[1], author: r[2], created: r[3],
       cover_url: r[5] || firstImageMap[r[0]] || '',
-      notes: r[6], text: r[7] || '', transcript: transcriptMap[r[0]] || ''
+      notes: r[6], text: r[7] || '', transcript: transcriptMap[r[0]] || '',
+      completed: r[8] === true || r[8] === 'TRUE' || r[8] === 1
     });
   }
   books.sort((a, b) => new Date(b.created) - new Date(a.created));
@@ -134,10 +135,11 @@ function editBook(body) {
   const rows = sh.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] === body.bookId) {
-      if (body.title  !== undefined) sh.getRange(i + 1, 2).setValue(body.title);
-      if (body.author !== undefined) sh.getRange(i + 1, 3).setValue(body.author);
-      if (body.notes  !== undefined) sh.getRange(i + 1, 7).setValue(body.notes);
-      if (body.text   !== undefined) sh.getRange(i + 1, 8).setValue(body.text);
+      if (body.title     !== undefined) sh.getRange(i + 1, 2).setValue(body.title);
+      if (body.author    !== undefined) sh.getRange(i + 1, 3).setValue(body.author);
+      if (body.notes     !== undefined) sh.getRange(i + 1, 7).setValue(body.notes);
+      if (body.text      !== undefined) sh.getRange(i + 1, 8).setValue(body.text);
+      if (body.completed !== undefined) sh.getRange(i + 1, 9).setValue(body.completed ? true : false);
       return { success: true };
     }
   }

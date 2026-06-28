@@ -403,6 +403,19 @@
     }
 
     /* ── Edit View ── */
+    .ev-done-btn {
+      width: 100%; padding: 12px; border-radius: 10px; border: 2px solid var(--border);
+      background: var(--surface2); color: var(--text2); font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: all .18s;
+    }
+    .ev-done-btn.done {
+      border-color: #27ae60; background: rgba(39,174,96,.15); color: #4cd964;
+    }
+    .book-done-badge {
+      display: inline-block; background: #27ae60; color: #fff;
+      font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+      margin-left: 5px; vertical-align: middle; flex-shrink: 0;
+    }
     .ev-section-title { font-size: 12px; color: var(--text2); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 10px; }
     .ev-page { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
     .ev-page-header { display: flex; align-items: center; gap: 6px; }
@@ -554,6 +567,7 @@
       <div class="field"><label>タイトル</label><input id="ev-title" type="text"></div>
       <div class="field"><label>著者</label><input id="ev-author" type="text"></div>
       <div class="field"><label>メモ</label><input id="ev-notes" type="text"></div>
+      <button id="ev-done-btn" class="ev-done-btn" onclick="toggleEvDone()">未完了</button>
     </div>
     <div>
       <div class="ev-section-title">ページ</div>
@@ -781,7 +795,7 @@ function renderShelf() {
                 ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
               </div>
               <div class="book-list-info">
-                <div class="book-list-title">${esc(b.title)}</div>
+                <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
                 ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
                 ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
               </div>
@@ -799,7 +813,7 @@ function renderShelf() {
           <div class="swipe-inner">
             <div class="book-list-item" onclick="handleBookClick('${b.id}')">
               <div class="book-list-info" style="padding:2px 0">
-                <div class="book-list-title">${esc(b.title)}</div>
+                <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
                 ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
                 ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
               </div>
@@ -820,7 +834,7 @@ function renderShelf() {
                 ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
               </div>
               <div class="book-info">
-                <div class="book-title">${esc(b.title)}</div>
+                <div class="book-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
                 ${b.author ? `<div class="book-author">${esc(b.author)}</div>` : ''}
                 ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
               </div>
@@ -1409,8 +1423,16 @@ async function submitAddBook() {
 let editViewReturnTo = 'shelf';
 let editViewBook = null;
 let editViewPages = [];
+let editViewDone = false;
 let afterCropCallback = null;
 const evDelTimers = {};
+
+function toggleEvDone() {
+  editViewDone = !editViewDone;
+  const btn = document.getElementById('ev-done-btn');
+  btn.textContent = editViewDone ? '✓ 読了' : '未完了';
+  btn.classList.toggle('done', editViewDone);
+}
 
 async function openEditView(bookId, returnTo) {
   const book = books.find(b => b.id === bookId) || currentBook;
@@ -1422,6 +1444,10 @@ async function openEditView(bookId, returnTo) {
   document.getElementById('ev-title').value  = book.title  || '';
   document.getElementById('ev-author').value = book.author || '';
   document.getElementById('ev-notes').value  = book.notes  || '';
+  editViewDone = !!book.completed;
+  const doneBtn = document.getElementById('ev-done-btn');
+  doneBtn.textContent = editViewDone ? '✓ 読了' : '未完了';
+  doneBtn.classList.toggle('done', editViewDone);
 
   const container = document.getElementById('ev-pages');
   container.innerHTML = '<div class="loading">読み込み中…</div>';
@@ -1489,7 +1515,7 @@ async function submitEditView() {
   const notes  = document.getElementById('ev-notes').value.trim();
   toast('保存中…');
   try {
-    const bookData = await apiPost({ action: 'editBook', bookId: editViewBook.id, title, author, notes });
+    const bookData = await apiPost({ action: 'editBook', bookId: editViewBook.id, title, author, notes, completed: editViewDone });
     if (!bookData.success) { toast(bookData.error || 'エラー'); return; }
 
     const saves = editViewPages.map(p => {
@@ -1506,7 +1532,9 @@ async function submitEditView() {
     await Promise.all(saves);
 
     if (currentBook && currentBook.id === editViewBook.id) {
-      currentBook.title = title; currentBook.author = author; currentBook.notes = notes;
+      currentBook.title = title; currentBook.author = author; currentBook.notes = notes; currentBook.completed = editViewDone;
+      const bk = books.find(b => b.id === editViewBook.id);
+      if (bk) { bk.title = title; bk.author = author; bk.notes = notes; bk.completed = editViewDone; }
       document.getElementById('pages-title').textContent = title;
       renderPages();
     }
