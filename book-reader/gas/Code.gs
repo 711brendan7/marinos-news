@@ -40,6 +40,7 @@ function doGet(e) {
   if (p.action === 'transcribe')      return ok(transcribePage(p.pageId));
   if (p.action === 'deleteImage')     return ok(deletePageImage(p.pageId));
   if (p.action === 'clearTranscript') return ok(clearPageTranscript(p.pageId));
+  if (p.action === 'getPageImage')    return ok(getPageImage(p.pageId));
   if (p.action === 'addBook')    return ok(addBook({ title: p.title, author: p.author, notes: p.notes }));
   if (p.action === 'editBook')   return ok(editBook({ bookId: p.bookId, title: p.title, author: p.author, notes: p.notes }));
 
@@ -56,6 +57,7 @@ function doPost(e) {
   if (body.action === 'addPage')          return ok(addPage(body));
   if (body.action === 'editBook')         return ok(editBook(body));
   if (body.action === 'updateTranscript') return ok(updatePageTranscript(body.pageId, body.transcript));
+  if (body.action === 'updatePageImage')  return ok(updatePageImage(body.pageId, body.imageBase64, body.imageMime));
 
   return ok({ error: 'unknown action' });
 }
@@ -286,6 +288,41 @@ function transcribePage(pageId) {
       } catch (err) {
         return { error: err.toString() };
       }
+    }
+  }
+  return { error: 'not found' };
+}
+
+function getPageImage(pageId) {
+  const rows = getSheet(PAGES_SHEET).getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === pageId) {
+      const fileId = rows[i][3];
+      if (!fileId) return { error: 'no image' };
+      try {
+        const blob = DriveApp.getFileById(fileId).getBlob();
+        return { success: true, dataUrl: 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
+      } catch (e) { return { error: e.toString() }; }
+    }
+  }
+  return { error: 'not found' };
+}
+
+function updatePageImage(pageId, imageBase64, imageMime) {
+  const sh = getSheet(PAGES_SHEET);
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === pageId) {
+      tryTrash(rows[i][3]);
+      const folder = getFolder();
+      const blob = Utilities.newBlob(Utilities.base64Decode(imageBase64), imageMime || 'image/jpeg', pageId + '_page.jpg');
+      const f = folder.createFile(blob);
+      f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      const fileId = f.getId();
+      const imageUrl = 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=w800';
+      sh.getRange(i + 1, 4).setValue(fileId);
+      sh.getRange(i + 1, 5).setValue(imageUrl);
+      return { success: true, imageUrl };
     }
   }
   return { error: 'not found' };

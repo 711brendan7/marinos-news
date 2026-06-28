@@ -402,6 +402,37 @@
       text-align: center; color: var(--text2); font-size: 15px; padding: 40px 20px;
     }
 
+    /* ── Crop UI ── */
+    #crop-view {
+      display: none; position: absolute; inset: 0; background: #000; z-index: 20;
+      flex-direction: column;
+    }
+    #crop-view.open { display: flex; }
+    #crop-stage { flex: 1; position: relative; overflow: hidden; touch-action: none; }
+    #crop-img { position: absolute; transform-origin: 0 0; max-width: none; border-radius: 0; user-select: none; -webkit-user-select: none; }
+    #crop-box {
+      position: absolute; border: 2px solid rgba(255,255,255,0.95);
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.58);
+      touch-action: none;
+    }
+    .crop-corner {
+      position: absolute; width: 28px; height: 28px; border: 3px solid #fff;
+    }
+    .crop-corner.tl { top:-3px; left:-3px; border-right:none; border-bottom:none; }
+    .crop-corner.tr { top:-3px; right:-3px; border-left:none; border-bottom:none; }
+    .crop-corner.bl { bottom:-3px; left:-3px; border-right:none; border-top:none; }
+    .crop-corner.br { bottom:-3px; right:-3px; border-left:none; border-top:none; }
+    .crop-actions {
+      display: flex; gap: 8px; padding: 12px 16px;
+      padding-bottom: calc(var(--safe-bot) + 12px);
+      background: #111; flex-shrink: 0;
+    }
+    .crop-actions button {
+      flex: 1; border-radius: 10px; padding: 13px; font-size: 14px; cursor: pointer; border: none;
+    }
+    .crop-actions .crop-cancel { background: var(--surface2); color: var(--text); }
+    .crop-actions .crop-ok { flex: 2; background: var(--accent); color: #fff; font-weight: 600; }
+
     /* ── Toast ── */
     #toast {
       position: fixed; bottom: calc(80px + var(--safe-bot)); left: 50%;
@@ -542,7 +573,7 @@
 </div>
 
 <!-- ── Image Viewer ── -->
-<div id="imgviewer">
+<div id="imgviewer" style="position:relative">
   <div class="img-topbar">
     <button class="close-btn" onclick="closeViewer()">✕</button>
     <span id="viewer-page-label" style="font-size:13px;color:var(--text2)"></span>
@@ -558,15 +589,33 @@
       <button onclick="rotateImg(-90)" style="font-size:18px">↺</button>
       <button onclick="rotateImg(90)" style="font-size:18px">↻</button>
       <button onclick="resetImgTransform()">リセット</button>
-      <button onclick="toggleTranscript()">テキスト</button>
+      <button onclick="openCrop()">✂️ 切取</button>
     </div>
     <div class="img-action-row">
+      <button onclick="toggleTranscript()">テキスト表示</button>
       <button onclick="editTranscript()">テキスト編集</button>
       <button class="accent" onclick="readThisPage()">⚡ 速読</button>
     </div>
     <div class="img-action-row">
       <button class="danger" id="btn-del-image" onclick="confirmDeleteImage()">🗑 画像削除</button>
       <button class="danger" id="btn-del-transcript" onclick="confirmDeleteTranscript()">🗑 文字起こし削除</button>
+    </div>
+  </div>
+
+  <!-- Crop View -->
+  <div id="crop-view">
+    <div id="crop-stage">
+      <img id="crop-img" alt="">
+      <div id="crop-box">
+        <div class="crop-corner tl" data-corner="tl"></div>
+        <div class="crop-corner tr" data-corner="tr"></div>
+        <div class="crop-corner bl" data-corner="bl"></div>
+        <div class="crop-corner br" data-corner="br"></div>
+      </div>
+    </div>
+    <div class="crop-actions">
+      <button class="crop-cancel" onclick="cancelCrop()">キャンセル</button>
+      <button class="crop-ok" onclick="confirmCrop()">✂️ 切り取り確定</button>
     </div>
   </div>
   <div id="viewer-edit-actions" style="display:none">
@@ -888,6 +937,119 @@ function compressToBase64(file) {
     };
     img.src = url;
   });
+}
+
+// ── Crop ─────────────────────────────────────────────────────────────
+const cs = { imgX:0, imgY:0, imgW:0, imgH:0, natW:0, natH:0, boxX:0, boxY:0, boxW:0, boxH:0, drag:null, startT:null, startBox:null };
+
+function updateCropBox() {
+  const b = document.getElementById('crop-box');
+  b.style.left = cs.boxX + 'px'; b.style.top = cs.boxY + 'px';
+  b.style.width = cs.boxW + 'px'; b.style.height = cs.boxH + 'px';
+}
+
+function clampCropBox() {
+  const MIN = 40;
+  cs.boxW = Math.max(MIN, cs.boxW); cs.boxH = Math.max(MIN, cs.boxH);
+  cs.boxX = Math.max(cs.imgX, Math.min(cs.boxX, cs.imgX + cs.imgW - cs.boxW));
+  cs.boxY = Math.max(cs.imgY, Math.min(cs.boxY, cs.imgY + cs.imgH - cs.boxH));
+  cs.boxW = Math.min(cs.boxW, cs.imgX + cs.imgW - cs.boxX);
+  cs.boxH = Math.min(cs.boxH, cs.imgY + cs.imgH - cs.boxY);
+}
+
+async function openCrop() {
+  if (!viewerPage || !viewerPage.image_url) { toast('画像がありません'); return; }
+  toast('画像を読み込み中…');
+  let dataUrl;
+  try {
+    const res = await api({ action: 'getPageImage', pageId: viewerPage.id });
+    if (!res.success) { toast(res.error || '読み込み失敗'); return; }
+    dataUrl = res.dataUrl;
+  } catch (_) { toast('通信エラー'); return; }
+
+  const img = document.getElementById('crop-img');
+  img.onload = () => {
+    const stage = document.getElementById('crop-stage');
+    const sw = stage.clientWidth, sh = stage.clientHeight;
+    const scale = Math.min(sw / img.naturalWidth, sh / img.naturalHeight);
+    cs.natW = img.naturalWidth; cs.natH = img.naturalHeight;
+    cs.imgW = img.naturalWidth * scale; cs.imgH = img.naturalHeight * scale;
+    cs.imgX = (sw - cs.imgW) / 2; cs.imgY = (sh - cs.imgH) / 2;
+    img.style.left = cs.imgX + 'px'; img.style.top = cs.imgY + 'px';
+    img.style.width = cs.imgW + 'px'; img.style.height = cs.imgH + 'px';
+    const p = 0.1;
+    cs.boxX = cs.imgX + cs.imgW * p; cs.boxY = cs.imgY + cs.imgH * p;
+    cs.boxW = cs.imgW * (1 - 2*p); cs.boxH = cs.imgH * (1 - 2*p);
+    updateCropBox();
+  };
+  img.src = dataUrl;
+  document.getElementById('crop-view').classList.add('open');
+}
+
+function cancelCrop() {
+  document.getElementById('crop-view').classList.remove('open');
+  document.getElementById('crop-img').src = '';
+}
+
+async function confirmCrop() {
+  if (!viewerPage) return;
+  const scaleX = cs.natW / cs.imgW, scaleY = cs.natH / cs.imgH;
+  const sx = Math.round((cs.boxX - cs.imgX) * scaleX);
+  const sy = Math.round((cs.boxY - cs.imgY) * scaleY);
+  const sw = Math.round(cs.boxW * scaleX);
+  const sh = Math.round(cs.boxH * scaleY);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = sw; canvas.height = sh;
+  canvas.getContext('2d').drawImage(document.getElementById('crop-img'), sx, sy, sw, sh, 0, 0, sw, sh);
+  const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+  cancelCrop();
+  toast('アップロード中…');
+  try {
+    const data = await apiPost({ action: 'updatePageImage', pageId: viewerPage.id, imageBase64: base64, imageMime: 'image/jpeg' });
+    if (data.success) {
+      viewerPage.image_url = data.imageUrl;
+      const idx = currentPages.findIndex(p => p.id === viewerPage.id);
+      if (idx >= 0) currentPages[idx].image_url = data.imageUrl;
+      document.getElementById('viewer-img').src = data.imageUrl + '&t=' + Date.now();
+      document.getElementById('viewer-img-wrap').style.display = '';
+      resetImgTransform();
+      toast('切り取り完了');
+      renderPages();
+    } else { toast(data.error || 'エラーが発生しました'); }
+  } catch (_) { toast('通信エラー'); }
+}
+
+function initCropGestures() {
+  const stage = document.getElementById('crop-stage');
+  const box   = document.getElementById('crop-box');
+
+  box.addEventListener('touchstart', e => {
+    const corner = e.target.dataset.corner;
+    const t = e.touches[0];
+    cs.drag = corner || 'move';
+    cs.startT = { x: t.clientX, y: t.clientY };
+    cs.startBox = { x: cs.boxX, y: cs.boxY, w: cs.boxW, h: cs.boxH };
+    e.stopPropagation();
+  }, { passive: true });
+
+  stage.addEventListener('touchmove', e => {
+    if (!cs.drag) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const dx = t.clientX - cs.startT.x, dy = t.clientY - cs.startT.y;
+    const sb = cs.startBox;
+    if (cs.drag === 'move') { cs.boxX = sb.x + dx; cs.boxY = sb.y + dy; }
+    else if (cs.drag === 'tl') { cs.boxX = sb.x+dx; cs.boxY = sb.y+dy; cs.boxW = sb.w-dx; cs.boxH = sb.h-dy; }
+    else if (cs.drag === 'tr') { cs.boxY = sb.y+dy; cs.boxW = sb.w+dx; cs.boxH = sb.h-dy; }
+    else if (cs.drag === 'bl') { cs.boxX = sb.x+dx; cs.boxW = sb.w-dx; cs.boxH = sb.h+dy; }
+    else if (cs.drag === 'br') { cs.boxW = sb.w+dx; cs.boxH = sb.h+dy; }
+    clampCropBox();
+    updateCropBox();
+  }, { passive: false });
+
+  stage.addEventListener('touchend', () => { cs.drag = null; }, { passive: true });
 }
 
 // ── Image Transform (pinch/pan/rotate) ──────────────────────────────
@@ -1485,6 +1647,7 @@ function toast(msg) {
 // ── Init ─────────────────────────────────────────────────────────────
 (function init() {
   initImgViewerGestures();
+  initCropGestures();
   if (cfg.url && cfg.token) {
     switchView('shelf-view');
     loadBooks();
