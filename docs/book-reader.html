@@ -442,7 +442,7 @@
 <div id="shelf-view" class="view">
   <div class="topbar">
     <h1>📚 本棚</h1>
-    <button class="ctrl-btn" onclick="cycleShelfMode()" id="shelf-mode-btn" style="font-size:16px;padding:6px 10px">📷</button>
+    <button class="ctrl-btn" onclick="cycleShelfMode()" id="shelf-mode-btn" style="font-size:16px;padding:6px 10px">⊞</button>
     <button class="ctrl-btn" onclick="showSetup()" style="font-size:12px">設定</button>
   </div>
   <div class="scrollable">
@@ -626,8 +626,10 @@ let currentPages = [];
 let viewerPage = null;
 let viewMode = 'grid';
 let shelfMode = 'grid';
-const VIEW_MODES = ['grid','list','slide'];
-const VIEW_ICONS = { grid:'📷', list:'📋', slide:'📖' };
+const VIEW_MODES  = ['grid','list','slide'];
+const VIEW_ICONS  = { grid:'📷', list:'📋', slide:'📖' };
+const SHELF_MODES = ['grid','list','text'];
+const SHELF_ICONS = { grid:'⊞', list:'▤', text:'≡' };
 
 // ── Shelf ────────────────────────────────────────────────────────────
 async function loadBooks() {
@@ -643,8 +645,9 @@ async function loadBooks() {
 }
 
 function cycleShelfMode() {
-  shelfMode = shelfMode === 'grid' ? 'list' : 'grid';
-  document.getElementById('shelf-mode-btn').textContent = shelfMode === 'grid' ? '📷' : '📋';
+  const idx = SHELF_MODES.indexOf(shelfMode);
+  shelfMode = SHELF_MODES[(idx + 1) % SHELF_MODES.length];
+  document.getElementById('shelf-mode-btn').textContent = SHELF_ICONS[shelfMode];
   renderShelf();
 }
 
@@ -663,6 +666,17 @@ function renderShelf() {
           ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
         </div>
         <div class="book-list-info">
+          <div class="book-list-title">${esc(b.title)}</div>
+          ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
+          ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+        </div>
+      </div>
+    `).join('');
+  } else if (shelfMode === 'text') {
+    el.className = 'shelf-list';
+    el.innerHTML = books.map(b => `
+      <div class="book-list-item" onclick="openBook('${b.id}')">
+        <div class="book-list-info" style="padding:2px 0">
           <div class="book-list-title">${esc(b.title)}</div>
           ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
           ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
