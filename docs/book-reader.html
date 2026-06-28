@@ -420,6 +420,15 @@
       display: inline-block; font-size: 11px; color: var(--text2);
       margin-left: 5px; vertical-align: middle;
     }
+    .book-reg-no {
+      font-size: 10px; color: var(--text2); font-weight: 500;
+      margin-bottom: 1px;
+    }
+    .book-category {
+      display: inline-block; font-size: 10px; color: var(--accent);
+      background: var(--accent-dim); border-radius: 4px;
+      padding: 1px 6px; margin-top: 2px;
+    }
     .ev-section-title { font-size: 12px; color: var(--text2); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 10px; }
     .ev-page { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
     .ev-page-header { display: flex; align-items: center; gap: 6px; }
@@ -570,6 +579,7 @@
     <div style="display:flex;flex-direction:column;gap:12px">
       <div class="field"><label>タイトル</label><input id="ev-title" type="text"></div>
       <div class="field"><label>著者</label><input id="ev-author" type="text"></div>
+      <div class="field"><label>カテゴリー</label><input id="ev-category" type="text" placeholder="例：ビジネス・小説など"></div>
       <div class="field"><label>メモ</label><input id="ev-notes" type="text"></div>
       <button id="ev-done-btn" class="ev-done-btn" onclick="toggleEvDone()">未完了</button>
     </div>
@@ -789,66 +799,58 @@ function renderShelf() {
     el.innerHTML = '<div class="loading">本がありません。＋から追加してください</div>';
     return;
   }
+  // 登録No: 追加日の古い順（古い = No.1）
+  const sortedByDate = [...books].sort((a, b) => new Date(a.created) - new Date(b.created));
+  const regNoMap = {};
+  sortedByDate.forEach((b, i) => { regNoMap[b.id] = String(i + 1).padStart(2, '0'); });
+
+  const bookRow = (b, inner) => `
+    <div class="swipe-wrap" data-book-id="${b.id}">
+      <div class="swipe-row">
+        <div class="swipe-inner">${inner}</div>
+        <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
+      </div>
+    </div>`;
+
   if (shelfMode === 'list') {
     el.className = 'shelf-list';
-    el.innerHTML = books.map(b => `
-      <div class="swipe-wrap" data-book-id="${b.id}">
-        <div class="swipe-row">
-          <div class="swipe-inner">
-            <div class="book-list-item" onclick="handleBookClick('${b.id}')">
-              <div class="book-list-thumb">
-                ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
-              </div>
-              <div class="book-list-info">
-                <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
-                ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
-                ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
-              </div>
-            </div>
-          </div>
-          <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
+    el.innerHTML = books.map(b => bookRow(b, `
+      <div class="book-list-item" onclick="handleBookClick('${b.id}')">
+        <div class="book-list-thumb">
+          ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
         </div>
-      </div>
-    `).join('');
+        <div class="book-list-info">
+          <div class="book-reg-no">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}</div>
+          <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
+          ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
+          ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+        </div>
+      </div>`)).join('');
   } else if (shelfMode === 'text') {
     el.className = 'shelf-list';
-    el.innerHTML = books.map(b => `
-      <div class="swipe-wrap" data-book-id="${b.id}">
-        <div class="swipe-row">
-          <div class="swipe-inner">
-            <div class="book-list-item" onclick="handleBookClick('${b.id}')">
-              <div class="book-list-info" style="padding:2px 0">
-                <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}${b.cover_url ? '<span class="book-img-badge">📷</span>' : ''}</div>
-                ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
-                ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
-              </div>
-            </div>
-          </div>
-          <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
+    el.innerHTML = books.map(b => bookRow(b, `
+      <div class="book-list-item" onclick="handleBookClick('${b.id}')">
+        <div class="book-list-info" style="padding:2px 0">
+          <div class="book-reg-no">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}${b.cover_url ? '<span class="book-img-badge" style="margin-left:6px">📷</span>' : ''}</div>
+          <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
+          ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
+          ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
         </div>
-      </div>
-    `).join('');
+      </div>`)).join('');
   } else {
     el.className = 'shelf-grid';
-    el.innerHTML = books.map(b => `
-      <div class="swipe-wrap" data-book-id="${b.id}">
-        <div class="swipe-row">
-          <div class="swipe-inner">
-            <div class="book-card" onclick="handleBookClick('${b.id}')">
-              <div class="book-cover">
-                ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
-              </div>
-              <div class="book-info">
-                <div class="book-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
-                ${b.author ? `<div class="book-author">${esc(b.author)}</div>` : ''}
-                ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
-              </div>
-            </div>
-          </div>
-          <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
+    el.innerHTML = books.map(b => bookRow(b, `
+      <div class="book-card" onclick="handleBookClick('${b.id}')">
+        <div class="book-cover">
+          ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
         </div>
-      </div>
-    `).join('');
+        <div class="book-info">
+          <div class="book-reg-no" style="font-size:9px;margin-bottom:2px">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}</div>
+          <div class="book-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
+          ${b.author ? `<div class="book-author">${esc(b.author)}</div>` : ''}
+          ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
+        </div>
+      </div>`)).join('');
   }
   attachSwipeHandlers();
 }
@@ -981,23 +983,28 @@ function clampCropBox() {
 }
 
 function _showCropUI(dataUrl) {
+  // Open first so layout is in the render tree before img.onload fires
+  document.getElementById('crop-view').classList.add('open');
   const img = document.getElementById('crop-img');
   img.onload = () => {
-    const stage = document.getElementById('crop-stage');
-    const sw = stage.clientWidth, sh = stage.clientHeight;
-    const scale = Math.min(sw / img.naturalWidth, sh / img.naturalHeight);
-    cs.natW = img.naturalWidth; cs.natH = img.naturalHeight;
-    cs.imgW = img.naturalWidth * scale; cs.imgH = img.naturalHeight * scale;
-    cs.imgX = (sw - cs.imgW) / 2; cs.imgY = (sh - cs.imgH) / 2;
-    img.style.left = cs.imgX + 'px'; img.style.top = cs.imgY + 'px';
-    img.style.width = cs.imgW + 'px'; img.style.height = cs.imgH + 'px';
-    const p = 0.1;
-    cs.boxX = cs.imgX + cs.imgW * p; cs.boxY = cs.imgY + cs.imgH * p;
-    cs.boxW = cs.imgW * (1 - 2*p); cs.boxH = cs.imgH * (1 - 2*p);
-    updateCropBox();
+    // rAF ensures display:flex layout is fully computed before we read clientWidth
+    requestAnimationFrame(() => {
+      const stage = document.getElementById('crop-stage');
+      const sw = stage.clientWidth  || window.innerWidth;
+      const sh = stage.clientHeight || Math.round(window.innerHeight * 0.82);
+      const scale = Math.min(sw / img.naturalWidth, sh / img.naturalHeight);
+      cs.natW = img.naturalWidth; cs.natH = img.naturalHeight;
+      cs.imgW = img.naturalWidth * scale; cs.imgH = img.naturalHeight * scale;
+      cs.imgX = (sw - cs.imgW) / 2; cs.imgY = (sh - cs.imgH) / 2;
+      img.style.left = cs.imgX + 'px'; img.style.top = cs.imgY + 'px';
+      img.style.width = cs.imgW + 'px'; img.style.height = cs.imgH + 'px';
+      const p = 0.1;
+      cs.boxX = cs.imgX + cs.imgW * p; cs.boxY = cs.imgY + cs.imgH * p;
+      cs.boxW = cs.imgW * (1 - 2*p); cs.boxH = cs.imgH * (1 - 2*p);
+      updateCropBox();
+    });
   };
   img.src = dataUrl;
-  document.getElementById('crop-view').classList.add('open');
 }
 
 function openCropWithLocalDataUrl(dataUrl) {
@@ -1443,9 +1450,10 @@ async function openEditView(bookId, returnTo) {
   editViewReturnTo = returnTo || 'shelf';
   editViewPages  = [];
 
-  document.getElementById('ev-title').value  = book.title  || '';
-  document.getElementById('ev-author').value = book.author || '';
-  document.getElementById('ev-notes').value  = book.notes  || '';
+  document.getElementById('ev-title').value    = book.title    || '';
+  document.getElementById('ev-author').value   = book.author   || '';
+  document.getElementById('ev-category').value = book.category || '';
+  document.getElementById('ev-notes').value    = book.notes    || '';
   editViewDone = !!book.completed;
   const doneBtn = document.getElementById('ev-done-btn');
   doneBtn.textContent = editViewDone ? '✓ 読了' : '未完了';
@@ -1520,11 +1528,12 @@ async function submitEditView() {
   if (!editViewBook) return;
   const title  = document.getElementById('ev-title').value.trim();
   if (!title) { toast('タイトルを入力してください'); return; }
-  const author = document.getElementById('ev-author').value.trim();
-  const notes  = document.getElementById('ev-notes').value.trim();
+  const author   = document.getElementById('ev-author').value.trim();
+  const category = document.getElementById('ev-category').value.trim();
+  const notes    = document.getElementById('ev-notes').value.trim();
   toast('保存中…');
   try {
-    const bookData = await apiPost({ action: 'editBook', bookId: editViewBook.id, title, author, notes, completed: editViewDone });
+    const bookData = await apiPost({ action: 'editBook', bookId: editViewBook.id, title, author, category, notes, completed: editViewDone });
     if (!bookData.success) { toast(bookData.error || 'エラー'); return; }
 
     const saves = editViewPages.map(p => {
@@ -1541,9 +1550,9 @@ async function submitEditView() {
     await Promise.all(saves);
 
     if (currentBook && currentBook.id === editViewBook.id) {
-      currentBook.title = title; currentBook.author = author; currentBook.notes = notes; currentBook.completed = editViewDone;
+      currentBook.title = title; currentBook.author = author; currentBook.category = category; currentBook.notes = notes; currentBook.completed = editViewDone;
       const bk = books.find(b => b.id === editViewBook.id);
-      if (bk) { bk.title = title; bk.author = author; bk.notes = notes; bk.completed = editViewDone; }
+      if (bk) { bk.title = title; bk.author = author; bk.category = category; bk.notes = notes; bk.completed = editViewDone; }
       document.getElementById('pages-title').textContent = title;
       renderPages();
     }

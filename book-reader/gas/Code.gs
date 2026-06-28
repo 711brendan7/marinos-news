@@ -101,7 +101,8 @@ function listBooks() {
       id: r[0], title: r[1], author: r[2], created: r[3],
       cover_url: r[5] || firstImageMap[r[0]] || '',
       notes: r[6], text: r[7] || '', transcript: transcriptMap[r[0]] || '',
-      completed: r[8] === true || r[8] === 'TRUE' || r[8] === 1
+      completed: r[8] === true || r[8] === 'TRUE' || r[8] === 1,
+      category: r[9] || ''
     });
   }
   books.sort((a, b) => new Date(b.created) - new Date(a.created));
@@ -140,6 +141,7 @@ function editBook(body) {
       if (body.notes     !== undefined) sh.getRange(i + 1, 7).setValue(body.notes);
       if (body.text      !== undefined) sh.getRange(i + 1, 8).setValue(body.text);
       if (body.completed !== undefined) sh.getRange(i + 1, 9).setValue(body.completed ? true : false);
+      if (body.category  !== undefined) sh.getRange(i + 1, 10).setValue(body.category);
       return { success: true };
     }
   }
