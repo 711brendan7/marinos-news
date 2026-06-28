@@ -495,7 +495,7 @@
 <div id="shelf-view" class="view">
   <div class="topbar">
     <h1>📚 本棚</h1>
-    <button class="ctrl-btn" onclick="cycleShelfMode()" id="shelf-mode-btn" style="font-size:16px;padding:6px 10px">⊞</button>
+    <button class="ctrl-btn" onclick="cycleShelfMode()" id="shelf-mode-btn" style="font-size:16px;padding:6px 10px">≡</button>
     <button class="ctrl-btn" onclick="showSetup()" style="font-size:12px">設定</button>
   </div>
   <div class="scrollable">
@@ -706,11 +706,11 @@ let currentBook = null;
 let currentPages = [];
 let viewerPage = null;
 let viewMode = 'grid';
-let shelfMode = 'grid';
+let shelfMode = 'text';
 const VIEW_MODES  = ['grid','list','slide'];
 const VIEW_ICONS  = { grid:'📷', list:'📋', slide:'📖' };
-const SHELF_MODES = ['grid','list','text'];
-const SHELF_ICONS = { grid:'⊞', list:'▤', text:'≡' };
+const SHELF_MODES = ['text','list','grid'];
+const SHELF_ICONS = { text:'≡', list:'▤', grid:'⊞' };
 
 // ── Shelf ────────────────────────────────────────────────────────────
 async function loadBooks() {
@@ -742,7 +742,7 @@ function renderShelf() {
   if (shelfMode === 'list') {
     el.className = 'shelf-list';
     el.innerHTML = books.map(b => `
-      <div class="swipe-wrap">
+      <div class="swipe-wrap" data-book-id="${b.id}">
         <div class="swipe-row">
           <div class="swipe-inner">
             <div class="book-list-item" onclick="handleBookClick('${b.id}')">
@@ -763,7 +763,7 @@ function renderShelf() {
   } else if (shelfMode === 'text') {
     el.className = 'shelf-list';
     el.innerHTML = books.map(b => `
-      <div class="swipe-wrap">
+      <div class="swipe-wrap" data-book-id="${b.id}">
         <div class="swipe-row">
           <div class="swipe-inner">
             <div class="book-list-item" onclick="handleBookClick('${b.id}')">
@@ -781,7 +781,7 @@ function renderShelf() {
   } else {
     el.className = 'shelf-grid';
     el.innerHTML = books.map(b => `
-      <div class="swipe-wrap">
+      <div class="swipe-wrap" data-book-id="${b.id}">
         <div class="swipe-row">
           <div class="swipe-inner">
             <div class="book-card" onclick="handleBookClick('${b.id}')">
@@ -1343,6 +1343,14 @@ function openAddBook() {
   document.getElementById('add-book-modal').classList.add('open');
 }
 
+function openEditBookById(bookId) {
+  const book = books.find(b => b.id === bookId);
+  if (!book) return;
+  const prev = currentBook;
+  currentBook = book;
+  openEditBook().catch(() => { currentBook = prev; });
+}
+
 async function openEditBook() {
   if (!currentBook) return;
   editingBookId = currentBook.id;
@@ -1434,6 +1442,7 @@ async function submitAddBook() {
 
 // ── Swipe to Delete ──────────────────────────────────────────────────
 let activeSwipe = null;
+let longPressActive = false;
 
 function closeActiveSwipe() {
   if (!activeSwipe) return;
@@ -1444,6 +1453,7 @@ function closeActiveSwipe() {
 
 function handleBookClick(bookId) {
   if (activeSwipe) { closeActiveSwipe(); return; }
+  if (longPressActive) { longPressActive = false; return; }
   openBook(bookId);
 }
 
@@ -1463,19 +1473,32 @@ async function swipeDeleteBook(bookId) {
 function attachSwipeHandlers() {
   document.querySelectorAll('#shelf-grid .swipe-wrap').forEach(wrap => {
     const row = wrap.querySelector('.swipe-row');
+    const bookId = wrap.dataset.bookId;
     let startX = 0, startY = 0, tracking = false;
+    let lpTimer = null, moved = false;
 
     row.addEventListener('touchstart', e => {
       if (activeSwipe && activeSwipe.wrap !== wrap) closeActiveSwipe();
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
-      tracking = true;
+      tracking = true; moved = false;
+      lpTimer = setTimeout(() => {
+        if (!moved) {
+          longPressActive = true;
+          if (navigator.vibrate) navigator.vibrate(40);
+          openEditBookById(bookId);
+        }
+      }, 500);
     }, { passive: true });
 
     row.addEventListener('touchmove', e => {
       if (!tracking) return;
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+        moved = true;
+        if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+      }
       if (Math.abs(dy) > Math.abs(dx) + 8) { tracking = false; return; }
       const base = wrap.classList.contains('swiped') ? -80 : 0;
       const shift = Math.min(0, Math.max(base + dx, -82));
@@ -1484,6 +1507,7 @@ function attachSwipeHandlers() {
     }, { passive: true });
 
     row.addEventListener('touchend', e => {
+      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
       if (!tracking) return;
       tracking = false;
       const dx = e.changedTouches[0].clientX - startX;
