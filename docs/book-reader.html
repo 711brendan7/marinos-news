@@ -570,7 +570,10 @@
       <button id="ev-done-btn" class="ev-done-btn" onclick="toggleEvDone()">未完了</button>
     </div>
     <div>
-      <div class="ev-section-title">ページ</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="ev-section-title" style="margin-bottom:0">ページ</div>
+        <button onclick="evAddPage()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer">＋ページ追加</button>
+      </div>
       <div id="ev-pages" style="display:flex;flex-direction:column;gap:10px"></div>
     </div>
   </div>
@@ -1694,6 +1697,43 @@ async function evTranscribe(pageId) {
     } else { toast(data.error || 'エラー'); }
   } catch (_) { toast('通信エラー'); }
   if (btn) { btn.textContent = '⚡'; btn.disabled = false; }
+}
+
+function evAddPage() {
+  if (!editViewBook) return;
+  const inp = document.getElementById('camera-input');
+  inp.onchange = null;
+  inp.onchange = () => evHandleNewPage(inp.files[0]);
+  inp.click();
+}
+
+async function evHandleNewPage(file) {
+  if (!editViewBook) return;
+  toast('追加中…');
+  try {
+    let body = { action: 'addPage', bookId: editViewBook.id, ocr: true };
+    if (file) {
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = e => res(e.target.result.split(',')[1]);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+      body.imageBase64 = base64;
+      body.imageMime = file.type || 'image/jpeg';
+    }
+    const data = await apiPost(body);
+    if (data.success) {
+      const maxPageNum = editViewPages.length ? Math.max(...editViewPages.map(p => p.page_num)) : 0;
+      const newPage = { id: data.pageId, book_id: editViewBook.id, page_num: maxPageNum + 1,
+        image_url: data.imageUrl || '', transcript: data.transcript || '', created: new Date().toISOString() };
+      editViewPages.push(newPage);
+      currentPages.push(newPage);
+      renderEditPages();
+      toast(file ? '画像を追加しました' : 'ページを追加しました');
+      renderPages();
+    } else { toast(data.error || 'エラー'); }
+  } catch (_) { toast('通信エラー'); }
 }
 
 let evAddTarget = null;

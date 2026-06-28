@@ -202,27 +202,26 @@ function getPage(pageId) {
 }
 
 function addPage(body) {
-  if (!body.imageBase64) return { error: 'imageBase64 required' };
-
   const bookId = body.bookId || findOrCreateBookId(body.title || '無題', body.author);
   const id = Utilities.getUuid();
   const now = new Date().toISOString();
-  const folder = getFolder();
 
-  const blob = Utilities.newBlob(
-    Utilities.base64Decode(body.imageBase64),
-    body.imageMime || 'image/jpeg',
-    `${id}_page.jpg`
-  );
-  const f = folder.createFile(blob);
-  f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  const fileId = f.getId();
-  const imageUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+  let fileId = '', imageUrl = '', transcript = '';
 
-  // OCR (requires Drive Advanced Service enabled)
-  let transcript = '';
-  if (body.ocr !== false) {
-    transcript = runOcr(blob, id, body.ocrLanguage || 'ja');
+  if (body.imageBase64) {
+    const folder = getFolder();
+    const blob = Utilities.newBlob(
+      Utilities.base64Decode(body.imageBase64),
+      body.imageMime || 'image/jpeg',
+      `${id}_page.jpg`
+    );
+    const f = folder.createFile(blob);
+    f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    fileId = f.getId();
+    imageUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+    if (body.ocr !== false) {
+      transcript = runOcr(blob, id, body.ocrLanguage || 'ja');
+    }
   }
 
   const sh = getSheet(PAGES_SHEET);
@@ -234,7 +233,7 @@ function addPage(body) {
   const pageNum = body.pageNum || (maxPageNum + 1);
 
   sh.appendRow([id, bookId, pageNum, fileId, imageUrl, transcript, now]);
-  return { success: true, pageId: id, bookId, transcript };
+  return { success: true, pageId: id, bookId, transcript, imageUrl };
 }
 
 function deletePage(pageId) {
