@@ -418,6 +418,7 @@
       width: 100%; background: var(--surface); border-radius: 20px 20px 0 0;
       padding: 20px 16px calc(var(--safe-bot) + 20px);
       display: flex; flex-direction: column; gap: 14px;
+      max-height: 88dvh; overflow-y: auto;
     }
     .modal-title { font-size: 17px; font-weight: 700; text-align: center; }
     .modal-close {
@@ -582,9 +583,9 @@
       <label>メモ（省略可）</label>
       <input id="new-notes" type="text" placeholder="一言メモ">
     </div>
-    <div class="field">
-      <label>テキスト（省略可）</label>
-      <textarea id="new-text" placeholder="要約・感想など自由記述"></textarea>
+    <div id="edit-transcripts-section" style="display:none">
+      <div style="font-size:13px;font-weight:600;color:var(--text2);border-top:1px solid var(--border);padding-top:14px">📄 文字起こし</div>
+      <div id="edit-transcripts" style="display:flex;flex-direction:column;gap:12px;margin-top:10px"></div>
     </div>
     <button class="btn-primary" onclick="submitAddBook()">追加</button>
   </div>
@@ -1090,26 +1091,55 @@ async function execDeleteBook() {
 
 // ── Add / Edit Book ──────────────────────────────────────────────────
 let editingBookId = null;
+let editingPages  = [];
 
 function openAddBook() {
   editingBookId = null;
+  editingPages  = [];
   document.getElementById('new-title').value  = '';
   document.getElementById('new-author').value = '';
   document.getElementById('new-notes').value  = '';
-  document.getElementById('new-text').value   = '';
+  document.getElementById('edit-transcripts-section').style.display = 'none';
   document.querySelector('#add-book-modal .modal-title').textContent = '本を追加';
   document.getElementById('add-book-modal').classList.add('open');
 }
 
-function openEditBook() {
+async function openEditBook() {
   if (!currentBook) return;
   editingBookId = currentBook.id;
+  editingPages  = [];
   document.getElementById('new-title').value  = currentBook.title  || '';
   document.getElementById('new-author').value = currentBook.author || '';
   document.getElementById('new-notes').value  = currentBook.notes  || '';
-  document.getElementById('new-text').value   = currentBook.text   || '';
   document.querySelector('#add-book-modal .modal-title').textContent = '本を編集';
+
+  const section = document.getElementById('edit-transcripts-section');
+  const container = document.getElementById('edit-transcripts');
+  section.style.display = '';
+  container.innerHTML = '<div style="color:var(--text2);font-size:13px">読み込み中…</div>';
   document.getElementById('add-book-modal').classList.add('open');
+
+  try {
+    const data = await api({ action: 'listPages', bookId: currentBook.id });
+    editingPages = data.pages || [];
+    if (!editingPages.length) {
+      container.innerHTML = '<div style="color:var(--text2);font-size:13px">ページがありません</div>';
+      return;
+    }
+    container.innerHTML = editingPages.map((p, i) => `
+      <div>
+        <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px">No.${i+1}（p.${p.page_num}）</div>
+        <textarea class="page-transcript-edit" data-page-id="${p.id}" rows="4"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                 border-radius:8px;color:var(--text);font-size:13px;padding:8px 10px;
+                 outline:none;resize:vertical;font-family:inherit;line-height:1.6"></textarea>
+      </div>
+    `).join('');
+    const textareas = container.querySelectorAll('.page-transcript-edit');
+    editingPages.forEach((p, i) => { textareas[i].value = p.transcript || ''; });
+  } catch (_) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:13px">読み込みに失敗しました</div>';
+  }
 }
 
 function closeAddBook() {
@@ -1122,22 +1152,38 @@ async function submitAddBook() {
   if (!title) { toast('タイトルを入力してください'); return; }
   const author = document.getElementById('new-author').value.trim();
   const notes  = document.getElementById('new-notes').value.trim();
-  const text   = document.getElementById('new-text').value.trim();
   try {
     if (editingBookId) {
-      const data = await apiPost({ action: 'editBook', bookId: editingBookId, title, author, notes, text });
-      if (data.success) {
-        closeAddBook();
-        if (currentBook && currentBook.id === editingBookId) {
-          currentBook.title = title; currentBook.author = author;
-          currentBook.notes = notes; currentBook.text = text;
-          document.getElementById('pages-title').textContent = title;
+      const bookData = await apiPost({ action: 'editBook', bookId: editingBookId, title, author, notes });
+      if (!bookData.success) { toast(bookData.error || 'エラーが発生しました'); return; }
+
+      // 文字起こしの変更を保存
+      const textareas = document.querySelectorAll('.page-transcript-edit');
+      const saves = [];
+      textareas.forEach(ta => {
+        const pageId = ta.dataset.pageId;
+        const page = editingPages.find(p => p.id === pageId);
+        const newVal = ta.value;
+        if (page && newVal !== (page.transcript || '')) {
+          saves.push(apiPost({ action: 'updateTranscript', pageId, transcript: newVal })
+            .then(() => {
+              const cp = currentPages.find(p => p.id === pageId);
+              if (cp) cp.transcript = newVal;
+            }));
         }
-        toast(`「${title}」を更新しました`);
-        await loadBooks();
-      } else { toast(data.error || 'エラーが発生しました'); }
+      });
+      await Promise.all(saves);
+
+      closeAddBook();
+      if (currentBook && currentBook.id === editingBookId) {
+        currentBook.title = title; currentBook.author = author; currentBook.notes = notes;
+        document.getElementById('pages-title').textContent = title;
+      }
+      toast(`「${title}」を更新しました`);
+      renderPages();
+      await loadBooks();
     } else {
-      const data = await apiPost({ action: 'addBook', title, author, notes, text });
+      const data = await apiPost({ action: 'addBook', title, author, notes });
       if (data.success) {
         closeAddBook();
         toast(`「${title}」を追加しました`);
