@@ -136,6 +136,16 @@
       display: flex; align-items: center; justify-content: center;
     }
 
+    /* swipe-to-delete */
+    .swipe-wrap { position: relative; overflow: hidden; border-radius: 12px; }
+    .swipe-inner { transform: translateX(0); transition: transform 0.15s ease; will-change: transform; }
+    .swipe-del-btn {
+      position: absolute; right: 0; top: 0; bottom: 0; width: 80px;
+      background: var(--accent); color: #fff; border: none;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    }
+
     /* shelf list mode */
     .shelf-list { display: flex; flex-direction: column; gap: 10px; }
     .book-list-item {
@@ -466,6 +476,7 @@
     <h1 id="pages-title" style="flex:1;font-size:16px"></h1>
     <button class="ctrl-btn" onclick="cycleViewMode()" id="view-mode-btn" style="font-size:16px;padding:6px 10px">📷</button>
     <button class="ctrl-btn accent" onclick="startSpeedReader()" style="font-size:12px">速読</button>
+    <button class="ctrl-btn" onclick="openEditBook()" style="font-size:16px;padding:6px 10px">✏️</button>
     <button class="ctrl-btn" onclick="confirmDeleteBook()" style="font-size:16px;padding:6px 10px">🗑</button>
   </div>
   <div class="scrollable" id="pages-scrollable">
@@ -661,43 +672,59 @@ function renderShelf() {
   if (shelfMode === 'list') {
     el.className = 'shelf-list';
     el.innerHTML = books.map(b => `
-      <div class="book-list-item" onclick="openBook('${b.id}')">
-        <div class="book-list-thumb">
-          ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+      <div class="swipe-wrap">
+        <div class="swipe-inner">
+          <div class="book-list-item" onclick="handleBookClick('${b.id}')">
+            <div class="book-list-thumb">
+              ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+            </div>
+            <div class="book-list-info">
+              <div class="book-list-title">${esc(b.title)}</div>
+              ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
+              ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+            </div>
+          </div>
         </div>
-        <div class="book-list-info">
-          <div class="book-list-title">${esc(b.title)}</div>
-          ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
-          ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
-        </div>
+        <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
       </div>
     `).join('');
   } else if (shelfMode === 'text') {
     el.className = 'shelf-list';
     el.innerHTML = books.map(b => `
-      <div class="book-list-item" onclick="openBook('${b.id}')">
-        <div class="book-list-info" style="padding:2px 0">
-          <div class="book-list-title">${esc(b.title)}</div>
-          ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
-          ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+      <div class="swipe-wrap">
+        <div class="swipe-inner">
+          <div class="book-list-item" onclick="handleBookClick('${b.id}')">
+            <div class="book-list-info" style="padding:2px 0">
+              <div class="book-list-title">${esc(b.title)}</div>
+              ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
+              ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+            </div>
+          </div>
         </div>
+        <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
       </div>
     `).join('');
   } else {
     el.className = 'shelf-grid';
     el.innerHTML = books.map(b => `
-      <div class="book-card" onclick="openBook('${b.id}')">
-        <div class="book-cover">
-          ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+      <div class="swipe-wrap">
+        <div class="swipe-inner">
+          <div class="book-card" onclick="handleBookClick('${b.id}')">
+            <div class="book-cover">
+              ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+            </div>
+            <div class="book-info">
+              <div class="book-title">${esc(b.title)}</div>
+              ${b.author ? `<div class="book-author">${esc(b.author)}</div>` : ''}
+              ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
+            </div>
+          </div>
         </div>
-        <div class="book-info">
-          <div class="book-title">${esc(b.title)}</div>
-          ${b.author ? `<div class="book-author">${esc(b.author)}</div>` : ''}
-          ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
-        </div>
+        <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
       </div>
     `).join('');
   }
+  attachSwipeHandlers();
 }
 
 async function openBook(bookId) {
@@ -1046,31 +1073,131 @@ async function execDeleteBook() {
   } catch (_) { toast('通信エラー'); }
 }
 
-// ── Add Book ─────────────────────────────────────────────────────────
+// ── Add / Edit Book ──────────────────────────────────────────────────
+let editingBookId = null;
+
 function openAddBook() {
+  editingBookId = null;
   document.getElementById('new-title').value  = '';
   document.getElementById('new-author').value = '';
   document.getElementById('new-notes').value  = '';
+  document.querySelector('#add-book-modal .modal-title').textContent = '本を追加';
   document.getElementById('add-book-modal').classList.add('open');
 }
+
+function openEditBook() {
+  if (!currentBook) return;
+  editingBookId = currentBook.id;
+  document.getElementById('new-title').value  = currentBook.title  || '';
+  document.getElementById('new-author').value = currentBook.author || '';
+  document.getElementById('new-notes').value  = currentBook.notes  || '';
+  document.querySelector('#add-book-modal .modal-title').textContent = '本を編集';
+  document.getElementById('add-book-modal').classList.add('open');
+}
+
 function closeAddBook() {
+  editingBookId = null;
   document.getElementById('add-book-modal').classList.remove('open');
 }
+
 async function submitAddBook() {
-  const title = document.getElementById('new-title').value.trim();
+  const title  = document.getElementById('new-title').value.trim();
   if (!title) { toast('タイトルを入力してください'); return; }
   const author = document.getElementById('new-author').value.trim();
   const notes  = document.getElementById('new-notes').value.trim();
   try {
-    const data = await api({ action: 'addBook', title, author, notes });
-    if (data.success) {
-      closeAddBook();
-      toast(`「${title}」を追加しました`);
-      await loadBooks();
+    if (editingBookId) {
+      const data = await api({ action: 'editBook', bookId: editingBookId, title, author, notes });
+      if (data.success) {
+        closeAddBook();
+        if (currentBook && currentBook.id === editingBookId) {
+          currentBook.title = title; currentBook.author = author; currentBook.notes = notes;
+          document.getElementById('pages-title').textContent = title;
+        }
+        toast(`「${title}」を更新しました`);
+        await loadBooks();
+      } else { toast(data.error || 'エラーが発生しました'); }
     } else {
-      toast(data.error || 'エラーが発生しました');
+      const data = await api({ action: 'addBook', title, author, notes });
+      if (data.success) {
+        closeAddBook();
+        toast(`「${title}」を追加しました`);
+        await loadBooks();
+      } else { toast(data.error || 'エラーが発生しました'); }
     }
   } catch (_) { toast('通信エラー'); }
+}
+
+// ── Swipe to Delete ──────────────────────────────────────────────────
+let activeSwipe = null;
+
+function closeActiveSwipe() {
+  if (!activeSwipe) return;
+  activeSwipe.inner.style.transform = '';
+  activeSwipe.wrap.classList.remove('swiped');
+  activeSwipe = null;
+}
+
+function handleBookClick(bookId) {
+  if (activeSwipe) { closeActiveSwipe(); return; }
+  openBook(bookId);
+}
+
+async function swipeDeleteBook(bookId) {
+  const b = books.find(b => b.id === bookId);
+  toast('削除中…');
+  try {
+    const data = await api({ action: 'deleteBook', bookId });
+    if (data.success) {
+      closeActiveSwipe();
+      toast(`「${b ? b.title : ''}」を削除しました`);
+      await loadBooks();
+    } else { toast(data.error || 'エラーが発生しました'); }
+  } catch (_) { toast('通信エラー'); }
+}
+
+function attachSwipeHandlers() {
+  document.querySelectorAll('#shelf-grid .swipe-wrap').forEach(wrap => {
+    const inner = wrap.querySelector('.swipe-inner');
+    let startX = 0, startY = 0, tracking = false;
+
+    inner.addEventListener('touchstart', e => {
+      if (activeSwipe && activeSwipe.wrap !== wrap) closeActiveSwipe();
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      tracking = true;
+    }, { passive: true });
+
+    inner.addEventListener('touchmove', e => {
+      if (!tracking) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      if (Math.abs(dy) > Math.abs(dx) + 8) { tracking = false; return; }
+      const base = wrap.classList.contains('swiped') ? -80 : 0;
+      const shift = Math.min(0, Math.max(base + dx, -82));
+      inner.style.transition = 'none';
+      inner.style.transform = `translateX(${shift}px)`;
+    }, { passive: true });
+
+    inner.addEventListener('touchend', e => {
+      if (!tracking) return;
+      tracking = false;
+      const dx = e.changedTouches[0].clientX - startX;
+      inner.style.transition = '';
+      const wasSwiped = wrap.classList.contains('swiped');
+      if (!wasSwiped && dx < -50) {
+        inner.style.transform = 'translateX(-80px)';
+        wrap.classList.add('swiped');
+        activeSwipe = { wrap, inner };
+      } else if (wasSwiped && dx > 30) {
+        inner.style.transform = '';
+        wrap.classList.remove('swiped');
+        activeSwipe = null;
+      } else {
+        inner.style.transform = wasSwiped ? 'translateX(-80px)' : '';
+      }
+    });
+  });
 }
 
 // ── RSVP Speed Reader ────────────────────────────────────────────────
