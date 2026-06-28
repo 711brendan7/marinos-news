@@ -35,9 +35,11 @@ function doGet(e) {
   if (p.action === 'listBooks')  return ok(listBooks());
   if (p.action === 'listPages')  return ok(listPages(p.bookId));
   if (p.action === 'getPage')    return ok(getPage(p.pageId));
-  if (p.action === 'deleteBook') return ok(deleteBook(p.bookId));
-  if (p.action === 'deletePage') return ok(deletePage(p.pageId));
-  if (p.action === 'transcribe') return ok(transcribePage(p.pageId));
+  if (p.action === 'deleteBook')      return ok(deleteBook(p.bookId));
+  if (p.action === 'deletePage')      return ok(deletePage(p.pageId));
+  if (p.action === 'transcribe')      return ok(transcribePage(p.pageId));
+  if (p.action === 'deleteImage')     return ok(deletePageImage(p.pageId));
+  if (p.action === 'clearTranscript') return ok(clearPageTranscript(p.pageId));
   if (p.action === 'addBook')    return ok(addBook({ title: p.title, author: p.author, notes: p.notes }));
   if (p.action === 'editBook')   return ok(editBook({ bookId: p.bookId, title: p.title, author: p.author, notes: p.notes }));
 
@@ -50,9 +52,10 @@ function doPost(e) {
   try { body = JSON.parse(e.postData.contents); } catch (_) { return ok({ error: 'invalid json' }); }
   if (!authBody(body)) return ok({ error: 'unauthorized' });
 
-  if (body.action === 'addBook')  return ok(addBook(body));
-  if (body.action === 'addPage')  return ok(addPage(body));
-  if (body.action === 'editBook') return ok(editBook(body));
+  if (body.action === 'addBook')          return ok(addBook(body));
+  if (body.action === 'addPage')          return ok(addPage(body));
+  if (body.action === 'editBook')         return ok(editBook(body));
+  if (body.action === 'updateTranscript') return ok(updatePageTranscript(body.pageId, body.transcript));
 
   return ok({ error: 'unknown action' });
 }
@@ -266,6 +269,44 @@ function transcribePage(pageId) {
       } catch (err) {
         return { error: err.toString() };
       }
+    }
+  }
+  return { error: 'not found' };
+}
+
+function deletePageImage(pageId) {
+  const sh = getSheet(PAGES_SHEET);
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === pageId) {
+      tryTrash(rows[i][3]);
+      sh.getRange(i + 1, 4).setValue('');
+      sh.getRange(i + 1, 5).setValue('');
+      return { success: true };
+    }
+  }
+  return { error: 'not found' };
+}
+
+function clearPageTranscript(pageId) {
+  const sh = getSheet(PAGES_SHEET);
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === pageId) {
+      sh.getRange(i + 1, 6).setValue('');
+      return { success: true };
+    }
+  }
+  return { error: 'not found' };
+}
+
+function updatePageTranscript(pageId, transcript) {
+  const sh = getSheet(PAGES_SHEET);
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === pageId) {
+      sh.getRange(i + 1, 6).setValue(transcript || '');
+      return { success: true };
     }
   }
   return { error: 'not found' };
