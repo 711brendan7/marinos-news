@@ -735,6 +735,7 @@ let books = [];
 let currentBook = null;
 let currentPages = [];
 let viewerPage = null;
+let viewerReturnTo = null;
 let viewMode = 'grid';
 let shelfMode = 'text';
 const VIEW_MODES  = ['grid','list','slide'];
@@ -1184,6 +1185,8 @@ function closeViewer() {
   if (deleteImageTimer) { clearTimeout(deleteImageTimer); deleteImageTimer = null; }
   if (deleteTranscriptTimer) { clearTimeout(deleteTranscriptTimer); deleteTranscriptTimer = null; }
   viewerPage = null;
+  viewerReturnTo = null;
+  afterCropCallback = null;
 }
 
 function toggleTranscript() {
@@ -1223,6 +1226,12 @@ async function saveTranscript() {
       trans.textContent = text;
       cancelEditTranscript();
       if (text) trans.classList.remove('hidden'); else trans.classList.add('hidden');
+      if (viewerReturnTo === 'edit-view') {
+        const ta = document.getElementById(`ev-ta-${viewerPage.id}`);
+        if (ta) ta.value = text;
+        const ep = editViewPages.find(p => p.id === viewerPage.id);
+        if (ep) ep.transcript = text;
+      }
       toast('保存しました');
       renderPages();
     } else {
@@ -1259,6 +1268,12 @@ async function execDeleteImage() {
       if (idx >= 0) currentPages[idx].image_url = '';
       document.getElementById('viewer-img').src = '';
       document.getElementById('viewer-img-wrap').style.display = 'none';
+      if (viewerReturnTo === 'edit-view') {
+        const thumb = document.getElementById(`ev-thumb-${viewerPage.id}`);
+        if (thumb) thumb.innerHTML = '<span>📄</span>';
+        const ep = editViewPages.find(p => p.id === viewerPage.id);
+        if (ep) ep.image_url = '';
+      }
       toast('画像を削除しました');
       renderPages();
     } else {
@@ -1318,6 +1333,12 @@ async function runOCR() {
       const el = document.getElementById('viewer-transcript');
       el.textContent = text || '（テキストを認識できませんでした）';
       el.classList.remove('hidden');
+      if (viewerReturnTo === 'edit-view') {
+        const ta = document.getElementById(`ev-ta-${viewerPage.id}`);
+        if (ta) ta.value = text;
+        const ep = editViewPages.find(p => p.id === viewerPage.id);
+        if (ep) ep.transcript = text;
+      }
       toast(text ? '文字起こし完了' : '文字を認識できませんでした');
       renderPages();
     } else {
@@ -1427,16 +1448,20 @@ function renderEditPages() {
       <div class="ev-page-header">
         <span class="ev-page-num">No.${i+1}（p.${p.page_num}）</span>
         <div class="ev-page-btns">
+          <button id="ev-ocr-${p.id}" onclick="evTranscribe('${p.id}')">⚡</button>
           <button onclick="evRotatePage('${p.id}',-90)">↺</button>
           <button onclick="evRotatePage('${p.id}',90)">↻</button>
           <button onclick="evCropPage('${p.id}')">✂️</button>
+          <button onclick="evAddImage('${p.id}')">📷</button>
           <button class="ev-danger" id="ev-di-${p.id}" onclick="evDeleteImage('${p.id}')">🗑画像</button>
           <button class="ev-danger" id="ev-dp-${p.id}" onclick="evDeletePage('${p.id}')">🗑ページ</button>
         </div>
       </div>
       <div class="ev-page-body">
-        <div class="ev-thumb" id="ev-thumb-${p.id}">
-          ${p.image_url ? `<img src="${p.image_url}" id="ev-img-${p.id}">` : '<span>📄</span>'}
+        <div class="ev-thumb" id="ev-thumb-${p.id}" style="cursor:pointer">
+          ${p.image_url
+            ? `<img src="${p.image_url}" id="ev-img-${p.id}" onclick="evOpenImageViewer('${p.id}')">`
+            : `<span onclick="evAddImage('${p.id}')">📷</span>`}
         </div>
         <textarea class="ev-transcript" id="ev-ta-${p.id}" rows="4"></textarea>
       </div>
@@ -1582,6 +1607,98 @@ async function evDeletePage(pageId) {
     btn.textContent = '確認';
     evDelTimers[`p${pageId}`] = setTimeout(() => { delete evDelTimers[`p${pageId}`]; btn.textContent = '🗑ページ'; }, 2500);
   }
+}
+
+// ── Edit View: image viewer / OCR / add image ────────────────────────
+function evOpenImageViewer(pageId) {
+  const page = editViewPages.find(p => p.id === pageId);
+  if (!page) return;
+  viewerPage = page;
+  viewerReturnTo = 'edit-view';
+
+  afterCropCallback = (newUrl) => {
+    document.getElementById('viewer-img').src = newUrl + '&t=' + Date.now();
+    document.getElementById('viewer-img-wrap').style.display = '';
+    resetImgTransform();
+    const el = document.getElementById(`ev-img-${pageId}`);
+    const thumb = document.getElementById(`ev-thumb-${pageId}`);
+    if (el) { el.src = newUrl + '&t=' + Date.now(); }
+    else if (thumb) { thumb.innerHTML = `<img src="${newUrl}" id="ev-img-${pageId}" onclick="evOpenImageViewer('${pageId}')">`; }
+    const ep = editViewPages.find(p => p.id === pageId);
+    if (ep) ep.image_url = newUrl;
+    const cp = currentPages.find(p => p.id === pageId);
+    if (cp) cp.image_url = newUrl;
+    renderPages();
+    toast('切り取り完了');
+  };
+
+  document.getElementById('viewer-img').src = page.image_url || '';
+  document.getElementById('viewer-img-wrap').style.display = page.image_url ? '' : 'none';
+  const no = editViewPages.indexOf(page) + 1;
+  document.getElementById('viewer-page-label').textContent = `No.${no}　p.${page.page_num}`;
+  const trans = document.getElementById('viewer-transcript');
+  trans.textContent = page.transcript || '';
+  if (page.transcript) { trans.classList.remove('hidden'); } else { trans.classList.add('hidden'); }
+  document.getElementById('viewer-transcript-edit').style.display = 'none';
+  document.getElementById('viewer-normal-actions').style.display = '';
+  document.getElementById('viewer-edit-actions').style.display = 'none';
+  document.getElementById('btn-del-image').textContent = '🗑 画像削除';
+  document.getElementById('btn-del-transcript').textContent = '🗑 文字起こし削除';
+  resetImgTransform();
+  document.getElementById('imgviewer').classList.add('open');
+}
+
+async function evTranscribe(pageId) {
+  const btn = document.getElementById(`ev-ocr-${pageId}`);
+  if (btn) { btn.textContent = '変換中…'; btn.disabled = true; }
+  try {
+    const data = await api({ action: 'transcribe', pageId });
+    if (data.success) {
+      const text = data.transcript || '';
+      const ta = document.getElementById(`ev-ta-${pageId}`);
+      if (ta) ta.value = text;
+      const ep = editViewPages.find(p => p.id === pageId);
+      if (ep) ep.transcript = text;
+      const cp = currentPages.find(p => p.id === pageId);
+      if (cp) cp.transcript = text;
+      toast(text ? '文字起こし完了' : '認識できませんでした');
+      renderPages();
+    } else { toast(data.error || 'エラー'); }
+  } catch (_) { toast('通信エラー'); }
+  if (btn) { btn.textContent = '⚡'; btn.disabled = false; }
+}
+
+let evAddTarget = null;
+function evAddImage(pageId) {
+  evAddTarget = pageId;
+  const inp = document.getElementById('camera-input');
+  inp.onchange = null;
+  inp.onchange = () => evHandleImageFile(inp.files[0]);
+  inp.click();
+}
+
+async function evHandleImageFile(file) {
+  if (!file || !evAddTarget) return;
+  const pageId = evAddTarget; evAddTarget = null;
+  toast('アップロード中…');
+  try {
+    const base64 = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result.split(',')[1]);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+    const data = await apiPost({ action: 'updatePageImage', pageId, imageBase64: base64, imageMime: file.type || 'image/jpeg' });
+    if (data.success) {
+      const thumb = document.getElementById(`ev-thumb-${pageId}`);
+      if (thumb) thumb.innerHTML = `<img src="${data.imageUrl}&t=${Date.now()}" id="ev-img-${pageId}" onclick="evOpenImageViewer('${pageId}')">`;
+      const ep = editViewPages.find(p => p.id === pageId);
+      if (ep) ep.image_url = data.imageUrl;
+      const cp = currentPages.find(p => p.id === pageId);
+      if (cp) cp.image_url = data.imageUrl;
+      toast('画像を更新しました'); renderPages();
+    } else { toast(data.error || 'エラー'); }
+  } catch (_) { toast('通信エラー'); }
 }
 
 // ── Swipe to Delete ──────────────────────────────────────────────────
