@@ -1730,11 +1730,19 @@ async function evTranscribe(pageId) {
   if (btn) { btn.textContent = '⚡'; btn.disabled = false; }
 }
 
-function evAddPage() {
-  if (!editViewBook) return;
-  const inp = document.getElementById('camera-input');
-  inp.onchange = null;
-  inp.onchange = () => evHandleNewPage(inp.files[0]);
+// ── Edit view file picker (dynamic input — avoids iOS onchange conflicts) ──
+function _evPickPhoto(onFile) {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px';
+  document.body.appendChild(inp);
+  const done = () => { try { document.body.removeChild(inp); } catch (_) {} };
+  inp.addEventListener('change', () => {
+    const file = inp.files && inp.files[0];
+    done();
+    if (file) onFile(file);
+  });
   inp.click();
 }
 
@@ -1747,11 +1755,13 @@ async function _readFileAsDataUrl(file) {
   });
 }
 
-async function evHandleNewPage(file) {
-  if (!editViewBook || !file) return;
-  const dataUrl = await _readFileAsDataUrl(file);
-  pendingCropUpload = { type: 'new' };
-  openCropWithLocalDataUrl(dataUrl);
+function evAddPage() {
+  if (!editViewBook) return;
+  _evPickPhoto(async file => {
+    const dataUrl = await _readFileAsDataUrl(file);
+    pendingCropUpload = { type: 'new' };
+    openCropWithLocalDataUrl(dataUrl);
+  });
 }
 
 async function evUploadNewPage(base64, mime) {
@@ -1775,18 +1785,13 @@ async function evUploadNewPage(base64, mime) {
 let evAddTarget = null;
 function evAddImage(pageId) {
   evAddTarget = pageId;
-  const inp = document.getElementById('camera-input');
-  inp.onchange = null;
-  inp.onchange = () => evHandleImageFile(inp.files[0]);
-  inp.click();
-}
-
-async function evHandleImageFile(file) {
-  if (!file || !evAddTarget) return;
-  const pageId = evAddTarget; evAddTarget = null;
-  const dataUrl = await _readFileAsDataUrl(file);
-  pendingCropUpload = { type: 'replace', pageId };
-  openCropWithLocalDataUrl(dataUrl);
+  _evPickPhoto(async file => {
+    const pid = evAddTarget; evAddTarget = null;
+    if (!pid) return;
+    const dataUrl = await _readFileAsDataUrl(file);
+    pendingCropUpload = { type: 'replace', pageId: pid };
+    openCropWithLocalDataUrl(dataUrl);
+  });
 }
 
 async function evUploadReplaceImage(pageId, base64, mime) {
