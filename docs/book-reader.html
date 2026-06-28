@@ -435,7 +435,7 @@
 
     /* ── Crop UI ── */
     #crop-view {
-      display: none; position: absolute; inset: 0; background: #000; z-index: 20;
+      display: none; position: fixed; inset: 0; background: #000; z-index: 110;
       flex-direction: column;
     }
     #crop-view.open { display: flex; }
@@ -657,27 +657,28 @@
     </div>
   </div>
 
-  <!-- Crop View -->
-  <div id="crop-view">
-    <div id="crop-stage">
-      <img id="crop-img" alt="">
-      <div id="crop-box">
-        <div class="crop-corner tl" data-corner="tl"></div>
-        <div class="crop-corner tr" data-corner="tr"></div>
-        <div class="crop-corner bl" data-corner="bl"></div>
-        <div class="crop-corner br" data-corner="br"></div>
-      </div>
-    </div>
-    <div class="crop-actions">
-      <button class="crop-cancel" onclick="cancelCrop()">キャンセル</button>
-      <button class="crop-ok" onclick="confirmCrop()">✂️ 切り取り確定</button>
-    </div>
-  </div>
   <div id="viewer-edit-actions" style="display:none">
     <div class="img-action-row">
       <button onclick="cancelEditTranscript()">キャンセル</button>
       <button class="accent" onclick="saveTranscript()">保存</button>
     </div>
+  </div>
+</div>
+
+<!-- Crop View (outside imgviewer so it can open independently) -->
+<div id="crop-view">
+  <div id="crop-stage">
+    <img id="crop-img" alt="">
+    <div id="crop-box">
+      <div class="crop-corner tl" data-corner="tl"></div>
+      <div class="crop-corner tr" data-corner="tr"></div>
+      <div class="crop-corner bl" data-corner="bl"></div>
+      <div class="crop-corner br" data-corner="br"></div>
+    </div>
+  </div>
+  <div class="crop-actions">
+    <button class="crop-cancel" onclick="cancelCrop()">キャンセル</button>
+    <button class="crop-ok" onclick="confirmCrop()">✂️ 切り取り確定</button>
   </div>
 </div>
 
