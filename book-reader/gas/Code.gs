@@ -71,7 +71,7 @@ function getSheet(name) {
   let sh = ss.getSheetByName(name);
   if (sh) return sh;
   sh = ss.insertSheet(name);
-  if (name === BOOKS_SHEET) sh.appendRow(['id','title','author','created','cover_file_id','cover_url','notes']);
+  if (name === BOOKS_SHEET) sh.appendRow(['id','title','author','created','cover_file_id','cover_url','notes','text']);
   if (name === PAGES_SHEET) sh.appendRow(['id','book_id','page_num','file_id','image_url','transcript','created']);
   return sh;
 }
@@ -98,7 +98,7 @@ function listBooks() {
     books.push({
       id: r[0], title: r[1], author: r[2], created: r[3],
       cover_url: r[5] || firstImageMap[r[0]] || '',
-      notes: r[6], transcript: transcriptMap[r[0]] || ''
+      notes: r[6], text: r[7] || '', transcript: transcriptMap[r[0]] || ''
     });
   }
   books.sort((a, b) => new Date(b.created) - new Date(a.created));
@@ -123,7 +123,7 @@ function addBook(body) {
     coverUrl = `https://drive.google.com/thumbnail?id=${coverFileId}&sz=w400`;
   }
 
-  getSheet(BOOKS_SHEET).appendRow([id, body.title || '無題', body.author || '', now, coverFileId, coverUrl, body.notes || '']);
+  getSheet(BOOKS_SHEET).appendRow([id, body.title || '無題', body.author || '', now, coverFileId, coverUrl, body.notes || '', body.text || '']);
   return { success: true, bookId: id };
 }
 
@@ -135,6 +135,7 @@ function editBook(body) {
       if (body.title  !== undefined) sh.getRange(i + 1, 2).setValue(body.title);
       if (body.author !== undefined) sh.getRange(i + 1, 3).setValue(body.author);
       if (body.notes  !== undefined) sh.getRange(i + 1, 7).setValue(body.notes);
+      if (body.text   !== undefined) sh.getRange(i + 1, 8).setValue(body.text);
       return { success: true };
     }
   }

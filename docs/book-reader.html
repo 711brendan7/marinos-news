@@ -82,12 +82,13 @@
     .setup-title { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 8px; }
     .setup-sub { color: var(--text2); font-size: 14px; text-align: center; }
     .field label { display: block; color: var(--text2); font-size: 12px; margin-bottom: 4px; }
-    .field input {
+    .field input, .field textarea {
       width: 100%; background: var(--surface2); border: 1px solid var(--border);
       border-radius: 8px; color: var(--text); font-size: 14px;
-      padding: 10px 12px; outline: none;
+      padding: 10px 12px; outline: none; font-family: inherit;
     }
-    .field input:focus { border-color: var(--accent); }
+    .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .field textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
     .btn-primary {
       background: var(--accent); color: #fff; border: none; border-radius: 10px;
       font-size: 16px; font-weight: 600; padding: 14px; width: 100%; cursor: pointer;
@@ -580,6 +581,10 @@
     <div class="field">
       <label>メモ（省略可）</label>
       <input id="new-notes" type="text" placeholder="一言メモ">
+    </div>
+    <div class="field">
+      <label>テキスト（省略可）</label>
+      <textarea id="new-text" placeholder="要約・感想など自由記述"></textarea>
     </div>
     <button class="btn-primary" onclick="submitAddBook()">追加</button>
   </div>
@@ -1091,6 +1096,7 @@ function openAddBook() {
   document.getElementById('new-title').value  = '';
   document.getElementById('new-author').value = '';
   document.getElementById('new-notes').value  = '';
+  document.getElementById('new-text').value   = '';
   document.querySelector('#add-book-modal .modal-title').textContent = '本を追加';
   document.getElementById('add-book-modal').classList.add('open');
 }
@@ -1101,6 +1107,7 @@ function openEditBook() {
   document.getElementById('new-title').value  = currentBook.title  || '';
   document.getElementById('new-author').value = currentBook.author || '';
   document.getElementById('new-notes').value  = currentBook.notes  || '';
+  document.getElementById('new-text').value   = currentBook.text   || '';
   document.querySelector('#add-book-modal .modal-title').textContent = '本を編集';
   document.getElementById('add-book-modal').classList.add('open');
 }
@@ -1115,20 +1122,22 @@ async function submitAddBook() {
   if (!title) { toast('タイトルを入力してください'); return; }
   const author = document.getElementById('new-author').value.trim();
   const notes  = document.getElementById('new-notes').value.trim();
+  const text   = document.getElementById('new-text').value.trim();
   try {
     if (editingBookId) {
-      const data = await api({ action: 'editBook', bookId: editingBookId, title, author, notes });
+      const data = await apiPost({ action: 'editBook', bookId: editingBookId, title, author, notes, text });
       if (data.success) {
         closeAddBook();
         if (currentBook && currentBook.id === editingBookId) {
-          currentBook.title = title; currentBook.author = author; currentBook.notes = notes;
+          currentBook.title = title; currentBook.author = author;
+          currentBook.notes = notes; currentBook.text = text;
           document.getElementById('pages-title').textContent = title;
         }
         toast(`「${title}」を更新しました`);
         await loadBooks();
       } else { toast(data.error || 'エラーが発生しました'); }
     } else {
-      const data = await api({ action: 'addBook', title, author, notes });
+      const data = await apiPost({ action: 'addBook', title, author, notes, text });
       if (data.success) {
         closeAddBook();
         toast(`「${title}」を追加しました`);
