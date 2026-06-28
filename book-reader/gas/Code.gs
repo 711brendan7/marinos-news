@@ -82,18 +82,24 @@ function listBooks() {
   const prows = getSheet(PAGES_SHEET).getDataRange().getValues();
 
   const transcriptMap = {};
+  const firstImageMap = {};
   for (let i = 1; i < prows.length; i++) {
     const bookId = prows[i][1];
     const t = (prows[i][5] || '').trim();
-    if (!t) continue;
-    transcriptMap[bookId] = transcriptMap[bookId] ? transcriptMap[bookId] + '\n' + t : t;
+    const img = prows[i][4] || '';
+    if (t) transcriptMap[bookId] = transcriptMap[bookId] ? transcriptMap[bookId] + '\n' + t : t;
+    if (img && !firstImageMap[bookId]) firstImageMap[bookId] = img;
   }
 
   const books = [];
   for (let i = 1; i < brows.length; i++) {
     const r = brows[i];
     if (!r[0]) continue;
-    books.push({ id: r[0], title: r[1], author: r[2], created: r[3], cover_url: r[5], notes: r[6], transcript: transcriptMap[r[0]] || '' });
+    books.push({
+      id: r[0], title: r[1], author: r[2], created: r[3],
+      cover_url: r[5] || firstImageMap[r[0]] || '',
+      notes: r[6], transcript: transcriptMap[r[0]] || ''
+    });
   }
   books.sort((a, b) => new Date(b.created) - new Date(a.created));
   return { books };
