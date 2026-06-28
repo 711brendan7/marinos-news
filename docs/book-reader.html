@@ -416,6 +416,10 @@
       font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
       margin-left: 5px; vertical-align: middle; flex-shrink: 0;
     }
+    .book-img-badge {
+      display: inline-block; font-size: 11px; color: var(--text2);
+      margin-left: 5px; vertical-align: middle;
+    }
     .ev-section-title { font-size: 12px; color: var(--text2); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 10px; }
     .ev-page { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
     .ev-page-header { display: flex; align-items: center; gap: 6px; }
@@ -816,7 +820,7 @@ function renderShelf() {
           <div class="swipe-inner">
             <div class="book-list-item" onclick="handleBookClick('${b.id}')">
               <div class="book-list-info" style="padding:2px 0">
-                <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
+                <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}${b.cover_url ? '<span class="book-img-badge">📷</span>' : ''}</div>
                 ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
                 ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
               </div>
@@ -1005,16 +1009,7 @@ function clampCropBox() {
   cs.boxH = Math.min(cs.boxH, cs.imgY + cs.imgH - cs.boxY);
 }
 
-async function openCrop() {
-  if (!viewerPage || !viewerPage.image_url) { toast('画像がありません'); return; }
-  toast('画像を読み込み中…');
-  let dataUrl;
-  try {
-    const res = await api({ action: 'getPageImage', pageId: viewerPage.id });
-    if (!res.success) { toast(res.error || '読み込み失敗'); return; }
-    dataUrl = res.dataUrl;
-  } catch (_) { toast('通信エラー'); return; }
-
+function _showCropUI(dataUrl) {
   const img = document.getElementById('crop-img');
   img.onload = () => {
     const stage = document.getElementById('crop-stage');
@@ -1034,13 +1029,27 @@ async function openCrop() {
   document.getElementById('crop-view').classList.add('open');
 }
 
+function openCropWithLocalDataUrl(dataUrl) {
+  _showCropUI(dataUrl);
+}
+
+async function openCrop() {
+  if (!viewerPage || !viewerPage.image_url) { toast('画像がありません'); return; }
+  toast('画像を読み込み中…');
+  try {
+    const res = await api({ action: 'getPageImage', pageId: viewerPage.id });
+    if (!res.success) { toast(res.error || '読み込み失敗'); return; }
+    _showCropUI(res.dataUrl);
+  } catch (_) { toast('通信エラー'); }
+}
+
 function cancelCrop() {
   document.getElementById('crop-view').classList.remove('open');
   document.getElementById('crop-img').src = '';
 }
 
 async function confirmCrop() {
-  if (!viewerPage) return;
+  if (!viewerPage && !pendingCropUpload) return;
   const scaleX = cs.natW / cs.imgW, scaleY = cs.natH / cs.imgH;
   const sx = Math.round((cs.boxX - cs.imgX) * scaleX);
   const sy = Math.round((cs.boxY - cs.imgY) * scaleY);
@@ -1053,6 +1062,19 @@ async function confirmCrop() {
   const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
 
   cancelCrop();
+
+  // Pre-upload crop: delegate to pending callback
+  if (pendingCropUpload) {
+    const pcu = pendingCropUpload;
+    pendingCropUpload = null;
+    if (pcu.type === 'new') {
+      await evUploadNewPage(base64, 'image/jpeg');
+    } else {
+      await evUploadReplaceImage(pcu.pageId, base64, 'image/jpeg');
+    }
+    return;
+  }
+
   toast('アップロード中…');
   try {
     const data = await apiPost({ action: 'updatePageImage', pageId: viewerPage.id, imageBase64: base64, imageMime: 'image/jpeg' });
@@ -1428,6 +1450,7 @@ let editViewBook = null;
 let editViewPages = [];
 let editViewDone = false;
 let afterCropCallback = null;
+let pendingCropUpload = null;
 const evDelTimers = {};
 
 function toggleEvDone() {
@@ -1473,26 +1496,32 @@ function renderEditPages() {
     return;
   }
   container.innerHTML = editViewPages.map((p, i) => `
-    <div class="ev-page" data-pid="${p.id}">
-      <div class="ev-page-header">
-        <span class="ev-page-num">No.${i+1}（p.${p.page_num}）</span>
-        <div class="ev-page-btns">
-          <button id="ev-ocr-${p.id}" onclick="evTranscribe('${p.id}')">⚡</button>
-          <button onclick="evRotatePage('${p.id}',-90)">↺</button>
-          <button onclick="evRotatePage('${p.id}',90)">↻</button>
-          <button onclick="evCropPage('${p.id}')">✂️</button>
-          <button onclick="evAddImage('${p.id}')">📷</button>
-          <button class="ev-danger" id="ev-di-${p.id}" onclick="evDeleteImage('${p.id}')">🗑画像</button>
-          <button class="ev-danger" id="ev-dp-${p.id}" onclick="evDeletePage('${p.id}')">🗑ページ</button>
+    <div class="swipe-wrap" data-pid="${p.id}" style="border-radius:10px;overflow:hidden">
+      <div class="swipe-row">
+        <div class="swipe-inner">
+          <div class="ev-page" data-pid="${p.id}">
+            <div class="ev-page-header">
+              <span class="ev-page-num">No.${i+1}（p.${p.page_num}）</span>
+              <div class="ev-page-btns">
+                <button id="ev-ocr-${p.id}" onclick="evTranscribe('${p.id}')">⚡</button>
+                <button onclick="evRotatePage('${p.id}',-90)">↺</button>
+                <button onclick="evRotatePage('${p.id}',90)">↻</button>
+                <button onclick="evCropPage('${p.id}')">✂️</button>
+                <button onclick="evAddImage('${p.id}')">📷</button>
+                <button class="ev-danger" id="ev-di-${p.id}" onclick="evDeleteImage('${p.id}')">🗑画像</button>
+              </div>
+            </div>
+            <div class="ev-page-body">
+              <div class="ev-thumb" id="ev-thumb-${p.id}" style="cursor:pointer">
+                ${p.image_url
+                  ? `<img src="${p.image_url}" id="ev-img-${p.id}" onclick="evOpenImageViewer('${p.id}')">`
+                  : `<span onclick="evAddImage('${p.id}')">📷</span>`}
+              </div>
+              <textarea class="ev-transcript" id="ev-ta-${p.id}" rows="4"></textarea>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="ev-page-body">
-        <div class="ev-thumb" id="ev-thumb-${p.id}" style="cursor:pointer">
-          ${p.image_url
-            ? `<img src="${p.image_url}" id="ev-img-${p.id}" onclick="evOpenImageViewer('${p.id}')">`
-            : `<span onclick="evAddImage('${p.id}')">📷</span>`}
-        </div>
-        <textarea class="ev-transcript" id="ev-ta-${p.id}" rows="4"></textarea>
+        <button class="swipe-del-btn" onclick="evSwipeDeletePage('${p.id}')">🗑<br>削除</button>
       </div>
     </div>
   `).join('');
@@ -1500,6 +1529,7 @@ function renderEditPages() {
     const ta = document.getElementById(`ev-ta-${p.id}`);
     if (ta) ta.value = p.transcript || '';
   });
+  attachEvPageSwipeHandlers();
 }
 
 function closeEditView() {
@@ -1707,22 +1737,27 @@ function evAddPage() {
   inp.click();
 }
 
+async function _readFileAsDataUrl(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
 async function evHandleNewPage(file) {
+  if (!editViewBook || !file) return;
+  const dataUrl = await _readFileAsDataUrl(file);
+  pendingCropUpload = { type: 'new' };
+  openCropWithLocalDataUrl(dataUrl);
+}
+
+async function evUploadNewPage(base64, mime) {
   if (!editViewBook) return;
-  toast('追加中…');
+  toast('追加中（OCR中）…');
   try {
-    let body = { action: 'addPage', bookId: editViewBook.id, ocr: true };
-    if (file) {
-      const base64 = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = e => res(e.target.result.split(',')[1]);
-        r.onerror = rej;
-        r.readAsDataURL(file);
-      });
-      body.imageBase64 = base64;
-      body.imageMime = file.type || 'image/jpeg';
-    }
-    const data = await apiPost(body);
+    const data = await apiPost({ action: 'addPage', bookId: editViewBook.id, imageBase64: base64, imageMime: mime, ocr: true });
     if (data.success) {
       const maxPageNum = editViewPages.length ? Math.max(...editViewPages.map(p => p.page_num)) : 0;
       const newPage = { id: data.pageId, book_id: editViewBook.id, page_num: maxPageNum + 1,
@@ -1730,7 +1765,7 @@ async function evHandleNewPage(file) {
       editViewPages.push(newPage);
       currentPages.push(newPage);
       renderEditPages();
-      toast(file ? '画像を追加しました' : 'ページを追加しました');
+      toast('ページを追加しました');
       renderPages();
     } else { toast(data.error || 'エラー'); }
   } catch (_) { toast('通信エラー'); }
@@ -1748,15 +1783,15 @@ function evAddImage(pageId) {
 async function evHandleImageFile(file) {
   if (!file || !evAddTarget) return;
   const pageId = evAddTarget; evAddTarget = null;
+  const dataUrl = await _readFileAsDataUrl(file);
+  pendingCropUpload = { type: 'replace', pageId };
+  openCropWithLocalDataUrl(dataUrl);
+}
+
+async function evUploadReplaceImage(pageId, base64, mime) {
   toast('アップロード中…');
   try {
-    const base64 = await new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = e => res(e.target.result.split(',')[1]);
-      r.onerror = rej;
-      r.readAsDataURL(file);
-    });
-    const data = await apiPost({ action: 'updatePageImage', pageId, imageBase64: base64, imageMime: file.type || 'image/jpeg' });
+    const data = await apiPost({ action: 'updatePageImage', pageId, imageBase64: base64, imageMime: mime });
     if (data.success) {
       const thumb = document.getElementById(`ev-thumb-${pageId}`);
       if (thumb) thumb.innerHTML = `<img src="${data.imageUrl}&t=${Date.now()}" id="ev-img-${pageId}" onclick="evOpenImageViewer('${pageId}')">`;
@@ -1850,6 +1885,58 @@ function attachSwipeHandlers() {
         row.style.transform = '';
         wrap.classList.remove('swiped');
         activeSwipe = null;
+      } else {
+        row.style.transform = wasSwiped ? 'translateX(-80px)' : '';
+      }
+    });
+  });
+}
+
+async function evSwipeDeletePage(pageId) {
+  toast('削除中…');
+  const data = await api({ action: 'deletePage', pageId }).catch(() => ({ error: 'err' }));
+  if (data.success) {
+    editViewPages = editViewPages.filter(p => p.id !== pageId);
+    currentPages  = currentPages.filter(p => p.id !== pageId);
+    const wrap = document.querySelector(`.swipe-wrap[data-pid="${pageId}"]`);
+    if (wrap) wrap.remove();
+    toast('ページを削除しました'); renderPages();
+  } else { toast(data.error || 'エラー'); }
+}
+
+function attachEvPageSwipeHandlers() {
+  document.querySelectorAll('#ev-pages .swipe-wrap').forEach(wrap => {
+    const row = wrap.querySelector('.swipe-row');
+    let startX = 0, startY = 0, tracking = false, moved = false;
+
+    row.addEventListener('touchstart', e => {
+      if (activeSwipe && activeSwipe.wrap !== wrap) closeActiveSwipe();
+      startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+      tracking = true; moved = false;
+    }, { passive: true });
+
+    row.addEventListener('touchmove', e => {
+      if (!tracking) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) moved = true;
+      if (Math.abs(dy) > Math.abs(dx) + 8) { tracking = false; return; }
+      const base = wrap.classList.contains('swiped') ? -80 : 0;
+      const shift = Math.min(0, Math.max(base + dx, -82));
+      row.style.transition = 'none';
+      row.style.transform = `translateX(${shift}px)`;
+    }, { passive: true });
+
+    row.addEventListener('touchend', e => {
+      if (!tracking) return; tracking = false;
+      const dx = e.changedTouches[0].clientX - startX;
+      row.style.transition = '';
+      const wasSwiped = wrap.classList.contains('swiped');
+      if (!wasSwiped && dx < -50) {
+        row.style.transform = 'translateX(-80px)';
+        wrap.classList.add('swiped'); activeSwipe = { wrap, row };
+      } else if (wasSwiped && dx > 30) {
+        row.style.transform = ''; wrap.classList.remove('swiped'); activeSwipe = null;
       } else {
         row.style.transform = wasSwiped ? 'translateX(-80px)' : '';
       }
