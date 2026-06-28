@@ -137,10 +137,14 @@
     }
 
     /* swipe-to-delete */
-    .swipe-wrap { position: relative; overflow: hidden; border-radius: 12px; }
-    .swipe-inner { transform: translateX(0); transition: transform 0.15s ease; will-change: transform; }
+    .swipe-wrap { overflow: hidden; border-radius: 12px; }
+    .swipe-row {
+      display: flex; width: calc(100% + 80px);
+      transform: translateX(0); transition: transform 0.15s ease; will-change: transform;
+    }
+    .swipe-inner { flex: 1; min-width: 0; }
     .swipe-del-btn {
-      position: absolute; right: 0; top: 0; bottom: 0; width: 80px;
+      width: 80px; flex-shrink: 0;
       background: var(--accent); color: #fff; border: none;
       font-size: 13px; font-weight: 600; cursor: pointer;
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
@@ -673,54 +677,60 @@ function renderShelf() {
     el.className = 'shelf-list';
     el.innerHTML = books.map(b => `
       <div class="swipe-wrap">
-        <div class="swipe-inner">
-          <div class="book-list-item" onclick="handleBookClick('${b.id}')">
-            <div class="book-list-thumb">
-              ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
-            </div>
-            <div class="book-list-info">
-              <div class="book-list-title">${esc(b.title)}</div>
-              ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
-              ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+        <div class="swipe-row">
+          <div class="swipe-inner">
+            <div class="book-list-item" onclick="handleBookClick('${b.id}')">
+              <div class="book-list-thumb">
+                ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+              </div>
+              <div class="book-list-info">
+                <div class="book-list-title">${esc(b.title)}</div>
+                ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
+                ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+              </div>
             </div>
           </div>
+          <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
         </div>
-        <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
       </div>
     `).join('');
   } else if (shelfMode === 'text') {
     el.className = 'shelf-list';
     el.innerHTML = books.map(b => `
       <div class="swipe-wrap">
-        <div class="swipe-inner">
-          <div class="book-list-item" onclick="handleBookClick('${b.id}')">
-            <div class="book-list-info" style="padding:2px 0">
-              <div class="book-list-title">${esc(b.title)}</div>
-              ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
-              ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+        <div class="swipe-row">
+          <div class="swipe-inner">
+            <div class="book-list-item" onclick="handleBookClick('${b.id}')">
+              <div class="book-list-info" style="padding:2px 0">
+                <div class="book-list-title">${esc(b.title)}</div>
+                ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
+                ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+              </div>
             </div>
           </div>
+          <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
         </div>
-        <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
       </div>
     `).join('');
   } else {
     el.className = 'shelf-grid';
     el.innerHTML = books.map(b => `
       <div class="swipe-wrap">
-        <div class="swipe-inner">
-          <div class="book-card" onclick="handleBookClick('${b.id}')">
-            <div class="book-cover">
-              ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
-            </div>
-            <div class="book-info">
-              <div class="book-title">${esc(b.title)}</div>
-              ${b.author ? `<div class="book-author">${esc(b.author)}</div>` : ''}
-              ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
+        <div class="swipe-row">
+          <div class="swipe-inner">
+            <div class="book-card" onclick="handleBookClick('${b.id}')">
+              <div class="book-cover">
+                ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
+              </div>
+              <div class="book-info">
+                <div class="book-title">${esc(b.title)}</div>
+                ${b.author ? `<div class="book-author">${esc(b.author)}</div>` : ''}
+                ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
+              </div>
             </div>
           </div>
+          <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
         </div>
-        <button class="swipe-del-btn" onclick="swipeDeleteBook('${b.id}')">🗑<br>削除</button>
       </div>
     `).join('');
   }
@@ -1133,7 +1143,7 @@ let activeSwipe = null;
 
 function closeActiveSwipe() {
   if (!activeSwipe) return;
-  activeSwipe.inner.style.transform = '';
+  activeSwipe.row.style.transform = '';
   activeSwipe.wrap.classList.remove('swiped');
   activeSwipe = null;
 }
@@ -1158,43 +1168,43 @@ async function swipeDeleteBook(bookId) {
 
 function attachSwipeHandlers() {
   document.querySelectorAll('#shelf-grid .swipe-wrap').forEach(wrap => {
-    const inner = wrap.querySelector('.swipe-inner');
+    const row = wrap.querySelector('.swipe-row');
     let startX = 0, startY = 0, tracking = false;
 
-    inner.addEventListener('touchstart', e => {
+    row.addEventListener('touchstart', e => {
       if (activeSwipe && activeSwipe.wrap !== wrap) closeActiveSwipe();
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       tracking = true;
     }, { passive: true });
 
-    inner.addEventListener('touchmove', e => {
+    row.addEventListener('touchmove', e => {
       if (!tracking) return;
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
       if (Math.abs(dy) > Math.abs(dx) + 8) { tracking = false; return; }
       const base = wrap.classList.contains('swiped') ? -80 : 0;
       const shift = Math.min(0, Math.max(base + dx, -82));
-      inner.style.transition = 'none';
-      inner.style.transform = `translateX(${shift}px)`;
+      row.style.transition = 'none';
+      row.style.transform = `translateX(${shift}px)`;
     }, { passive: true });
 
-    inner.addEventListener('touchend', e => {
+    row.addEventListener('touchend', e => {
       if (!tracking) return;
       tracking = false;
       const dx = e.changedTouches[0].clientX - startX;
-      inner.style.transition = '';
+      row.style.transition = '';
       const wasSwiped = wrap.classList.contains('swiped');
       if (!wasSwiped && dx < -50) {
-        inner.style.transform = 'translateX(-80px)';
+        row.style.transform = 'translateX(-80px)';
         wrap.classList.add('swiped');
-        activeSwipe = { wrap, inner };
+        activeSwipe = { wrap, row };
       } else if (wasSwiped && dx > 30) {
-        inner.style.transform = '';
+        row.style.transform = '';
         wrap.classList.remove('swiped');
         activeSwipe = null;
       } else {
-        inner.style.transform = wasSwiped ? 'translateX(-80px)' : '';
+        row.style.transform = wasSwiped ? 'translateX(-80px)' : '';
       }
     });
   });
