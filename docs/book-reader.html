@@ -1809,17 +1809,23 @@ async function uploadOcrTitle(base64, mime, targetId) {
   try {
     const data = await apiPost({ action: 'ocrImage', imageBase64: base64, imageMime: mime });
     if (data.success) {
-      // Remove all underscores (ASCII _ and fullwidth ＿) then find first non-empty line
+      // Strip all underscore-like chars (ASCII, fullwidth, double-low-line,
+      // box-drawing horizontals, dashed-low-line variants, block elements)
+      // then keep only lines that contain at least one letter/digit/CJK char
+      const stripRe = /[_＿ˍ‗﹍﹎﹏⎽▁▂▃▄─━═－―—–‒‐]/g;
+      const hasText = /[A-Za-z0-9぀-ヿ一-鿿]/;
       const firstLine = (data.transcript || '')
-        .replace(/[_＿]/g, '')
-        .split('\n')
-        .map(l => l.trim())
-        .find(l => l.length > 0) || '';
+        .split(/\r?\n/)
+        .map(l => l.replace(stripRe, '').trim())
+        .find(l => hasText.test(l)) || '';
       const inp = document.getElementById(targetId);
-      alert('セット値: [' + firstLine + ']\nコード: ' + [...firstLine].map(c=>c.codePointAt(0).toString(16)).join(' '));
-      if (inp && firstLine) { inp.value = firstLine; inp.focus(); }
-      if (firstLine) toast('タイトルを取得しました');
-      else toast('文字が読み取れませんでした');
+      if (inp) {
+        inp.value = firstLine;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      toast(firstLine ? '取得: ' + firstLine.slice(0, 20) : '文字が読み取れませんでした');
+    } else {
+      toast('文字起こし失敗: ' + (data.error || '不明なエラー'));
     } else {
       toast('文字起こし失敗: ' + (data.error || '不明なエラー'));
     }
