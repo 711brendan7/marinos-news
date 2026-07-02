@@ -521,7 +521,7 @@
     <p class="setup-sub">Google Apps Script の URL とトークンを設定してください</p>
     <div class="field">
       <label>GAS URL</label>
-      <input id="input-url" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+      <input id="input-url" type="text" inputmode="url" placeholder="https://script.google.com/macros/s/.../exec" autocorrect="off" autocapitalize="none" spellcheck="false">
     </div>
     <div class="field">
       <label>TOKEN</label>
@@ -732,6 +732,7 @@ function saveConfig() {
   cfg.url   = document.getElementById('input-url').value.trim();
   cfg.token = document.getElementById('input-token').value.trim();
   if (!cfg.url || !cfg.token) { toast('URLとトークンを入力してください'); return; }
+  if (!cfg.url.startsWith('https://')) { toast('URLは https:// で始まる必要があります'); return; }
   localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
   switchView('shelf-view');
   loadBooks();
