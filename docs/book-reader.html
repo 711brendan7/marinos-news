@@ -582,6 +582,7 @@
         <div style="display:flex;gap:8px;align-items:center">
           <input id="ev-title" type="text" style="flex:1;min-width:0">
           <button onclick="pickAndOcrTitle('ev-title')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;flex-shrink:0">📷</button>
+          <button id="ev-title-mic" onclick="startVoiceInput('ev-title','ev-title-mic')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;flex-shrink:0">🎤</button>
         </div>
       </div>
       <div class="field"><label>著者</label><input id="ev-author" type="text"></div>
@@ -705,6 +706,7 @@
       <div style="display:flex;gap:8px;align-items:center">
         <input id="new-title" type="text" placeholder="本のタイトル" style="flex:1;min-width:0">
         <button onclick="pickAndOcrTitle('new-title')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;flex-shrink:0">📷</button>
+        <button id="new-title-mic" onclick="startVoiceInput('new-title','new-title-mic')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;flex-shrink:0">🎤</button>
       </div>
     </div>
     <div class="field">
@@ -1789,6 +1791,48 @@ function evAddImage(pageId) {
     pendingCropUpload = { type: 'replace', pageId: pid };
     openCropWithLocalDataUrl(dataUrl);
   });
+}
+
+let _activeRecognition = null;
+
+function startVoiceInput(targetId, btnId) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) { toast('音声認識はこのブラウザでは使用できません'); return; }
+
+  const btn = document.getElementById(btnId);
+
+  // 録音中なら停止
+  if (_activeRecognition) {
+    _activeRecognition.stop();
+    _activeRecognition = null;
+    if (btn) btn.textContent = '🎤';
+    return;
+  }
+
+  const rec = new SpeechRecognition();
+  rec.lang = 'ja-JP';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  _activeRecognition = rec;
+
+  if (btn) btn.textContent = '⏹️';
+  toast('音声認識中… 話しかけてください');
+
+  rec.onresult = e => {
+    const text = e.results[0][0].transcript;
+    const inp = document.getElementById(targetId);
+    if (inp) { inp.value = text; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+    toast('取得: ' + text.slice(0, 20));
+  };
+  rec.onerror = e => {
+    toast('音声認識エラー: ' + e.error);
+  };
+  rec.onend = () => {
+    _activeRecognition = null;
+    if (btn) btn.textContent = '🎤';
+  };
+
+  rec.start();
 }
 
 function pickAndOcrTitle(targetId) {
