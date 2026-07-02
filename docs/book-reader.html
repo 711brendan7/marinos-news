@@ -1808,6 +1808,7 @@ async function uploadOcrTitle(base64, mime, targetId) {
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 60000);
   try {
     const data = await apiPost({ action: 'ocrImage', imageBase64: base64, imageMime: mime });
+    alert('OCR応答: ' + JSON.stringify(data));
     if (data.success) {
       const firstLine = (data.transcript || '').split('\n').map(l => l.trim()).find(l => l.length > 0) || '';
       const inp = document.getElementById(targetId);
@@ -1818,6 +1819,7 @@ async function uploadOcrTitle(base64, mime, targetId) {
       toast('文字起こし失敗: ' + (data.error || '不明なエラー'));
     }
   } catch (e) {
+    alert('OCRエラー: ' + e.message + '\n' + e.stack);
     toast('エラー: ' + e.message);
   }
 }
