@@ -1874,8 +1874,6 @@ async function uploadOcrTitle(base64, mime, targetId) {
       toast(firstLine ? '取得: ' + firstLine.slice(0, 20) : '文字が読み取れませんでした');
     } else {
       toast('文字起こし失敗: ' + (data.error || '不明なエラー'));
-    } else {
-      toast('文字起こし失敗: ' + (data.error || '不明なエラー'));
     }
   } catch (e) {
     toast('エラー: ' + e.message);
