@@ -78,7 +78,9 @@
     .tab-btn.active { color: var(--accent); }
 
     /* ── Setup view ── */
-    #setup-view .scrollable { display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+    #setup-view .scrollable { display: block; padding-top: 48px; }
+    #setup-view .scrollable > * { margin-bottom: 16px; }
+    #setup-view .btn-primary { position: sticky; bottom: 16px; }
     .setup-title { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 8px; }
     .setup-sub { color: var(--text2); font-size: 14px; text-align: center; }
     .field label { display: block; color: var(--text2); font-size: 12px; margin-bottom: 4px; }
