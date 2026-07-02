@@ -1043,13 +1043,15 @@ async function confirmCrop() {
   const sw = Math.round(cs.boxW * scaleX);
   const sh = Math.round(cs.boxH * scaleY);
 
-  const MAX_DIM = 1200;
+  const isOcrTitle = pendingCropUpload && pendingCropUpload.type === 'ocrTitle';
+  const MAX_DIM = isOcrTitle ? 2000 : 1200;
+  const outQuality = isOcrTitle ? 0.92 : 0.85;
   const outScale = Math.min(1, MAX_DIM / Math.max(sw, sh));
   const outW = Math.round(sw * outScale), outH = Math.round(sh * outScale);
   const canvas = document.createElement('canvas');
   canvas.width = outW; canvas.height = outH;
   canvas.getContext('2d').drawImage(document.getElementById('crop-img'), sx, sy, sw, sh, 0, 0, outW, outH);
-  const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+  const base64 = canvas.toDataURL('image/jpeg', outQuality).split(',')[1];
 
   cancelCrop();
 
@@ -1798,7 +1800,12 @@ function pickAndOcrTitle(targetId) {
 }
 
 async function uploadOcrTitle(base64, mime, targetId) {
-  toast('文字起こし中…');
+  // Keep toast visible for the full OCR duration (can take 5-15s)
+  const toastEl = document.getElementById('toast');
+  toastEl.textContent = '文字起こし中…';
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 60000);
   try {
     const data = await apiPost({ action: 'ocrImage', imageBase64: base64, imageMime: mime });
     if (data.success) {
