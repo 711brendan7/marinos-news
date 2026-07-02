@@ -1810,7 +1810,8 @@ async function uploadOcrTitle(base64, mime, targetId) {
     const data = await apiPost({ action: 'ocrImage', imageBase64: base64, imageMime: mime });
     if (data.success) {
       // Skip lines with only underscores/dashes/symbols (OCR border artifacts)
-      const meaningful = /[A-Za-z0-9　-鿿＀-￯゠-ヿ぀-ゟ]/;
+      // Explicitly match hiragana, katakana, kanji, fullwidth alphanum, ASCII alphanum
+      const meaningful = /[぀-ヿ一-鿿０-９Ａ-Ｚａ-ｚA-Za-z0-9]/;
       const firstLine = (data.transcript || '')
         .split('\n')
         .map(l => l.trim())
