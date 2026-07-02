@@ -577,7 +577,13 @@
   </div>
   <div class="scrollable" style="display:flex;flex-direction:column;gap:16px">
     <div style="display:flex;flex-direction:column;gap:12px">
-      <div class="field"><label>タイトル</label><input id="ev-title" type="text"></div>
+      <div class="field">
+        <label>タイトル</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="ev-title" type="text" style="flex:1;min-width:0">
+          <button onclick="pickAndOcrTitle('ev-title')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;flex-shrink:0">📷</button>
+        </div>
+      </div>
       <div class="field"><label>著者</label><input id="ev-author" type="text"></div>
       <div class="field"><label>カテゴリー</label><input id="ev-category" type="text" placeholder="例：ビジネス・小説など"></div>
       <div class="field"><label>メモ</label><input id="ev-notes" type="text"></div>
@@ -696,7 +702,10 @@
     <p class="modal-title">本を追加</p>
     <div class="field">
       <label>タイトル</label>
-      <input id="new-title" type="text" placeholder="本のタイトル">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="new-title" type="text" placeholder="本のタイトル" style="flex:1;min-width:0">
+        <button onclick="pickAndOcrTitle('new-title')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;flex-shrink:0">📷</button>
+      </div>
     </div>
     <div class="field">
       <label>著者（省略可）</label>
@@ -1054,6 +1063,8 @@ async function confirmCrop() {
       await evUploadReplaceImage(pcu.pageId, base64, 'image/jpeg');
     } else if (pcu.type === 'camera') {
       await uploadPageFromCamera(pcu.bookId, base64, 'image/jpeg');
+    } else if (pcu.type === 'ocrTitle') {
+      await uploadOcrTitle(base64, 'image/jpeg', pcu.targetId);
     }
     return;
   }
@@ -1776,6 +1787,32 @@ function evAddImage(pageId) {
     pendingCropUpload = { type: 'replace', pageId: pid };
     openCropWithLocalDataUrl(dataUrl);
   });
+}
+
+function pickAndOcrTitle(targetId) {
+  _evPickPhoto(async file => {
+    const dataUrl = await _readFileAsDataUrl(file);
+    pendingCropUpload = { type: 'ocrTitle', targetId };
+    openCropWithLocalDataUrl(dataUrl);
+  });
+}
+
+async function uploadOcrTitle(base64, mime, targetId) {
+  toast('文字起こし中…');
+  try {
+    const data = await apiPost({ action: 'ocrImage', imageBase64: base64, imageMime: mime });
+    if (data.success && data.transcript) {
+      const firstLine = data.transcript.split('\n').map(l => l.trim()).find(l => l.length > 0) || '';
+      const inp = document.getElementById(targetId);
+      if (inp) { inp.value = firstLine; inp.focus(); }
+      if (firstLine) toast('タイトルを取得しました');
+      else toast('文字が読み取れませんでした');
+    } else {
+      toast('文字起こし失敗: ' + (data.error || '不明なエラー'));
+    }
+  } catch (e) {
+    toast('エラー: ' + e.message);
+  }
 }
 
 async function evUploadReplaceImage(pageId, base64, mime) {

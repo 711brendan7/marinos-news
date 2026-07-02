@@ -58,6 +58,7 @@ function doPost(e) {
   if (body.action === 'editBook')         return ok(editBook(body));
   if (body.action === 'updateTranscript') return ok(updatePageTranscript(body.pageId, body.transcript));
   if (body.action === 'updatePageImage')  return ok(updatePageImage(body.pageId, body.imageBase64, body.imageMime));
+  if (body.action === 'ocrImage')         return ok(ocrImageOnly(body.imageBase64, body.imageMime));
 
   return ok({ error: 'unknown action' });
 }
@@ -367,6 +368,14 @@ function updatePageTranscript(pageId, transcript) {
     }
   }
   return { error: 'not found' };
+}
+
+function ocrImageOnly(imageBase64, imageMime) {
+  if (!imageBase64) return { error: 'imageBase64 required' };
+  const id = Utilities.getUuid();
+  const blob = Utilities.newBlob(Utilities.base64Decode(imageBase64), imageMime || 'image/jpeg', id + '_ocr_tmp.jpg');
+  const text = runOcr(blob, id, 'ja');
+  return { success: true, transcript: text };
 }
 
 function tryTrash(fileId) {
