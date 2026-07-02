@@ -1809,13 +1809,12 @@ async function uploadOcrTitle(base64, mime, targetId) {
   try {
     const data = await apiPost({ action: 'ocrImage', imageBase64: base64, imageMime: mime });
     if (data.success) {
-      // Skip lines with only underscores/dashes/symbols (OCR border artifacts)
-      // Explicitly match hiragana, katakana, kanji, fullwidth alphanum, ASCII alphanum
-      const meaningful = /[぀-ヿ一-鿿０-９Ａ-Ｚａ-ｚA-Za-z0-9]/;
+      // Remove all underscores (ASCII _ and fullwidth ＿) then find first non-empty line
       const firstLine = (data.transcript || '')
+        .replace(/[_＿]/g, '')
         .split('\n')
         .map(l => l.trim())
-        .find(l => meaningful.test(l)) || '';
+        .find(l => l.length > 0) || '';
       const inp = document.getElementById(targetId);
       if (inp && firstLine) { inp.value = firstLine; inp.focus(); }
       if (firstLine) toast('タイトルを取得しました');
