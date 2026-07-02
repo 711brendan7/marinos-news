@@ -1816,6 +1816,7 @@ async function uploadOcrTitle(base64, mime, targetId) {
         .map(l => l.trim())
         .find(l => l.length > 0) || '';
       const inp = document.getElementById(targetId);
+      alert('セット値: [' + firstLine + ']\nコード: ' + [...firstLine].map(c=>c.codePointAt(0).toString(16)).join(' '));
       if (inp && firstLine) { inp.value = firstLine; inp.focus(); }
       if (firstLine) toast('タイトルを取得しました');
       else toast('文字が読み取れませんでした');
