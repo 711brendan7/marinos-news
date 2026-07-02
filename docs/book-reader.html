@@ -1801,10 +1801,10 @@ async function uploadOcrTitle(base64, mime, targetId) {
   toast('文字起こし中…');
   try {
     const data = await apiPost({ action: 'ocrImage', imageBase64: base64, imageMime: mime });
-    if (data.success && data.transcript) {
-      const firstLine = data.transcript.split('\n').map(l => l.trim()).find(l => l.length > 0) || '';
+    if (data.success) {
+      const firstLine = (data.transcript || '').split('\n').map(l => l.trim()).find(l => l.length > 0) || '';
       const inp = document.getElementById(targetId);
-      if (inp) { inp.value = firstLine; inp.focus(); }
+      if (inp && firstLine) { inp.value = firstLine; inp.focus(); }
       if (firstLine) toast('タイトルを取得しました');
       else toast('文字が読み取れませんでした');
     } else {

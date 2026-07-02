@@ -372,10 +372,15 @@ function updatePageTranscript(pageId, transcript) {
 
 function ocrImageOnly(imageBase64, imageMime) {
   if (!imageBase64) return { error: 'imageBase64 required' };
-  const id = Utilities.getUuid();
-  const blob = Utilities.newBlob(Utilities.base64Decode(imageBase64), imageMime || 'image/jpeg', id + '_ocr_tmp.jpg');
-  const text = runOcr(blob, id, 'ja');
-  return { success: true, transcript: text };
+  try {
+    const id = Utilities.getUuid();
+    const blob = Utilities.newBlob(Utilities.base64Decode(imageBase64), imageMime || 'image/jpeg', id + '_ocr_tmp.jpg');
+    const text = runOcr(blob, id, 'ja');
+    return { success: true, transcript: text || '' };
+  } catch (err) {
+    Logger.log('ocrImageOnly error: ' + err.toString());
+    return { error: err.toString() };
+  }
 }
 
 function tryTrash(fileId) {
