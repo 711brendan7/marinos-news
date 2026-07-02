@@ -78,9 +78,8 @@
     .tab-btn.active { color: var(--accent); }
 
     /* ── Setup view ── */
-    #setup-view .scrollable { display: block; padding-top: 48px; }
-    #setup-view .scrollable > * { margin-bottom: 16px; }
-    #setup-view .btn-primary { position: sticky; bottom: 16px; }
+    #setup-view .scrollable { padding-bottom: 0; }
+    #setup-view .setup-footer { padding: 12px 16px calc(16px + var(--safe-bot)); flex-shrink: 0; }
     .setup-title { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 8px; }
     .setup-sub { color: var(--text2); font-size: 14px; text-align: center; }
     .field label { display: block; color: var(--text2); font-size: 12px; margin-bottom: 4px; }
@@ -527,8 +526,10 @@
     </div>
     <div class="field">
       <label>TOKEN</label>
-      <input id="input-token" type="text" placeholder="your_secret_token">
+      <input id="input-token" type="text" placeholder="your_secret_token" autocorrect="off" autocapitalize="none">
     </div>
+  </div>
+  <div class="setup-footer">
     <button class="btn-primary" onclick="saveConfig()">保存して始める</button>
   </div>
 </div>
