@@ -1809,10 +1809,6 @@ async function uploadOcrTitle(base64, mime, targetId) {
   try {
     const data = await apiPost({ action: 'ocrImage', imageBase64: base64, imageMime: mime });
     if (data.success) {
-      // Debug: show raw transcript chars
-      const raw = (data.transcript || '').slice(0, 80);
-      const codes = [...raw].map(c => c + '(' + c.codePointAt(0).toString(16) + ')').join(' ');
-      alert('RAW: ' + JSON.stringify(raw) + '\n\nCHARS: ' + codes);
       // Remove all underscores (ASCII _ and fullwidth ＿) then find first non-empty line
       const firstLine = (data.transcript || '')
         .replace(/[_＿]/g, '')
