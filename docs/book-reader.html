@@ -795,8 +795,8 @@ async function loadBooks() {
     const data = await api({ action: 'listBooks' });
     books = data.books || [];
     renderShelf();
-  } catch (_) {
-    grid.innerHTML = '<div class="loading">読み込みに失敗しました</div>';
+  } catch (err) {
+    grid.innerHTML = '<div class="loading">読み込みに失敗しました<br><small style="font-size:11px;opacity:0.7">' + (err && err.message ? err.message : String(err)) + '</small></div>';
   }
 }
 
