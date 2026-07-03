@@ -590,7 +590,7 @@
       </div>
       <div class="field"><label>著者</label><input id="ev-author" type="text"></div>
       <div class="field"><label>カテゴリー</label><input id="ev-category" type="text" placeholder="例：ビジネス・小説など"></div>
-      <div class="field"><label>メモ</label><input id="ev-notes" type="text"></div>
+      <div class="field"><label>メモ</label><textarea id="ev-notes" rows="4" style="resize:vertical"></textarea></div>
       <button id="ev-done-btn" class="ev-done-btn" onclick="toggleEvDone()">未完了</button>
     </div>
     <div>
@@ -718,7 +718,7 @@
     </div>
     <div class="field">
       <label>メモ（省略可）</label>
-      <input id="new-notes" type="text" placeholder="一言メモ">
+      <textarea id="new-notes" rows="3" placeholder="一言メモ" style="resize:vertical"></textarea>
     </div>
     <button class="btn-primary" onclick="submitAddBook()">追加</button>
   </div>
