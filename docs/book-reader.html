@@ -83,12 +83,13 @@
     .setup-title { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 8px; }
     .setup-sub { color: var(--text2); font-size: 14px; text-align: center; }
     .field label { display: block; color: var(--text2); font-size: 12px; margin-bottom: 4px; }
-    .field input, .field textarea {
+    .field input, .field textarea, .field select {
       width: 100%; background: var(--surface2); border: 1px solid var(--border);
       border-radius: 8px; color: var(--text); font-size: 14px;
       padding: 10px 12px; outline: none; font-family: inherit;
     }
-    .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
+    .field select { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; }
     .field textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
     .btn-primary {
       background: var(--accent); color: #fff; border: none; border-radius: 10px;
@@ -588,8 +589,7 @@
           <button id="ev-title-mic" onclick="startVoiceInput('ev-title','ev-title-mic')" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:16px;cursor:pointer;flex-shrink:0">🎤</button>
         </div>
       </div>
-      <div class="field"><label>著者</label><input id="ev-author" type="text"></div>
-      <div class="field"><label>カテゴリー</label><input id="ev-category" type="text" placeholder="例：ビジネス・小説など"></div>
+      <div class="field"><label>カテゴリー</label><select id="ev-category"><option value="">-- 選択 --</option><option value="ビジネス">ビジネス</option><option value="IT">IT</option><option value="不動産">不動産</option><option value="他">他</option></select></div>
       <div class="field"><label>メモ</label><textarea id="ev-notes" rows="4" style="resize:vertical"></textarea></div>
       <button id="ev-done-btn" class="ev-done-btn" onclick="toggleEvDone()">未完了</button>
     </div>
@@ -713,8 +713,8 @@
       </div>
     </div>
     <div class="field">
-      <label>著者（省略可）</label>
-      <input id="new-author" type="text" placeholder="著者名">
+      <label>カテゴリー</label>
+      <select id="new-category"><option value="">-- 選択 --</option><option value="ビジネス">ビジネス</option><option value="IT">IT</option><option value="不動産">不動産</option><option value="他">他</option></select>
     </div>
     <div class="field">
       <label>メモ（省略可）</label>
@@ -837,7 +837,6 @@ function renderShelf() {
         <div class="book-list-info">
           <div class="book-reg-no">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}</div>
           <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
-          ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
           ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
         </div>
       </div>`)).join('');
@@ -848,7 +847,6 @@ function renderShelf() {
         <div class="book-list-info" style="padding:2px 0">
           <div class="book-reg-no">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}${b.cover_url ? '<span class="book-img-badge" style="margin-left:6px">📷</span>' : ''}</div>
           <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
-          ${b.author ? `<div class="book-list-author">${esc(b.author)}</div>` : ''}
           ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
         </div>
       </div>`)).join('');
@@ -862,7 +860,6 @@ function renderShelf() {
         <div class="book-info">
           <div class="book-reg-no" style="font-size:9px;margin-bottom:2px">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}</div>
           <div class="book-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
-          ${b.author ? `<div class="book-author">${esc(b.author)}</div>` : ''}
           ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
         </div>
       </div>`)).join('');
@@ -1428,19 +1425,19 @@ async function execDeleteBook() {
 
 // ── Add Book (modal) ─────────────────────────────────────────────────
 function openAddBook() {
-  document.getElementById('new-title').value  = '';
-  document.getElementById('new-author').value = '';
-  document.getElementById('new-notes').value  = '';
+  document.getElementById('new-title').value    = '';
+  document.getElementById('new-category').value = '';
+  document.getElementById('new-notes').value    = '';
   document.getElementById('add-book-modal').classList.add('open');
 }
 function closeAddBook() { document.getElementById('add-book-modal').classList.remove('open'); }
 async function submitAddBook() {
-  const title  = document.getElementById('new-title').value.trim();
+  const title    = document.getElementById('new-title').value.trim();
   if (!title) { toast('タイトルを入力してください'); return; }
-  const author = document.getElementById('new-author').value.trim();
-  const notes  = document.getElementById('new-notes').value.trim();
+  const category = document.getElementById('new-category').value;
+  const notes    = document.getElementById('new-notes').value.trim();
   try {
-    const data = await apiPost({ action: 'addBook', title, author, notes });
+    const data = await apiPost({ action: 'addBook', title, category, notes });
     if (data.success) { closeAddBook(); toast(`「${title}」を追加しました`); await loadBooks(); }
     else { toast(data.error || 'エラーが発生しました'); }
   } catch (_) { toast('通信エラー'); }
@@ -1470,7 +1467,6 @@ async function openEditView(bookId, returnTo) {
   editViewPages  = [];
 
   document.getElementById('ev-title').value    = book.title    || '';
-  document.getElementById('ev-author').value   = book.author   || '';
   document.getElementById('ev-category').value = book.category || '';
   document.getElementById('ev-notes').value    = book.notes    || '';
   editViewDone = !!book.completed;
@@ -1547,12 +1543,11 @@ async function submitEditView() {
   if (!editViewBook) return;
   const title  = document.getElementById('ev-title').value.trim();
   if (!title) { toast('タイトルを入力してください'); return; }
-  const author   = document.getElementById('ev-author').value.trim();
-  const category = document.getElementById('ev-category').value.trim();
+  const category = document.getElementById('ev-category').value;
   const notes    = document.getElementById('ev-notes').value.trim();
   toast('保存中…');
   try {
-    const bookData = await apiPost({ action: 'editBook', bookId: editViewBook.id, title, author, category, notes, completed: editViewDone });
+    const bookData = await apiPost({ action: 'editBook', bookId: editViewBook.id, title, category, notes, completed: editViewDone });
     if (!bookData.success) { toast(bookData.error || 'エラー'); return; }
 
     const saves = editViewPages.map(p => {
@@ -1569,9 +1564,9 @@ async function submitEditView() {
     await Promise.all(saves);
 
     if (currentBook && currentBook.id === editViewBook.id) {
-      currentBook.title = title; currentBook.author = author; currentBook.category = category; currentBook.notes = notes; currentBook.completed = editViewDone;
+      currentBook.title = title; currentBook.category = category; currentBook.notes = notes; currentBook.completed = editViewDone;
       const bk = books.find(b => b.id === editViewBook.id);
-      if (bk) { bk.title = title; bk.author = author; bk.category = category; bk.notes = notes; bk.completed = editViewDone; }
+      if (bk) { bk.title = title; bk.category = category; bk.notes = notes; bk.completed = editViewDone; }
       document.getElementById('pages-title').textContent = title;
       renderPages();
     }
