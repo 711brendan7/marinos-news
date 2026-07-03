@@ -590,7 +590,13 @@
         </div>
       </div>
       <div class="field"><label>カテゴリー</label><select id="ev-category"><option value="">-- 選択 --</option><option value="ビジネス">ビジネス</option><option value="IT">IT</option><option value="不動産">不動産</option><option value="他">他</option></select></div>
-      <div class="field"><label>メモ</label><textarea id="ev-notes" rows="4" style="resize:vertical"></textarea></div>
+      <div class="field">
+        <label>メモ</label>
+        <div style="position:relative">
+          <textarea id="ev-notes" rows="8" style="resize:vertical;padding-right:44px"></textarea>
+          <button id="ev-notes-mic" onclick="startVoiceInput('ev-notes','ev-notes-mic',true)" style="position:absolute;right:6px;top:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 8px;font-size:16px;cursor:pointer">🎤</button>
+        </div>
+      </div>
       <button id="ev-done-btn" class="ev-done-btn" onclick="toggleEvDone()">未完了</button>
     </div>
     <div>
@@ -718,7 +724,10 @@
     </div>
     <div class="field">
       <label>メモ（省略可）</label>
-      <textarea id="new-notes" rows="3" placeholder="一言メモ" style="resize:vertical"></textarea>
+      <div style="position:relative">
+        <textarea id="new-notes" rows="6" placeholder="一言メモ" style="resize:vertical;padding-right:44px"></textarea>
+        <button id="new-notes-mic" onclick="startVoiceInput('new-notes','new-notes-mic',true)" style="position:absolute;right:6px;top:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 8px;font-size:16px;cursor:pointer">🎤</button>
+      </div>
     </div>
     <button class="btn-primary" onclick="submitAddBook()">追加</button>
   </div>
@@ -1794,7 +1803,7 @@ function evAddImage(pageId) {
 
 let _activeRecognition = null;
 
-function startVoiceInput(targetId, btnId) {
+function startVoiceInput(targetId, btnId, append) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) { toast('音声認識はこのブラウザでは使用できません'); return; }
 
@@ -1820,7 +1829,10 @@ function startVoiceInput(targetId, btnId) {
   rec.onresult = e => {
     const text = e.results[0][0].transcript;
     const inp = document.getElementById(targetId);
-    if (inp) { inp.value = text; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (inp) {
+      inp.value = append && inp.value ? inp.value + '\n' + text : text;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     toast('取得: ' + text.slice(0, 20));
   };
   rec.onerror = e => {
