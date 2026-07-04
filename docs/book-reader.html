@@ -153,6 +153,30 @@
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
     }
 
+    /* category filter bar */
+    .shelf-filter-bar {
+      display: flex; gap: 8px; padding: 8px 16px;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      flex-shrink: 0; scrollbar-width: none;
+    }
+    .shelf-filter-bar::-webkit-scrollbar { display: none; }
+    .cat-chip {
+      flex-shrink: 0; padding: 5px 14px; border-radius: 20px;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--text2); font-size: 13px; cursor: pointer; white-space: nowrap;
+    }
+    .cat-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+    /* title-only mode */
+    .book-title-row {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px; cursor: pointer;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .book-title-row:active { opacity: 0.8; }
+    .book-title-row .btr-title { font-size: 15px; font-weight: 500; flex: 1; min-width: 0; }
+    .book-title-row .btr-meta { font-size: 11px; color: var(--text2); flex-shrink: 0; }
+
     /* shelf list mode */
     .shelf-list { display: flex; flex-direction: column; gap: 10px; }
     .book-list-item {
@@ -542,6 +566,13 @@
     <button class="ctrl-btn" onclick="cycleShelfMode()" id="shelf-mode-btn" style="font-size:16px;padding:6px 10px">≡</button>
     <button class="ctrl-btn" onclick="showSetup()" style="font-size:12px">設定</button>
   </div>
+  <div class="shelf-filter-bar" id="shelf-filter-bar">
+    <button class="cat-chip active" onclick="setShelfCategory('')">全て</button>
+    <button class="cat-chip" onclick="setShelfCategory('ビジネス')">ビジネス</button>
+    <button class="cat-chip" onclick="setShelfCategory('IT')">IT</button>
+    <button class="cat-chip" onclick="setShelfCategory('不動産')">不動産</button>
+    <button class="cat-chip" onclick="setShelfCategory('他')">他</button>
+  </div>
   <div class="scrollable">
     <div id="shelf-grid" class="shelf-grid"></div>
   </div>
@@ -791,10 +822,11 @@ let viewerPage = null;
 let viewerReturnTo = null;
 let viewMode = 'grid';
 let shelfMode = 'text';
+let shelfCategory = '';
 const VIEW_MODES  = ['grid','list','slide'];
 const VIEW_ICONS  = { grid:'📷', list:'📋', slide:'📖' };
-const SHELF_MODES = ['text','list','grid'];
-const SHELF_ICONS = { text:'≡', list:'▤', grid:'⊞' };
+const SHELF_MODES = ['text','title','list','grid'];
+const SHELF_ICONS = { text:'≡', title:'Ａ', list:'▤', grid:'⊞' };
 
 // ── Shelf ────────────────────────────────────────────────────────────
 async function loadBooks() {
@@ -816,6 +848,14 @@ function cycleShelfMode() {
   renderShelf();
 }
 
+function setShelfCategory(cat) {
+  shelfCategory = cat;
+  document.querySelectorAll('#shelf-filter-bar .cat-chip').forEach(el => {
+    el.classList.toggle('active', el.textContent === (cat || '全て'));
+  });
+  renderShelf();
+}
+
 function renderShelf() {
   const el = document.getElementById('shelf-grid');
   if (!books.length) {
@@ -828,6 +868,15 @@ function renderShelf() {
   const regNoMap = {};
   sortedByDate.forEach((b, i) => { regNoMap[b.id] = String(i + 1).padStart(2, '0'); });
 
+  // カテゴリフィルター
+  const filtered = shelfCategory ? books.filter(b => b.category === shelfCategory) : books;
+
+  if (!filtered.length) {
+    el.className = 'shelf-list';
+    el.innerHTML = '<div class="loading">該当する本がありません</div>';
+    return;
+  }
+
   const bookRow = (b, inner) => `
     <div class="swipe-wrap" data-book-id="${b.id}">
       <div class="swipe-row">
@@ -836,9 +885,16 @@ function renderShelf() {
       </div>
     </div>`;
 
-  if (shelfMode === 'list') {
+  if (shelfMode === 'title') {
     el.className = 'shelf-list';
-    el.innerHTML = books.map(b => bookRow(b, `
+    el.innerHTML = filtered.map(b => bookRow(b, `
+      <div class="book-title-row" onclick="handleBookClick('${b.id}')">
+        <div class="btr-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
+        ${b.category ? `<div class="btr-meta"><span class="book-category">${esc(b.category)}</span></div>` : ''}
+      </div>`)).join('');
+  } else if (shelfMode === 'list') {
+    el.className = 'shelf-list';
+    el.innerHTML = filtered.map(b => bookRow(b, `
       <div class="book-list-item" onclick="handleBookClick('${b.id}')">
         <div class="book-list-thumb">
           ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
@@ -851,7 +907,7 @@ function renderShelf() {
       </div>`)).join('');
   } else if (shelfMode === 'text') {
     el.className = 'shelf-list';
-    el.innerHTML = books.map(b => bookRow(b, `
+    el.innerHTML = filtered.map(b => bookRow(b, `
       <div class="book-list-item" onclick="handleBookClick('${b.id}')">
         <div class="book-list-info" style="padding:2px 0">
           <div class="book-reg-no">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}${b.cover_url ? '<span class="book-img-badge" style="margin-left:6px">📷</span>' : ''}</div>
@@ -861,7 +917,7 @@ function renderShelf() {
       </div>`)).join('');
   } else {
     el.className = 'shelf-grid';
-    el.innerHTML = books.map(b => bookRow(b, `
+    el.innerHTML = filtered.map(b => bookRow(b, `
       <div class="book-card" onclick="handleBookClick('${b.id}')">
         <div class="book-cover">
           ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
