@@ -814,8 +814,8 @@ let shelfCategory = '';
 let shelfSortDesc = false; // false=昇順(No.01が先), true=降順(新しい順)
 const VIEW_MODES  = ['grid','list','slide'];
 const VIEW_ICONS  = { grid:'📷', list:'📋', slide:'📖' };
-const SHELF_MODES = ['text','title','list','grid'];
-const SHELF_ICONS = { text:'≡', title:'Ａ', list:'▤', grid:'⊞' };
+const SHELF_MODES = ['text','title','list'];
+const SHELF_ICONS = { text:'≡', title:'Ａ', list:'▤' };
 
 // ── Shelf ────────────────────────────────────────────────────────────
 async function loadBooks() {
@@ -904,30 +904,17 @@ function renderShelf() {
         <div class="book-list-info">
           <div class="book-reg-no">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}</div>
           <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
-          ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
+          ${b.notes ? `<div class="book-list-transcript">${esc(b.notes)}</div>` : ''}
         </div>
       </div>`)).join('');
-  } else if (shelfMode === 'text') {
+  } else {
     el.className = 'shelf-list';
     el.innerHTML = filtered.map(b => bookRow(b, `
       <div class="book-list-item" onclick="handleBookClick('${b.id}')">
         <div class="book-list-info" style="padding:2px 0">
           <div class="book-reg-no">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}${b.cover_url ? '<span class="book-img-badge" style="margin-left:6px">📷</span>' : ''}</div>
           <div class="book-list-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
-          ${b.transcript ? `<div class="book-list-transcript">${esc(b.transcript)}</div>` : ''}
-        </div>
-      </div>`)).join('');
-  } else {
-    el.className = 'shelf-grid';
-    el.innerHTML = filtered.map(b => bookRow(b, `
-      <div class="book-card" onclick="handleBookClick('${b.id}')">
-        <div class="book-cover">
-          ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy">` : '📖'}
-        </div>
-        <div class="book-info">
-          <div class="book-reg-no" style="font-size:9px;margin-bottom:2px">No.${regNoMap[b.id]}${b.category ? `　<span class="book-category">${esc(b.category)}</span>` : ''}</div>
-          <div class="book-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
-          ${b.transcript ? `<div class="book-transcript">${esc(b.transcript)}</div>` : ''}
+          ${b.notes ? `<div class="book-list-transcript">${esc(b.notes)}</div>` : ''}
         </div>
       </div>`)).join('');
   }
