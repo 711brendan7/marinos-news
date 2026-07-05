@@ -563,6 +563,7 @@
 <div id="shelf-view" class="view">
   <div class="topbar">
     <h1>📚 本棚</h1>
+    <button class="ctrl-btn" onclick="toggleShelfSort()" id="shelf-sort-btn" style="font-size:14px;padding:6px 10px" title="並び順">No.↑</button>
     <button class="ctrl-btn" onclick="cycleShelfMode()" id="shelf-mode-btn" style="font-size:16px;padding:6px 10px">≡</button>
     <button class="ctrl-btn" onclick="showSetup()" style="font-size:12px">設定</button>
   </div>
@@ -823,6 +824,7 @@ let viewerReturnTo = null;
 let viewMode = 'grid';
 let shelfMode = 'text';
 let shelfCategory = '';
+let shelfSortDesc = false; // false=昇順(No.01が先), true=降順(新しい順)
 const VIEW_MODES  = ['grid','list','slide'];
 const VIEW_ICONS  = { grid:'📷', list:'📋', slide:'📖' };
 const SHELF_MODES = ['text','title','list','grid'];
@@ -848,6 +850,12 @@ function cycleShelfMode() {
   renderShelf();
 }
 
+function toggleShelfSort() {
+  shelfSortDesc = !shelfSortDesc;
+  document.getElementById('shelf-sort-btn').textContent = shelfSortDesc ? 'No.↓' : 'No.↑';
+  renderShelf();
+}
+
 function setShelfCategory(cat) {
   shelfCategory = cat;
   document.querySelectorAll('#shelf-filter-bar .cat-chip').forEach(el => {
@@ -869,7 +877,13 @@ function renderShelf() {
   sortedByDate.forEach((b, i) => { regNoMap[b.id] = String(i + 1).padStart(2, '0'); });
 
   // カテゴリフィルター
-  const filtered = shelfCategory ? books.filter(b => b.category === shelfCategory) : books;
+  let filtered = shelfCategory ? books.filter(b => b.category === shelfCategory) : books.slice();
+
+  // 並び替え: 登録No.（追加日）順。昇順=No.01が先、降順=新しい順
+  filtered.sort((a, b) => {
+    const d = new Date(a.created) - new Date(b.created);
+    return shelfSortDesc ? -d : d;
+  });
 
   if (!filtered.length) {
     el.className = 'shelf-list';
