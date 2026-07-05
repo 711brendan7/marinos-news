@@ -595,24 +595,11 @@
     <h1 id="pages-title" style="flex:1;font-size:16px"></h1>
     <button class="ctrl-btn" onclick="cycleViewMode()" id="view-mode-btn" style="font-size:16px;padding:6px 10px">📷</button>
     <button class="ctrl-btn accent" onclick="startSpeedReader()" style="font-size:12px">速読</button>
-    <button class="ctrl-btn" onclick="openEditView(currentBook&&currentBook.id,'pages')" style="font-size:16px;padding:6px 10px">✏️</button>
+    <button class="ctrl-btn" id="pages-edit-btn" onclick="togglePagesEdit()" style="font-size:16px;padding:6px 10px">✏️</button>
     <button class="ctrl-btn" onclick="confirmDeleteBook()" style="font-size:16px;padding:6px 10px">🗑</button>
   </div>
   <div class="scrollable" id="pages-scrollable">
-    <div id="pages-grid" class="pages-grid"></div>
-  </div>
-  <button class="add-btn" onclick="openCamera()" title="ページを撮影">📷</button>
-</div>
-
-<!-- ── Edit View ── -->
-<div id="edit-view" class="view">
-  <div class="topbar">
-    <button class="back-btn" onclick="closeEditView()">‹ 戻る</button>
-    <h1 style="font-size:16px">本を編集</h1>
-    <button class="ctrl-btn accent" onclick="submitEditView()" style="font-size:12px">保存</button>
-  </div>
-  <div class="scrollable" style="display:flex;flex-direction:column;gap:16px">
-    <div style="display:flex;flex-direction:column;gap:12px">
+    <div id="pages-edit-fields" style="display:none;flex-direction:column;gap:12px;margin-bottom:16px">
       <div class="field">
         <label>タイトル</label>
         <div style="display:flex;gap:8px;align-items:center">
@@ -630,16 +617,16 @@
         </div>
       </div>
       <button id="ev-done-btn" class="ev-done-btn" onclick="toggleEvDone()">未完了</button>
-    </div>
-    <div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
         <div class="ev-section-title" style="margin-bottom:0">ページ</div>
         <button onclick="evAddPage()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer">＋ページ追加</button>
       </div>
-      <div id="ev-pages" style="display:flex;flex-direction:column;gap:10px"></div>
     </div>
+    <div id="pages-grid" class="pages-grid"></div>
   </div>
+  <button class="add-btn" onclick="openCamera()" title="ページを撮影">📷</button>
 </div>
+
 
 
 <!-- ── Speed Reader View ── -->
@@ -950,11 +937,47 @@ function renderShelf() {
 async function openBook(bookId) {
   currentBook = books.find(b => b.id === bookId);
   document.getElementById('pages-title').textContent = currentBook.title;
+  setPagesEdit(false);
   switchView('pages-view');
   await loadPages(bookId);
 }
 
+// 本棚の長押しから直接編集モードで開く
+async function openEditBookById(bookId) {
+  await openBook(bookId);
+  setPagesEdit(true);
+}
+
+// 閲覧⇔編集モードの切り替え（編集を抜けるときに保存）
+function togglePagesEdit() {
+  if (pagesEditMode) { savePagesEdit(); }
+  else { setPagesEdit(true); }
+}
+
+function setPagesEdit(on) {
+  pagesEditMode = on;
+  const fields = document.getElementById('pages-edit-fields');
+  if (fields) fields.style.display = on ? 'flex' : 'none';
+  const btn = document.getElementById('pages-edit-btn');
+  if (btn) btn.textContent = on ? '💾' : '✏️';
+  if (on && currentBook) {
+    document.getElementById('ev-title').value    = currentBook.title    || '';
+    document.getElementById('ev-category').value = currentBook.category || '';
+    document.getElementById('ev-notes').value    = currentBook.notes    || '';
+    editViewDone = !!currentBook.completed;
+    const doneBtn = document.getElementById('ev-done-btn');
+    doneBtn.textContent = editViewDone ? '✓ 読了' : '未完了';
+    doneBtn.classList.toggle('done', editViewDone);
+  }
+  renderPages();
+}
+
 function goShelf() {
+  // 編集モード中に「戻る」を押したら保存してから本棚へ
+  if (pagesEditMode && document.getElementById('pages-view').classList.contains('active')) {
+    savePagesEdit(true);
+    return;
+  }
   switchView('shelf-view');
   switchTab('tab-shelf');
 }
@@ -982,6 +1005,13 @@ function cycleViewMode() {
 function renderPages() {
   const container = document.getElementById('pages-grid');
   const scrollable = document.getElementById('pages-scrollable');
+
+  if (pagesEditMode) { renderEditPages(); return; }
+
+  // 閲覧モード: 編集モードで付与したインラインスタイルを解除
+  container.style.display = '';
+  container.style.flexDirection = '';
+  container.style.gap = '';
 
   if (!currentPages.length) {
     container.className = 'pages-grid';
@@ -1277,6 +1307,7 @@ function openViewer(pageId) {
   const idx = currentPages.findIndex(p => p.id === pageId);
   viewerPage = currentPages[idx];
   if (!viewerPage) return;
+  viewerReturnTo = 'pages-view';
   viewerPage._idx = idx;
   document.getElementById('viewer-img').src = viewerPage.image_url || '';
   document.getElementById('viewer-img-wrap').style.display = viewerPage.image_url ? '' : 'none';
@@ -1347,7 +1378,7 @@ async function saveTranscript() {
       if (viewerReturnTo === 'edit-view') {
         const ta = document.getElementById(`ev-ta-${viewerPage.id}`);
         if (ta) ta.value = text;
-        const ep = editViewPages.find(p => p.id === viewerPage.id);
+        const ep = currentPages.find(p => p.id === viewerPage.id);
         if (ep) ep.transcript = text;
       }
       toast('保存しました');
@@ -1359,8 +1390,7 @@ async function saveTranscript() {
 }
 
 function removePageEverywhere(pageId) {
-  currentPages  = currentPages.filter(p => p.id !== pageId);
-  if (typeof editViewPages !== 'undefined') editViewPages = editViewPages.filter(p => p.id !== pageId);
+  currentPages = currentPages.filter(p => p.id !== pageId);
   const el = document.querySelector(`.ev-page[data-pid="${pageId}"]`);
   if (el) el.remove();
 }
@@ -1403,7 +1433,7 @@ async function execDeleteImage() {
       if (viewerReturnTo === 'edit-view') {
         const thumb = document.getElementById(`ev-thumb-${viewerPage.id}`);
         if (thumb) thumb.innerHTML = '<span>📄</span>';
-        const ep = editViewPages.find(p => p.id === viewerPage.id);
+        const ep = currentPages.find(p => p.id === viewerPage.id);
         if (ep) ep.image_url = '';
       }
       toast('画像を削除しました');
@@ -1475,7 +1505,7 @@ async function runOCR() {
       if (viewerReturnTo === 'edit-view') {
         const ta = document.getElementById(`ev-ta-${viewerPage.id}`);
         if (ta) ta.value = text;
-        const ep = editViewPages.find(p => p.id === viewerPage.id);
+        const ep = currentPages.find(p => p.id === viewerPage.id);
         if (ep) ep.transcript = text;
       }
       toast(text ? '文字起こし完了' : '文字を認識できませんでした');
@@ -1544,10 +1574,8 @@ async function submitAddBook() {
   } catch (_) { toast('通信エラー'); }
 }
 
-// ── Edit View ────────────────────────────────────────────────────────
-let editViewReturnTo = 'shelf';
-let editViewBook = null;
-let editViewPages = [];
+// ── Edit mode (integrated into pages view) ───────────────────────────
+let pagesEditMode = false;
 let editViewDone = false;
 let afterCropCallback = null;
 let pendingCropUpload = null;
@@ -1560,42 +1588,17 @@ function toggleEvDone() {
   btn.classList.toggle('done', editViewDone);
 }
 
-async function openEditView(bookId, returnTo) {
-  const book = books.find(b => b.id === bookId) || currentBook;
-  if (!book) return;
-  editViewBook   = book;
-  editViewReturnTo = returnTo || 'shelf';
-  editViewPages  = [];
-
-  document.getElementById('ev-title').value    = book.title    || '';
-  document.getElementById('ev-category').value = book.category || '';
-  document.getElementById('ev-notes').value    = book.notes    || '';
-  editViewDone = !!book.completed;
-  const doneBtn = document.getElementById('ev-done-btn');
-  doneBtn.textContent = editViewDone ? '✓ 読了' : '未完了';
-  doneBtn.classList.toggle('done', editViewDone);
-
-  const container = document.getElementById('ev-pages');
-  container.innerHTML = '<div class="loading">読み込み中…</div>';
-  switchView('edit-view');
-
-  try {
-    const data = await api({ action: 'listPages', bookId: book.id });
-    editViewPages = data.pages || [];
-    renderEditPages();
-  } catch (_) { container.innerHTML = '<div class="loading">読み込みに失敗しました</div>'; }
-}
-
-function openEditBookById(bookId) { openEditView(bookId, 'shelf'); }
-function openEditBook() { openEditView(currentBook && currentBook.id, 'pages'); }
-
 function renderEditPages() {
-  const container = document.getElementById('ev-pages');
-  if (!editViewPages.length) {
-    container.innerHTML = '<div class="loading">ページがありません</div>';
+  const container = document.getElementById('pages-grid');
+  container.className = '';
+  container.style.display = 'flex';
+  container.style.flexDirection = 'column';
+  container.style.gap = '10px';
+  if (!currentPages.length) {
+    container.innerHTML = '<div class="loading">ページがありません<br><small>右下の 📷 または ＋ページ追加 で追加してください</small></div>';
     return;
   }
-  container.innerHTML = editViewPages.map((p, i) => `
+  container.innerHTML = currentPages.map((p, i) => `
     <div class="swipe-wrap" data-pid="${p.id}" style="border-radius:10px;overflow:hidden">
       <div class="swipe-row">
         <div class="swipe-inner">
@@ -1625,55 +1628,46 @@ function renderEditPages() {
       </div>
     </div>
   `).join('');
-  editViewPages.forEach(p => {
+  currentPages.forEach(p => {
     const ta = document.getElementById(`ev-ta-${p.id}`);
     if (ta) ta.value = p.transcript || '';
   });
   attachEvPageSwipeHandlers();
 }
 
-function closeEditView() {
-  if (editViewReturnTo === 'pages' && currentBook) {
-    switchView('pages-view');
-  } else {
-    goShelf();
-  }
-}
-
-async function submitEditView() {
-  if (!editViewBook) return;
+// 編集内容（本情報＋文字起こし）を保存して閲覧モードに戻る。
+// toShelf=true のときは保存後に本棚へ戻る。
+async function savePagesEdit(toShelf) {
+  if (!currentBook) { setPagesEdit(false); if (toShelf) { switchView('shelf-view'); switchTab('tab-shelf'); } return; }
   const title  = document.getElementById('ev-title').value.trim();
   if (!title) { toast('タイトルを入力してください'); return; }
   const category = document.getElementById('ev-category').value;
   const notes    = document.getElementById('ev-notes').value.trim();
   toast('保存中…');
   try {
-    const bookData = await apiPost({ action: 'editBook', bookId: editViewBook.id, title, category, notes, completed: editViewDone });
+    const bookData = await apiPost({ action: 'editBook', bookId: currentBook.id, title, category, notes, completed: editViewDone });
     if (!bookData.success) { toast(bookData.error || 'エラー'); return; }
 
-    const saves = editViewPages.map(p => {
+    const saves = currentPages.map(p => {
       const ta = document.getElementById(`ev-ta-${p.id}`);
       if (!ta) return Promise.resolve();
       const newVal = ta.value;
       if (newVal === (p.transcript || '')) return Promise.resolve();
       return apiPost({ action: 'updateTranscript', pageId: p.id, transcript: newVal }).then(() => {
         p.transcript = newVal;
-        const cp = currentPages.find(c => c.id === p.id);
-        if (cp) cp.transcript = newVal;
       });
     });
     await Promise.all(saves);
 
-    if (currentBook && currentBook.id === editViewBook.id) {
-      currentBook.title = title; currentBook.category = category; currentBook.notes = notes; currentBook.completed = editViewDone;
-      const bk = books.find(b => b.id === editViewBook.id);
-      if (bk) { bk.title = title; bk.category = category; bk.notes = notes; bk.completed = editViewDone; }
-      document.getElementById('pages-title').textContent = title;
-      renderPages();
-    }
+    currentBook.title = title; currentBook.category = category; currentBook.notes = notes; currentBook.completed = editViewDone;
+    const bk = books.find(b => b.id === currentBook.id);
+    if (bk) { bk.title = title; bk.category = category; bk.notes = notes; bk.completed = editViewDone; }
+    document.getElementById('pages-title').textContent = title;
+
     toast(`「${title}」を保存しました`);
     await loadBooks();
-    closeEditView();
+    setPagesEdit(false);
+    if (toShelf) { switchView('shelf-view'); switchTab('tab-shelf'); }
   } catch (_) { toast('通信エラー'); }
 }
 
@@ -1698,7 +1692,7 @@ async function evRotatePage(pageId, deg) {
     if (data.success) {
       const el = document.getElementById(`ev-img-${pageId}`);
       if (el) el.src = data.imageUrl + '&t=' + Date.now();
-      const p = editViewPages.find(p => p.id === pageId);
+      const p = currentPages.find(p => p.id === pageId);
       if (p) p.image_url = data.imageUrl;
       const cp = currentPages.find(p => p.id === pageId);
       if (cp) cp.image_url = data.imageUrl;
@@ -1708,7 +1702,7 @@ async function evRotatePage(pageId, deg) {
 }
 
 function evCropPage(pageId) {
-  const page = editViewPages.find(p => p.id === pageId);
+  const page = currentPages.find(p => p.id === pageId);
   if (!page) return;
   viewerPage = page;
   afterCropCallback = (newUrl) => {
@@ -1716,7 +1710,7 @@ function evCropPage(pageId) {
     const thumb = document.getElementById(`ev-thumb-${pageId}`);
     if (el) { el.src = newUrl + '&t=' + Date.now(); }
     else if (thumb) { thumb.innerHTML = `<img src="${newUrl}" id="ev-img-${pageId}">`; }
-    const ep = editViewPages.find(p => p.id === pageId);
+    const ep = currentPages.find(p => p.id === pageId);
     if (ep) ep.image_url = newUrl;
     const cp = currentPages.find(p => p.id === pageId);
     if (cp) cp.image_url = newUrl;
@@ -1740,7 +1734,7 @@ async function evDeleteImage(pageId) {
     } else if (data.success) {
       const thumb = document.getElementById(`ev-thumb-${pageId}`);
       if (thumb) thumb.innerHTML = '<span>📄</span>';
-      const p = editViewPages.find(p => p.id === pageId);
+      const p = currentPages.find(p => p.id === pageId);
       if (p) p.image_url = '';
       const cp = currentPages.find(p => p.id === pageId);
       if (cp) cp.image_url = '';
@@ -1761,10 +1755,7 @@ async function evDeletePage(pageId) {
     toast('削除中…');
     const data = await api({ action: 'deletePage', pageId }).catch(() => ({ error: 'err' }));
     if (data.success) {
-      editViewPages = editViewPages.filter(p => p.id !== pageId);
-      currentPages  = currentPages.filter(p => p.id !== pageId);
-      const el = document.querySelector(`.ev-page[data-pid="${pageId}"]`);
-      if (el) el.remove();
+      removePageEverywhere(pageId);
       toast('ページを削除しました'); renderPages();
     } else { toast(data.error || 'エラー'); }
   } else {
@@ -1775,7 +1766,7 @@ async function evDeletePage(pageId) {
 
 // ── Edit View: image viewer / OCR / add image ────────────────────────
 function evOpenImageViewer(pageId) {
-  const page = editViewPages.find(p => p.id === pageId);
+  const page = currentPages.find(p => p.id === pageId);
   if (!page) return;
   viewerPage = page;
   viewerReturnTo = 'edit-view';
@@ -1788,7 +1779,7 @@ function evOpenImageViewer(pageId) {
     const thumb = document.getElementById(`ev-thumb-${pageId}`);
     if (el) { el.src = newUrl + '&t=' + Date.now(); }
     else if (thumb) { thumb.innerHTML = `<img src="${newUrl}" id="ev-img-${pageId}" onclick="evOpenImageViewer('${pageId}')">`; }
-    const ep = editViewPages.find(p => p.id === pageId);
+    const ep = currentPages.find(p => p.id === pageId);
     if (ep) ep.image_url = newUrl;
     const cp = currentPages.find(p => p.id === pageId);
     if (cp) cp.image_url = newUrl;
@@ -1798,7 +1789,7 @@ function evOpenImageViewer(pageId) {
 
   document.getElementById('viewer-img').src = page.image_url || '';
   document.getElementById('viewer-img-wrap').style.display = page.image_url ? '' : 'none';
-  const no = editViewPages.indexOf(page) + 1;
+  const no = currentPages.indexOf(page) + 1;
   document.getElementById('viewer-page-label').textContent = `No.${no}　p.${page.page_num}`;
   const trans = document.getElementById('viewer-transcript');
   trans.textContent = page.transcript || '';
@@ -1821,7 +1812,7 @@ async function evTranscribe(pageId) {
       const text = data.transcript || '';
       const ta = document.getElementById(`ev-ta-${pageId}`);
       if (ta) ta.value = text;
-      const ep = editViewPages.find(p => p.id === pageId);
+      const ep = currentPages.find(p => p.id === pageId);
       if (ep) ep.transcript = text;
       const cp = currentPages.find(p => p.id === pageId);
       if (cp) cp.transcript = text;
@@ -1858,7 +1849,7 @@ async function _readFileAsDataUrl(file) {
 }
 
 function evAddPage() {
-  if (!editViewBook) return;
+  if (!currentBook) return;
   _evPickPhoto(async file => {
     const dataUrl = await _readFileAsDataUrl(file);
     pendingCropUpload = { type: 'new' };
@@ -1867,15 +1858,15 @@ function evAddPage() {
 }
 
 async function evUploadNewPage(base64, mime) {
-  if (!editViewBook) return;
+  if (!currentBook) return;
   toast('追加中（OCR中）…');
   try {
-    const data = await apiPost({ action: 'addPage', bookId: editViewBook.id, imageBase64: base64, imageMime: mime, ocr: true });
+    const data = await apiPost({ action: 'addPage', bookId: currentBook.id, imageBase64: base64, imageMime: mime, ocr: true });
     if (data.success) {
-      const maxPageNum = editViewPages.length ? Math.max(...editViewPages.map(p => p.page_num)) : 0;
-      const newPage = { id: data.pageId, book_id: editViewBook.id, page_num: maxPageNum + 1,
+      const maxPageNum = currentPages.length ? Math.max(...currentPages.map(p => p.page_num)) : 0;
+      const newPage = { id: data.pageId, book_id: currentBook.id, page_num: maxPageNum + 1,
         image_url: data.imageUrl || '', transcript: data.transcript || '', created: new Date().toISOString() };
-      editViewPages.push(newPage);
+      currentPages.push(newPage);
       currentPages.push(newPage);
       renderEditPages();
       toast('ページを追加しました');
@@ -1989,7 +1980,7 @@ async function evUploadReplaceImage(pageId, base64, mime) {
     if (data.success) {
       const thumb = document.getElementById(`ev-thumb-${pageId}`);
       if (thumb) thumb.innerHTML = `<img src="${data.imageUrl}&t=${Date.now()}" id="ev-img-${pageId}" onclick="evOpenImageViewer('${pageId}')">`;
-      const ep = editViewPages.find(p => p.id === pageId);
+      const ep = currentPages.find(p => p.id === pageId);
       if (ep) ep.image_url = data.imageUrl;
       const cp = currentPages.find(p => p.id === pageId);
       if (cp) cp.image_url = data.imageUrl;
@@ -2090,8 +2081,7 @@ async function evSwipeDeletePage(pageId) {
   toast('削除中…');
   const data = await api({ action: 'deletePage', pageId }).catch(() => ({ error: 'err' }));
   if (data.success) {
-    editViewPages = editViewPages.filter(p => p.id !== pageId);
-    currentPages  = currentPages.filter(p => p.id !== pageId);
+    currentPages = currentPages.filter(p => p.id !== pageId);
     const wrap = document.querySelector(`.swipe-wrap[data-pid="${pageId}"]`);
     if (wrap) wrap.remove();
     toast('ページを削除しました'); renderPages();
@@ -2099,7 +2089,7 @@ async function evSwipeDeletePage(pageId) {
 }
 
 function attachEvPageSwipeHandlers() {
-  document.querySelectorAll('#ev-pages .swipe-wrap').forEach(wrap => {
+  document.querySelectorAll('#pages-grid .swipe-wrap').forEach(wrap => {
     const row = wrap.querySelector('.swipe-row');
     let startX = 0, startY = 0, tracking = false, moved = false;
 
