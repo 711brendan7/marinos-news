@@ -1061,12 +1061,12 @@ function openCamera() {
   });
 }
 
-async function uploadPageFromCamera(bookId, base64, mime) {
-  toast('保存中（OCR中）…');
+async function uploadPageFromCamera(bookId, base64, mime, ocr) {
+  toast(ocr ? '保存中（OCR中）…' : '保存中…');
   try {
-    const data = await apiPost({ action: 'addPage', bookId, imageBase64: base64, imageMime: mime, ocr: true, ocrLanguage: 'ja' });
+    const data = await apiPost({ action: 'addPage', bookId, imageBase64: base64, imageMime: mime, ocr: !!ocr, ocrLanguage: 'ja' });
     if (data.success) {
-      toast(data.transcript ? '保存・文字起こし完了' : '保存しました');
+      toast(ocr ? (data.transcript ? '保存・文字起こし完了' : '保存しました') : '保存しました');
       await loadPages(bookId);
     } else { toast(data.error || 'エラーが発生しました'); }
   } catch (_) { toast('保存に失敗しました'); }
@@ -1160,11 +1160,13 @@ async function confirmCrop() {
     const pcu = pendingCropUpload;
     pendingCropUpload = null;
     if (pcu.type === 'new') {
-      await evUploadNewPage(base64, 'image/jpeg');
+      const doOcr = confirm('この画像を文字起こししますか？\n\nOK＝文字起こしする\nキャンセル＝画像のみ保存');
+      await evUploadNewPage(base64, 'image/jpeg', doOcr);
     } else if (pcu.type === 'replace') {
       await evUploadReplaceImage(pcu.pageId, base64, 'image/jpeg');
     } else if (pcu.type === 'camera') {
-      await uploadPageFromCamera(pcu.bookId, base64, 'image/jpeg');
+      const doOcr = confirm('この画像を文字起こししますか？\n\nOK＝文字起こしする\nキャンセル＝画像のみ保存');
+      await uploadPageFromCamera(pcu.bookId, base64, 'image/jpeg', doOcr);
     } else if (pcu.type === 'ocrTitle') {
       await uploadOcrTitle(base64, 'image/jpeg', pcu.targetId);
     }
@@ -1857,20 +1859,18 @@ function evAddPage() {
   });
 }
 
-async function evUploadNewPage(base64, mime) {
+async function evUploadNewPage(base64, mime, ocr) {
   if (!currentBook) return;
-  toast('追加中（OCR中）…');
+  toast(ocr ? '追加中（OCR中）…' : '追加中…');
   try {
-    const data = await apiPost({ action: 'addPage', bookId: currentBook.id, imageBase64: base64, imageMime: mime, ocr: true });
+    const data = await apiPost({ action: 'addPage', bookId: currentBook.id, imageBase64: base64, imageMime: mime, ocr: !!ocr });
     if (data.success) {
       const maxPageNum = currentPages.length ? Math.max(...currentPages.map(p => p.page_num)) : 0;
       const newPage = { id: data.pageId, book_id: currentBook.id, page_num: maxPageNum + 1,
         image_url: data.imageUrl || '', transcript: data.transcript || '', created: new Date().toISOString() };
       currentPages.push(newPage);
-      currentPages.push(newPage);
-      renderEditPages();
-      toast('ページを追加しました');
       renderPages();
+      toast('ページを追加しました');
     } else { toast(data.error || 'エラー'); }
   } catch (_) { toast('通信エラー'); }
 }
