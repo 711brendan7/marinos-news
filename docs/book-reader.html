@@ -1358,6 +1358,13 @@ async function saveTranscript() {
   } catch (_) { toast('通信エラー'); }
 }
 
+function removePageEverywhere(pageId) {
+  currentPages  = currentPages.filter(p => p.id !== pageId);
+  if (typeof editViewPages !== 'undefined') editViewPages = editViewPages.filter(p => p.id !== pageId);
+  const el = document.querySelector(`.ev-page[data-pid="${pageId}"]`);
+  if (el) el.remove();
+}
+
 let deleteImageTimer = null;
 function confirmDeleteImage() {
   const btn = document.getElementById('btn-del-image');
@@ -1380,6 +1387,13 @@ async function execDeleteImage() {
   toast('削除中…');
   try {
     const data = await api({ action: 'deleteImage', pageId: viewerPage.id });
+    if (data.success && data.pageDeleted) {
+      removePageEverywhere(viewerPage.id);
+      toast('空のページを削除しました');
+      closeViewer();
+      renderPages();
+      return;
+    }
     if (data.success) {
       viewerPage.image_url = '';
       const idx = currentPages.findIndex(p => p.id === viewerPage.id);
@@ -1422,6 +1436,13 @@ async function execDeleteTranscript() {
   toast('削除中…');
   try {
     const data = await api({ action: 'clearTranscript', pageId: viewerPage.id });
+    if (data.success && data.pageDeleted) {
+      removePageEverywhere(viewerPage.id);
+      toast('空のページを削除しました');
+      closeViewer();
+      renderPages();
+      return;
+    }
     if (data.success) {
       viewerPage.transcript = '';
       const idx = currentPages.findIndex(p => p.id === viewerPage.id);
@@ -1713,7 +1734,10 @@ async function evDeleteImage(pageId) {
     btn.textContent = '🗑画像';
     toast('削除中…');
     const data = await api({ action: 'deleteImage', pageId }).catch(() => ({ error: 'err' }));
-    if (data.success) {
+    if (data.success && data.pageDeleted) {
+      removePageEverywhere(pageId);
+      toast('空のページを削除しました'); renderPages();
+    } else if (data.success) {
       const thumb = document.getElementById(`ev-thumb-${pageId}`);
       if (thumb) thumb.innerHTML = '<span>📄</span>';
       const p = editViewPages.find(p => p.id === pageId);

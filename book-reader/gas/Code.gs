@@ -338,6 +338,11 @@ function deletePageImage(pageId) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] === pageId) {
       tryTrash(rows[i][3]);
+      // 文字起こしも無ければ空ページなので行ごと削除
+      if (!String(rows[i][5] || '').trim()) {
+        sh.deleteRow(i + 1);
+        return { success: true, pageDeleted: true };
+      }
       sh.getRange(i + 1, 4).setValue('');
       sh.getRange(i + 1, 5).setValue('');
       return { success: true };
@@ -351,6 +356,12 @@ function clearPageTranscript(pageId) {
   const rows = sh.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] === pageId) {
+      // 画像も無ければ空ページなので行ごと削除
+      const hasImage = String(rows[i][3] || '').trim() || String(rows[i][4] || '').trim();
+      if (!hasImage) {
+        sh.deleteRow(i + 1);
+        return { success: true, pageDeleted: true };
+      }
       sh.getRange(i + 1, 6).setValue('');
       return { success: true };
     }
