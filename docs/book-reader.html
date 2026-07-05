@@ -1638,11 +1638,24 @@ function renderEditPages() {
 // 編集内容（本情報＋文字起こし）を保存して閲覧モードに戻る。
 // toShelf=true のときは保存後に本棚へ戻る。
 async function savePagesEdit(toShelf) {
-  if (!currentBook) { setPagesEdit(false); if (toShelf) { switchView('shelf-view'); switchTab('tab-shelf'); } return; }
+  const leave = () => { setPagesEdit(false); if (toShelf) { switchView('shelf-view'); switchTab('tab-shelf'); } };
+  if (!currentBook) { leave(); return; }
   const title  = document.getElementById('ev-title').value.trim();
   if (!title) { toast('タイトルを入力してください'); return; }
   const category = document.getElementById('ev-category').value;
   const notes    = document.getElementById('ev-notes').value.trim();
+
+  // 変更がなければ保存せずにそのまま戻る
+  const bookUnchanged = title === (currentBook.title || '')
+    && category === (currentBook.category || '')
+    && notes === (currentBook.notes || '')
+    && editViewDone === !!currentBook.completed;
+  const pagesUnchanged = currentPages.every(p => {
+    const ta = document.getElementById(`ev-ta-${p.id}`);
+    return !ta || ta.value === (p.transcript || '');
+  });
+  if (bookUnchanged && pagesUnchanged) { leave(); return; }
+
   toast('保存中…');
   try {
     const bookData = await apiPost({ action: 'editBook', bookId: currentBook.id, title, category, notes, completed: editViewDone });
