@@ -889,6 +889,7 @@ function renderShelf() {
     el.className = 'shelf-list';
     el.innerHTML = filtered.map(b => bookRow(b, `
       <div class="book-title-row" onclick="handleBookClick('${b.id}')">
+        <div class="btr-meta" style="color:var(--text2);font-size:11px;flex-shrink:0">No.${regNoMap[b.id]}</div>
         <div class="btr-title">${esc(b.title)}${b.completed ? '<span class="book-done-badge">読了</span>' : ''}</div>
         ${b.category ? `<div class="btr-meta"><span class="book-category">${esc(b.category)}</span></div>` : ''}
       </div>`)).join('');
