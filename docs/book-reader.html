@@ -754,6 +754,13 @@
 <div id="toast"></div>
 
 <script>
+// ── Service Worker（更新の即時反映用・ネットワーク優先） ───────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('book-reader-sw.js').catch(() => {});
+  });
+}
+
 // ── Config ──────────────────────────────────────────────────────────
 const CFG_KEY = 'book_reader_config';
 let cfg = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
