@@ -1588,32 +1588,25 @@ function renderEditPages() {
     return;
   }
   container.innerHTML = currentPages.map((p, i) => `
-    <div class="swipe-wrap" data-pid="${p.id}" style="border-radius:10px;overflow:hidden">
-      <div class="swipe-row">
-        <div class="swipe-inner">
-          <div class="ev-page" data-pid="${p.id}">
-            <div class="ev-page-header">
-              <span class="ev-page-num">No.${i+1}（p.${p.page_num}）</span>
-              <div class="ev-page-btns">
-                <button id="ev-ocr-${p.id}" onclick="evTranscribe('${p.id}')">⚡</button>
-                <button onclick="evRotatePage('${p.id}',-90)">↺</button>
-                <button onclick="evRotatePage('${p.id}',90)">↻</button>
-                <button onclick="evCropPage('${p.id}')">✂️</button>
-                <button onclick="evAddImage('${p.id}')">📷</button>
-                <button class="ev-danger" id="ev-di-${p.id}" onclick="evDeleteImage('${p.id}')">🗑画像</button>
-              </div>
-            </div>
-            <div class="ev-page-body">
-              <div class="ev-thumb" id="ev-thumb-${p.id}" style="cursor:pointer">
-                ${p.image_url
-                  ? `<img src="${p.image_url}" id="ev-img-${p.id}" onclick="evOpenImageViewer('${p.id}')">`
-                  : `<span onclick="evAddImage('${p.id}')">📷</span>`}
-              </div>
-              <textarea class="ev-transcript" id="ev-ta-${p.id}" rows="4"></textarea>
-            </div>
-          </div>
+    <div class="ev-page" data-pid="${p.id}" style="border-radius:10px;overflow:hidden">
+      <div class="ev-page-header">
+        <span class="ev-page-num">No.${i+1}（p.${p.page_num}）</span>
+        <div class="ev-page-btns">
+          <button id="ev-ocr-${p.id}" onclick="evTranscribe('${p.id}')">⚡</button>
+          <button onclick="evRotatePage('${p.id}',-90)">↺</button>
+          <button onclick="evRotatePage('${p.id}',90)">↻</button>
+          <button onclick="evCropPage('${p.id}')">✂️</button>
+          <button onclick="evAddImage('${p.id}')">📷</button>
+          <button class="ev-danger" id="ev-dp-${p.id}" onclick="evDeletePage('${p.id}')">🗑削除</button>
         </div>
-        <button class="swipe-del-btn" onclick="evSwipeDeletePage('${p.id}')">🗑<br>削除</button>
+      </div>
+      <div class="ev-page-body">
+        <div class="ev-thumb" id="ev-thumb-${p.id}" style="cursor:pointer">
+          ${p.image_url
+            ? `<img src="${p.image_url}" id="ev-img-${p.id}" onclick="evOpenImageViewer('${p.id}')">`
+            : `<span onclick="evAddImage('${p.id}')">📷</span>`}
+        </div>
+        <textarea class="ev-transcript" id="ev-ta-${p.id}" rows="4"></textarea>
       </div>
     </div>
   `).join('');
@@ -1621,7 +1614,6 @@ function renderEditPages() {
     const ta = document.getElementById(`ev-ta-${p.id}`);
     if (ta) ta.value = p.transcript || '';
   });
-  attachEvPageSwipeHandlers();
 }
 
 // 編集内容（本情報＋文字起こし）を保存して閲覧モードに戻る。
@@ -1753,7 +1745,7 @@ async function evDeletePage(pageId) {
   if (!btn) return;
   if (evDelTimers[`p${pageId}`]) {
     clearTimeout(evDelTimers[`p${pageId}`]); delete evDelTimers[`p${pageId}`];
-    btn.textContent = '🗑ページ';
+    btn.textContent = '🗑削除';
     toast('削除中…');
     const data = await api({ action: 'deletePage', pageId }).catch(() => ({ error: 'err' }));
     if (data.success) {
@@ -1762,7 +1754,7 @@ async function evDeletePage(pageId) {
     } else { toast(data.error || 'エラー'); }
   } else {
     btn.textContent = '確認';
-    evDelTimers[`p${pageId}`] = setTimeout(() => { delete evDelTimers[`p${pageId}`]; btn.textContent = '🗑ページ'; }, 2500);
+    evDelTimers[`p${pageId}`] = setTimeout(() => { delete evDelTimers[`p${pageId}`]; btn.textContent = '🗑削除'; }, 2500);
   }
 }
 
