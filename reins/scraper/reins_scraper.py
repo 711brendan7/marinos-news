@@ -51,22 +51,6 @@ def send_line_notify(message):
         print(f"⚠️  LINE通知エラー: {e}")
 
 
-def _store_viewer_key(file_ids):
-    """GAS の PropertiesService にIDリストを保存して短いキーを返す"""
-    if not GAS_URL or not file_ids:
-        return ""
-    try:
-        session = requests.Session()
-        resp = session.post(GAS_URL, json={"action": "storeViewerKey", "ids": file_ids},
-                            timeout=30, allow_redirects=True)
-        data = resp.json()
-        if data.get("status") == "ok":
-            return data.get("key", "")
-    except Exception as e:
-        print(f"⚠️  ビューアキー保存エラー: {e}")
-    return ""
-
-
 def _notify_new_props(new_props, sheet_url, condition, cache):
     if not LINE_CHANNEL_TOKEN or not LINE_USER_ID:
         return

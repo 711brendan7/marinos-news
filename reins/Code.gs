@@ -119,10 +119,6 @@ function doPost(e) {
     } else if (payload.action === "deleteRowByReinsNo") {
       const removed = deleteRowByReinsNo_(payload.spreadsheetId, payload.reinsNo);
       result = { status: "ok", removed: removed };
-    } else if (payload.action === "storeViewerKey") {
-      const key = "v" + Date.now();
-      PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(payload.ids));
-      result = { status: "ok", key: key };
     } else if (payload.action === "createDoc") {
       const url = createPropertyDoc(payload.properties, payload.condition);
       result = { status: "ok", docUrl: url };
@@ -389,77 +385,39 @@ function appendProperty(d) {
 
 // ── PDF/図面ビューア（ブラウザから GET でアクセス） ────────────
 function doGet(e) {
-  const p       = e.parameter || {};
-  const idsParam = p.ids || "";          // カンマ区切り Drive ファイルID（新着限定モード）
+  const p        = e.parameter || {};
   const folderId = p.folderId || "";
   const fileId   = p.fileId  || "";
   let   idx      = parseInt(p.i || "0");
 
-  let files = [];
-
-  // ?k=xxx → PropertiesService からIDリストを復元
-  const keyParam = p.k || "";
-  if (keyParam && !idsParam) {
-    const stored = PropertiesService.getScriptProperties().getProperty(keyParam);
-    if (stored) {
-      const ids = JSON.parse(stored);
-      for (const id of ids) {
-        try {
-          const f    = DriveApp.getFileById(id);
-          const mime = f.getMimeType();
-          files.push({ id, name: f.getName(), isPdf: mime === MimeType.PDF });
-        } catch (_) {}
-      }
-    }
-    // baseParam をキーベースに設定してナビゲーションに引き継ぐ
-    const safeIdx2   = Math.max(0, Math.min(idx, files.length - 1));
-    const total2     = files.length;
-    if (total2 === 0) return HtmlService.createHtmlOutput("<p style='font-family:sans-serif;padding:20px'>ファイルが見つかりません</p>");
-    const cur2       = files[safeIdx2];
-    const serviceUrl2 = ScriptApp.getService().getUrl();
-    const previewHtml2 = cur2.isPdf
-      ? `<div style="flex:1;position:relative"><iframe src="https://drive.google.com/file/d/${cur2.id}/preview" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:none"></iframe><div id="sw" style="position:absolute;inset:0;z-index:10"></div></div>`
-      : `<img src="https://drive.google.com/thumbnail?id=${cur2.id}&sz=w1200" style="flex:1;max-width:100%;object-fit:contain" alt="${cur2.name}">`;
-    const html2 = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>図面 ${safeIdx2+1}/${total2}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;display:flex;flex-direction:column;height:100vh;background:#222}.nav{display:flex;align-items:center;background:#1a73e8;color:#fff;padding:8px 12px;gap:8px;flex-shrink:0}.btn{background:rgba(255,255,255,.25);border:none;color:#fff;font-size:22px;padding:8px 20px;border-radius:6px;cursor:pointer;line-height:1}.btn:disabled{opacity:.3;cursor:default}.info{flex:1;text-align:center;min-width:0;overflow:hidden}.name{font-size:11px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.count{font-size:15px;font-weight:bold}</style></head><body><nav class="nav"><button class="btn" onclick="go(-1)" ${safeIdx2<=0?"disabled":""}>←</button><div class="info"><div class="name">${cur2.name}</div><div class="count">${safeIdx2+1} / ${total2}</div></div><button class="btn" onclick="go(1)" ${safeIdx2>=total2-1?"disabled":""}>→</button></nav>${previewHtml2}<script>function go(d){const next=${safeIdx2}+d;if(next<0||next>=${total2})return;location.href="${serviceUrl2}?k=${keyParam}&i="+next;}(function(){const el=document.getElementById('sw')||document;let sx=0,sy=0;el.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});el.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40)go(dx<0?1:-1);});})();</script></body></html>`;
-    return HtmlService.createHtmlOutput(html2).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  if (!folderId) {
+    return HtmlService.createHtmlOutput(
+      "<p style='font-family:sans-serif;padding:20px'>folderId パラメータが必要です。最新の通知の「📁 フォルダ」から開いてください。</p>"
+    );
   }
 
-  if (idsParam) {
-    // ids 指定: 指定IDのファイルのみ順番通りに表示
-    const ids = idsParam.split(",").map(s => s.trim()).filter(Boolean);
-    for (const id of ids) {
-      try {
-        const f    = DriveApp.getFileById(id);
-        const mime = f.getMimeType();
-        files.push({ id, name: f.getName(), isPdf: mime === MimeType.PDF });
-      } catch (_) {}
-    }
-  } else if (folderId) {
-    // folderId 指定: フォルダ内全ファイルを日付降順
-    let folder;
-    try { folder = DriveApp.getFolderById(folderId); }
-    catch (_) {
-      return HtmlService.createHtmlOutput(
-        "<p style='font-family:sans-serif;padding:20px'>フォルダが見つかりません</p>"
-      );
-    }
-    const iter = folder.getFiles();
-    while (iter.hasNext()) {
-      const f    = iter.next();
-      const mime = f.getMimeType();
-      if (mime === MimeType.PDF || mime === "image/png" || mime === "image/jpeg") {
-        files.push({ id: f.getId(), name: f.getName(), date: f.getLastUpdated().getTime(), isPdf: mime === MimeType.PDF });
-      }
-    }
-    files.sort((a, b) => b.date - a.date);
-    if (fileId) {
-      const fi = files.findIndex(f => f.id === fileId);
-      if (fi >= 0) idx = fi;
-    }
-  } else {
+  // フォルダ内全ファイルを日付降順で表示（過去分を含む全件）
+  let folder;
+  try { folder = DriveApp.getFolderById(folderId); }
+  catch (_) {
     return HtmlService.createHtmlOutput(
-      "<p style='font-family:sans-serif;padding:20px'>ids または folderId パラメータが必要です</p>"
+      "<p style='font-family:sans-serif;padding:20px'>フォルダが見つかりません</p>"
     );
+  }
+
+  const files = [];
+  const iter = folder.getFiles();
+  while (iter.hasNext()) {
+    const f    = iter.next();
+    const mime = f.getMimeType();
+    if (mime === MimeType.PDF || mime === "image/png" || mime === "image/jpeg") {
+      files.push({ id: f.getId(), name: f.getName(), date: f.getLastUpdated().getTime(), isPdf: mime === MimeType.PDF });
+    }
+  }
+  files.sort((a, b) => b.date - a.date);
+  if (fileId) {
+    const fi = files.findIndex(f => f.id === fileId);
+    if (fi >= 0) idx = fi;
   }
 
   const total = files.length;
@@ -472,8 +430,8 @@ function doGet(e) {
   const safeIdx    = Math.max(0, Math.min(idx, total - 1));
   const cur        = files[safeIdx];
   const serviceUrl = ScriptApp.getService().getUrl();
-  // ナビゲーションURLの共通パラメータ（ids or folderId を引き継ぐ）
-  const baseParam  = idsParam ? `ids=${encodeURIComponent(idsParam)}` : `folderId=${folderId}`;
+  // ナビゲーションURLの共通パラメータ
+  const baseParam  = `folderId=${folderId}`;
 
   const previewHtml = cur.isPdf
     ? `<div style="flex:1;position:relative"><iframe src="https://drive.google.com/file/d/${cur.id}/preview" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:none"></iframe><div id="sw" style="position:absolute;inset:0;z-index:10"></div></div>`
