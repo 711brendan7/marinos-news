@@ -1253,7 +1253,7 @@ function rotateImg(deg) {
 
 function initImgViewerGestures() {
   const wrap = document.getElementById('viewer-img-wrap');
-  let touches = [], lastDist = 0, lastMid = null, dragBase = null, lastTap = 0;
+  let touches = [], lastDist = 0, lastMid = null, dragBase = null, lastTap = 0, swipeStart = null;
 
   function dist(t) {
     const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
@@ -1269,6 +1269,8 @@ function initImgViewerGestures() {
       dragBase = null;
     } else if (touches.length === 1) {
       dragBase = { x: touches[0].clientX - imgTx, y: touches[0].clientY - imgTy };
+      // ズーム無しのときだけ、横スワイプでのページ送りを受け付ける
+      swipeStart = imgScale <= 1.05 ? { x: touches[0].clientX, y: touches[0].clientY } : null;
       // double-tap reset
       const now = Date.now();
       if (now - lastTap < 280) resetImgTransform();
@@ -1294,8 +1296,32 @@ function initImgViewerGestures() {
 
   wrap.addEventListener('touchend', e => {
     if (e.touches.length < 2) { lastDist = 0; lastMid = null; }
-    if (e.touches.length === 0) dragBase = null;
+    if (e.touches.length === 0) {
+      dragBase = null;
+      // ズーム無し・横方向のスワイプで前後ページへ移動
+      if (swipeStart && imgScale <= 1.05 && e.changedTouches[0]) {
+        const dx = e.changedTouches[0].clientX - swipeStart.x;
+        const dy = e.changedTouches[0].clientY - swipeStart.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          viewerGoto(dx < 0 ? 1 : -1);
+        }
+      }
+      swipeStart = null;
+    }
   }, { passive: true });
+}
+
+// ビューアーで前後のページへ移動（delta: +1=次, -1=前）。モードは維持。
+function viewerGoto(delta) {
+  if (!viewerPage) return;
+  const idx = currentPages.findIndex(p => p.id === viewerPage.id);
+  if (idx < 0) return;
+  const next = idx + delta;
+  if (next < 0) { toast('最初のページです'); return; }
+  if (next >= currentPages.length) { toast('最後のページです'); return; }
+  const id = currentPages[next].id;
+  if (viewerReturnTo === 'edit-view') evOpenImageViewer(id);
+  else openViewer(id);
 }
 
 // ── Image Viewer ─────────────────────────────────────────────────────
