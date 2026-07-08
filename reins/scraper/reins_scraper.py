@@ -165,6 +165,33 @@ def save_cache(cache):
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
 
+# ── モーダル確実クローズ ──────────────────────────────────────
+async def dismiss_dialogs(page, attempts=6):
+    """表示中のモーダルを閉じる。検索ボタン等のクリックがモーダルに
+    インターセプトされて 30 秒タイムアウト→実行停止するのを防ぐ。"""
+    for _ in range(attempts):
+        if await page.locator("[role='dialog']:visible").count() == 0:
+            return True
+        # OK/閉じる系ボタンがあればクリック
+        for btn_text in ["OK", "はい", "確認", "閉じる", "キャンセル"]:
+            close_btn = page.locator(
+                f"[role='dialog'] button:has-text('{btn_text}'),"
+                f".modal button:has-text('{btn_text}')"
+            )
+            if await close_btn.count() > 0:
+                try:
+                    await close_btn.first.click(timeout=1500)
+                    break
+                except PWTimeout:
+                    pass
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+    remaining = await page.locator("[role='dialog']:visible").count()
+    if remaining:
+        print(f"  ⚠️  モーダルが閉じきりません（残 {remaining}）")
+    return remaining == 0
+
+
 # ── ログイン ──────────────────────────────────────────────────
 async def login(page):
     print("🔑 ログイン中...")
@@ -323,10 +350,18 @@ async def search(page, condition_text):
     await page.screenshot(path="debug_05_before_search.png")
 
     # フォーム最下部の「検索」ボタンをスクロールして確実にクリック
+    # 残存モーダルにクリックを阻まれて 30 秒詰まらないよう、先に確実に閉じる
+    await dismiss_dialogs(page)
     search_btn = page.locator("button").filter(has_text=re.compile(r'^検索$')).last
     await search_btn.scroll_into_view_if_needed()
     await page.wait_for_timeout(300)
-    await search_btn.click()
+    try:
+        await search_btn.click(timeout=10000)
+    except PWTimeout:
+        # まだモーダルに阻まれている → もう一度閉じて短いタイムアウトで再試行
+        await dismiss_dialogs(page)
+        await search_btn.scroll_into_view_if_needed()
+        await search_btn.click(timeout=10000)
 
     # SPA なので URL が変わらない場合は結果の出現を待つ
     try:
