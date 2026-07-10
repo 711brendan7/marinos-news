@@ -192,6 +192,33 @@ async def dismiss_dialogs(page, attempts=6):
     return remaining == 0
 
 
+# ── ローディングスピナー待機 ──────────────────────────────────
+async def wait_no_loading(page, timeout=15000):
+    """<div class="p-loading"> オーバーレイが消えるまで待つ。残っている間に
+    クリックすると pointer events を奪われて 30 秒タイムアウト→停止するため、
+    クリック前に必ず呼ぶ。"""
+    try:
+        await page.wait_for_selector(".p-loading", state="hidden", timeout=timeout)
+    except PWTimeout:
+        cnt = await page.locator(".p-loading:visible").count()
+        if cnt:
+            print(f"  ⚠️  ローディングが消えません（残 {cnt}）")
+
+
+# ── ローディングに阻まれない安全クリック ──────────────────────
+async def safe_click(page, locator, timeout=10000):
+    """p-loading / モーダルに阻まれても停止せず再試行するクリック。"""
+    await wait_no_loading(page)
+    try:
+        await locator.click(timeout=timeout)
+    except PWTimeout:
+        # まだ阻まれている → ローディング/モーダルを片付けて短く再試行
+        await wait_no_loading(page)
+        await dismiss_dialogs(page)
+        await locator.scroll_into_view_if_needed()
+        await locator.click(timeout=timeout)
+
+
 # ── ログイン ──────────────────────────────────────────────────
 async def login(page):
     print("🔑 ログイン中...")
@@ -889,7 +916,7 @@ async def download_phase(page, context, all_properties, condition):
         tab_text = tab_type_map.get(prop_type, prop_type)
         tab_loc = page.locator("a").filter(has_text=re.compile(tab_text))
         if await tab_loc.count() > 0:
-            await tab_loc.first.click()
+            await safe_click(page, tab_loc.first)
         else:
             print(f"    ⚠️  {tab_text} タブが見つかりません")
             continue
