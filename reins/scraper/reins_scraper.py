@@ -861,6 +861,7 @@ async def scrape_tab(page, tab_label, known_ids=None):
         next_link = page.locator("a:has-text('次'), a[title='次ページ'], a:has-text('>')").last
         try:
             if await next_link.is_visible():
+                await wait_no_loading(page)
                 await next_link.click()
                 await page.wait_for_load_state("domcontentloaded")
                 page_num += 1
@@ -1174,7 +1175,7 @@ async def main():
                     label = re.sub(r'[\(（].*', '', raw_label).strip()
                     label = tab_type_map.get(label, label)
                     print(f"\n🗂  タブ切替: {raw_label}")
-                    await tab.click()
+                    await safe_click(page, tab)
                     await page.wait_for_timeout(1500)
                     props = await scrape_tab(page, label, known_ids=known_ids or None)
                     cond_props.extend(props)
