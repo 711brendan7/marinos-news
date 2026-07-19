@@ -217,7 +217,22 @@ function render() {
     `${list.length} 件` + (allProps.length !== list.length ? ` / 全${allProps.length}件` : '');
 
   const el = document.getElementById('list');
-  if (!list.length) { el.innerHTML = '<div class="empty">該当する物件がありません</div>'; return; }
+  if (!list.length) {
+    if (allProps.length === 0) {
+      // サーバーから0件：設定・接続の問題の可能性が高い
+      el.innerHTML =
+        '<div class="empty">サーバーから物件を取得できませんでした（0件）。<br>' +
+        '接続設定が正しいか確認してください。' +
+        '<div style="margin-top:14px">' +
+        '<button class="btn-retry" style="padding:9px 16px;border:none;border-radius:9px;background:#007aff;color:#fff;font-weight:600;margin-right:8px" onclick="loadProps()">更新</button>' +
+        '<button class="btn-reset" style="padding:9px 16px;border:none;border-radius:9px;background:#f2f2f7;color:#636366;font-weight:600" onclick="resetConfig()">接続設定をやり直す</button>' +
+        '</div></div>';
+    } else {
+      // 読み込めているがフィルタ/検索で0件
+      el.innerHTML = '<div class="empty">該当する物件がありません（絞り込みを解除してください）</div>';
+    }
+    return;
+  }
   el.innerHTML = list.map(cardHtml).join('');
 }
 
