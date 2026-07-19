@@ -105,6 +105,7 @@ let gasUrl = localStorage.getItem(LS_URL)   || '';
 let token  = localStorage.getItem(LS_TOKEN) || '';
 let allProps = [];
 let filterCompany = '';
+let lastDiag = '';
 
 function init() {
   if (gasUrl && token) {
@@ -158,8 +159,10 @@ async function loadProps() {
   try {
     const qs  = new URLSearchParams({ token, action: 'list' }).toString();
     const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow', signal: ctrl.signal });
+    lastDiag = `URL: ${gasUrl}\nHTTP: ${res.status} ${res.redirected ? '(redirected→' + res.url.slice(0, 60) + '…)' : ''}`;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
+    lastDiag += `\n応答先頭: ${text.slice(0, 160)}`;
     let data;
     try { data = JSON.parse(text); }
     catch(_) { throw new Error('JSONではない応答: ' + text.slice(0, 120)); }
@@ -223,6 +226,7 @@ function render() {
       el.innerHTML =
         '<div class="empty">サーバーから物件を取得できませんでした（0件）。<br>' +
         '接続設定が正しいか確認してください。' +
+        (lastDiag ? '<pre style="text-align:left;white-space:pre-wrap;word-break:break-all;background:#f2f2f7;color:#636366;font-size:11px;padding:10px;border-radius:8px;margin-top:12px">' + escapeHtml(lastDiag) + '</pre>' : '') +
         '<div style="margin-top:14px">' +
         '<button class="btn-retry" style="padding:9px 16px;border:none;border-radius:9px;background:#007aff;color:#fff;font-weight:600;margin-right:8px" onclick="loadProps()">更新</button>' +
         '<button class="btn-reset" style="padding:9px 16px;border:none;border-radius:9px;background:#f2f2f7;color:#636366;font-weight:600" onclick="resetConfig()">接続設定をやり直す</button>' +
