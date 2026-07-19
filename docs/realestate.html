@@ -171,7 +171,15 @@ async function loadProps() {
         data.error === 'Unauthorized' ? 'SECRET_TOKEN が一致していません。' : '');
       return;
     }
-    allProps = data.properties || [];
+    // URL取り違えの検知：物件用でないエンドポイントを弾く
+    if (!Array.isArray(data.properties)) {
+      const hint = Array.isArray(data.todos)
+        ? 'これは TODO アプリの URL です。物件ウォッチ用の GAS URL（末尾が …Qr1Kkgo/exec）を入力してください。'
+        : '応答に物件データ（properties）がありません。GAS URL が物件ウォッチ用か確認してください。';
+      showError('URL が正しくないようです。', hint);
+      return;
+    }
+    allProps = data.properties;
     buildFilterBar();
     render();
     const maxDate = allProps.reduce((m, p) => p.date > m ? p.date : m, '');
