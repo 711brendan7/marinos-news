@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>物件ウォッチ</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Helvetica Neue', sans-serif; background: #f2f2f7; color: #1c1c1e; min-height: 100vh; }
+
+    header { background: #fff; padding: 14px 18px 10px; border-bottom: 1px solid #e5e5ea; position: sticky; top: 0; z-index: 10; }
+    .head-row { display: flex; align-items: baseline; gap: 10px; }
+    h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+    .count { font-size: 13px; color: #8e8e93; }
+    .refresh-btn { margin-left: auto; padding: 6px 14px; background: #007aff; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .refresh-btn:active { opacity: 0.6; }
+
+    .search-row { margin-top: 10px; }
+    .search-row input { width: 100%; padding: 9px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
+    .search-row input:focus { border-color: #007aff; background: #fff; }
+
+    .filter-bar { display: flex; gap: 6px; padding: 10px 14px 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .filter-btn { padding: 5px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; border: 1px solid #d1d1d6; background: #fff; cursor: pointer; white-space: nowrap; color: #636366; flex-shrink: 0; }
+    .filter-btn.active { background: #007aff; color: #fff; border-color: #007aff; }
+
+    .list { padding: 12px 14px 40px; }
+    .card { background: #fff; border-radius: 14px; padding: 15px 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); border-left: 3px solid transparent; }
+    .card.fresh { border-left-color: #ff9500; }
+    .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .company { font-size: 12px; color: #8e8e93; font-weight: 600; }
+    .badge-new { font-size: 10px; font-weight: 700; color: #fff; background: #ff9500; padding: 2px 7px; border-radius: 7px; letter-spacing: 0.3px; }
+    .date { font-size: 11px; color: #aeaeb2; margin-left: auto; }
+    .title { font-size: 17px; font-weight: 700; line-height: 1.35; margin-bottom: 10px; word-break: break-word; }
+    .price { color: #c0392b; font-weight: 700; font-size: 18px; margin-bottom: 10px; }
+    .meta { font-size: 13px; color: #48484a; line-height: 1.6; }
+    .meta .lbl { color: #aeaeb2; display: inline-block; width: 3.5em; }
+    .open-btn { display: block; margin-top: 12px; padding: 11px; background: #007aff; color: #fff; text-align: center; border-radius: 10px; font-size: 15px; font-weight: 700; text-decoration: none; }
+    .open-btn:active { opacity: 0.6; }
+
+    .empty { text-align: center; color: #aeaeb2; padding: 60px 20px; font-size: 15px; }
+    #spinner { display: none; text-align: center; padding: 40px; color: #8e8e93; }
+
+    #setup-view { display: none; }
+    #setup-form { padding: 24px 20px; }
+    #setup-form p { margin-bottom: 16px; font-size: 14px; color: #636366; line-height: 1.6; }
+    #setup-form label { display: block; font-size: 13px; font-weight: 600; color: #48484a; margin: 14px 0 5px; }
+    #setup-form input { width: 100%; padding: 11px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
+    #setup-form input:focus { border-color: #007aff; background: #fff; }
+    #setup-form button { width: 100%; margin-top: 22px; padding: 13px; background: #007aff; color: #fff; border: none; border-radius: 11px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<div id="main-view" style="display:none">
+  <header>
+    <div class="head-row">
+      <h1>物件ウォッチ</h1>
+      <span class="count" id="count"></span>
+      <button class="refresh-btn" onclick="loadProps()">更新</button>
+    </div>
+    <div class="search-row">
+      <input type="search" id="search" placeholder="キーワード検索（物件名・所在地）" oninput="render()">
+    </div>
+  </header>
+  <div class="filter-bar" id="filter-bar"></div>
+  <div id="spinner">読み込み中…</div>
+  <div class="list" id="list"></div>
+</div>
+
+<div id="setup-view">
+  <header><h1>物件ウォッチ セットアップ</h1></header>
+  <div id="setup-form">
+    <p>GAS デプロイ URL とトークンを入力してください。<br>一度設定すればこのデバイスに保存されます。</p>
+    <label>GAS デプロイ URL</label>
+    <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/..." autocomplete="off" autocorrect="off" spellcheck="false">
+    <label>SECRET_TOKEN</label>
+    <input type="password" id="cfg-token" placeholder="Code.gs に設定したトークン">
+    <button onclick="saveConfig()">保存して開始</button>
+  </div>
+</div>
+
+<script>
+const LS_URL   = 'realestate_gas_url';
+const LS_TOKEN = 'realestate_gas_token';
+const LS_SEEN  = 'realestate_seen_max';   // 前回見た最新の取得日時
+const FRESH_MS = 3 * 24 * 60 * 60 * 1000; // 3日以内を「新着」扱い
+
+let gasUrl = localStorage.getItem(LS_URL)   || '';
+let token  = localStorage.getItem(LS_TOKEN) || '';
+let allProps = [];
+let filterCompany = '';
+
+function init() {
+  if (gasUrl && token) {
+    document.getElementById('setup-view').style.display = 'none';
+    document.getElementById('main-view').style.display  = 'block';
+    loadProps();
+  } else {
+    document.getElementById('setup-view').style.display = 'block';
+    document.getElementById('main-view').style.display  = 'none';
+  }
+}
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const tok = document.getElementById('cfg-token').value.trim();
+  if (!url || !tok) { alert('URLとトークンを入力してください'); return; }
+  localStorage.setItem(LS_URL, url); localStorage.setItem(LS_TOKEN, tok);
+  gasUrl = url; token = tok; init();
+}
+
+async function loadProps() {
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('list').innerHTML = '';
+  try {
+    const qs  = new URLSearchParams({ token, action: 'list' }).toString();
+    const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
+    const data = await res.json();
+    if (data.error) { alert('エラー: ' + data.error); return; }
+    allProps = data.properties || [];
+    buildFilterBar();
+    render();
+    // 今回の最新日時を記録（次回の新着判定用）
+    const maxDate = allProps.reduce((m, p) => p.date > m ? p.date : m, '');
+    if (maxDate) localStorage.setItem(LS_SEEN, maxDate);
+  } catch(e) {
+    alert('読み込みに失敗しました。URL/トークンを確認してください。');
+    console.error(e);
+  } finally {
+    document.getElementById('spinner').style.display = 'none';
+  }
+}
+
+function parseDate(s) {
+  if (!s) return null;
+  const d = new Date(String(s).replace(/\//g, '-').replace(' ', 'T'));
+  return isNaN(d) ? null : d;
+}
+function isFresh(p) {
+  const d = parseDate(p.date);
+  if (!d) return false;
+  return (Date.now() - d.getTime()) < FRESH_MS;
+}
+
+function buildFilterBar() {
+  const companies = [...new Set(allProps.map(p => p.company).filter(Boolean))].sort();
+  const bar = document.getElementById('filter-bar');
+  const btn = (val, label) =>
+    `<button class="filter-btn ${filterCompany === val ? 'active' : ''}" onclick="setFilter('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
+  bar.innerHTML = btn('', 'すべて') + companies.map(c => btn(c, c)).join('');
+}
+function setFilter(val) { filterCompany = val; buildFilterBar(); render(); }
+
+function render() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  let list = allProps.slice();
+  if (filterCompany) list = list.filter(p => p.company === filterCompany);
+  if (q) list = list.filter(p =>
+    (p.title + p.address + p.company).toLowerCase().includes(q));
+
+  document.getElementById('count').textContent =
+    `${list.length} 件` + (allProps.length !== list.length ? ` / 全${allProps.length}件` : '');
+
+  const el = document.getElementById('list');
+  if (!list.length) { el.innerHTML = '<div class="empty">該当する物件がありません</div>'; return; }
+  el.innerHTML = list.map(cardHtml).join('');
+}
+
+function cardHtml(p) {
+  const fresh = isFresh(p);
+  const meta = [];
+  if (p.address) meta.push(`<div><span class="lbl">所在地</span>${escapeHtml(p.address)}</div>`);
+  if (p.layout)  meta.push(`<div><span class="lbl">面積</span>${escapeHtml(p.layout)}</div>`);
+  return `
+    <div class="card ${fresh ? 'fresh' : ''}">
+      <div class="card-top">
+        <span class="company">${escapeHtml(p.company || '')}</span>
+        ${fresh ? '<span class="badge-new">NEW</span>' : ''}
+        <span class="date">${escapeHtml(fmtDate(p.date))}</span>
+      </div>
+      <div class="title">${escapeHtml(p.title || '（無題）')}</div>
+      ${p.price ? `<div class="price">${escapeHtml(p.price)}</div>` : ''}
+      ${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}
+      ${p.url ? `<a class="open-btn" href="${escapeAttr(p.url)}" target="_blank" rel="noopener">物件ページを開く →</a>` : ''}
+    </div>`;
+}
+
+function fmtDate(s) {
+  const d = parseDate(s);
+  if (!d) return s || '';
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}/${mm}/${dd}`;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+init();
+</script>
+</body>
+</html>
