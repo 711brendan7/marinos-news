@@ -22,8 +22,12 @@
     .head-row { display: flex; align-items: baseline; gap: 10px; }
     h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
     .count { font-size: 13px; color: #8e8e93; }
-    .refresh-btn { margin-left: auto; padding: 6px 14px; background: #007aff; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .scrape-btn { margin-left: auto; padding: 6px 12px; background: #34c759; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .scrape-btn:active { opacity: 0.6; }
+    .scrape-btn:disabled { opacity: 0.5; }
+    .refresh-btn { padding: 6px 14px; background: #007aff; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .refresh-btn:active { opacity: 0.6; }
+    #scrape-status { margin-top: 9px; padding: 9px 12px; background: #f0fff4; border: 1px solid #c3e6cb; border-radius: 9px; font-size: 13px; color: #1a7a3a; }
 
     .search-row { margin-top: 10px; }
     .search-row input { width: 100%; padding: 9px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
@@ -71,8 +75,10 @@
     <div class="head-row">
       <h1>物件ウォッチ</h1>
       <span class="count" id="count"></span>
+      <button class="scrape-btn" id="scrape-btn" onclick="requestScrape()">今すぐ巡回</button>
       <button class="refresh-btn" onclick="loadProps()">更新</button>
     </div>
+    <div id="scrape-status" style="display:none"></div>
     <div class="search-row">
       <input type="search" id="search" placeholder="キーワード検索（物件名・所在地）" oninput="render()">
     </div>
@@ -140,6 +146,54 @@ function resetConfig() {
   gasUrl = ''; token = '';
   document.getElementById('errbox').style.display = 'none';
   init();
+}
+
+// ── 手動巡回トリガー ────────────────────────────────────
+let scrapePollTimer = null;
+
+function setScrapeStatus(msg) {
+  const el = document.getElementById('scrape-status');
+  el.style.display = 'block';
+  el.textContent = msg;
+}
+
+async function requestScrape() {
+  const btn = document.getElementById('scrape-btn');
+  btn.disabled = true;
+  setScrapeStatus('🕐 巡回をリクエスト中…');
+  try {
+    const qs = new URLSearchParams({ token, action: 'requestScrape' }).toString();
+    const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    setScrapeStatus('🏃 巡回を開始しました。完了までお待ちください（1〜3分）…');
+    pollScrapeStatus(0);
+  } catch (e) {
+    setScrapeStatus('⚠️ 巡回リクエストに失敗しました: ' + (e.message || e));
+    btn.disabled = false;
+  }
+}
+
+async function pollScrapeStatus(tries) {
+  if (scrapePollTimer) clearTimeout(scrapePollTimer);
+  if (tries > 90) {  // 約6分でタイムアウト
+    setScrapeStatus('⏱️ 時間がかかっています。しばらくして「更新」を押してください。');
+    document.getElementById('scrape-btn').disabled = false;
+    return;
+  }
+  try {
+    const qs = new URLSearchParams({ token, action: 'scrapeStatus' }).toString();
+    const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
+    const data = await res.json();
+    if (data.status) setScrapeStatus(data.status);
+    // 完了（pending=false かつ 状態が ✅）なら一覧を更新して終了
+    if (!data.pending && /✅/.test(data.status || '')) {
+      document.getElementById('scrape-btn').disabled = false;
+      await loadProps();
+      return;
+    }
+  } catch (_) { /* 一時的なエラーは無視して継続 */ }
+  scrapePollTimer = setTimeout(() => pollScrapeStatus(tries + 1), 4000);
 }
 
 async function loadProps() {

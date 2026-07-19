@@ -8,12 +8,50 @@ const SECRET_TOKEN   = 'WQZpZzGK4gsxUwha59j-xTcC';
 
 const HEADERS = ['取得日時', '会社名', '物件名・タイトル', '価格・賃料', '所在地', '面積・間取り', '物件URL', '会社URL'];
 
+const CONTROL_SHEET = '制御';
+// 制御シートのセル: B1=リクエスト時刻(ms) B2=状態メッセージ B3=最終処理リクエスト(ms、Mac側が書く)
+
 function doGet(e) {
   const p = e.parameter;
   if (p.token !== SECRET_TOKEN) return makeResponse({ error: 'Unauthorized' });
   const action = p.action || 'list';
-  if (action === 'list') return makeResponse(listProperties());
+  if (action === 'list')          return makeResponse(listProperties());
+  if (action === 'requestScrape') return makeResponse(requestScrape());
+  if (action === 'scrapeStatus')  return makeResponse(scrapeStatus());
   return makeResponse({ error: 'Unknown action' });
+}
+
+// ── 手動スクレイプ・トリガー（フラグ方式） ──────────────────
+function getControlSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sh = ss.getSheetByName(CONTROL_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CONTROL_SHEET);
+    sh.getRange('A1').setValue('巡回リクエスト時刻');
+    sh.getRange('A2').setValue('状態');
+    sh.getRange('A3').setValue('最終処理リクエスト');
+  }
+  return sh;
+}
+
+function requestScrape() {
+  const sh = getControlSheet();
+  const now = Date.now();
+  sh.getRange('B1').setValue(now);
+  sh.getRange('B2').setValue('🕐 リクエスト受付（実行待ち）');
+  return { ok: true, requested: now, status: '🕐 リクエスト受付（実行待ち）' };
+}
+
+function scrapeStatus() {
+  const sh = getControlSheet();
+  const requested = Number(sh.getRange('B1').getValue()) || 0;
+  const processed = Number(sh.getRange('B3').getValue()) || 0;
+  return {
+    status: String(sh.getRange('B2').getValue() || '💤 待機中'),
+    requested: requested,
+    processed: processed,
+    pending: requested > processed,
+  };
 }
 
 function listProperties() {
