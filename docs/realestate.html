@@ -104,13 +104,14 @@
 <script>
 const LS_URL   = 'realestate_gas_url';
 const LS_TOKEN = 'realestate_gas_token';
-const LS_SEEN  = 'realestate_seen_max';   // 前回見た最新の取得日時
-const FRESH_MS = 3 * 24 * 60 * 60 * 1000; // 3日以内を「新着」扱い
+const LS_SEEN  = 'realestate_seen_max';    // 前回までに見た最新の取得日時
+const LS_SEEN_INIT = 'realestate_seen_init'; // 初期化済みフラグ
 
 let gasUrl = localStorage.getItem(LS_URL)   || '';
 let token  = localStorage.getItem(LS_TOKEN) || '';
 let allProps = [];
 let filterCompany = '';
+let seenThreshold = localStorage.getItem(LS_SEEN) || '';  // これより新しい取得日時がNEW
 let lastDiag = '';
 
 function init() {
@@ -234,10 +235,19 @@ async function loadProps() {
       return;
     }
     allProps = data.properties;
+    const maxDate = allProps.reduce((m, p) => p.date > m ? p.date : m, '');
+    // 初回のみ: 既存を全て「既読」にして、以降に増えた物件だけNEWにする
+    if (!localStorage.getItem(LS_SEEN_INIT)) {
+      localStorage.setItem(LS_SEEN, maxDate);
+      localStorage.setItem(LS_SEEN_INIT, '1');
+    }
+    seenThreshold = localStorage.getItem(LS_SEEN) || maxDate;  // 今回更新前の基準でNEW判定
     buildFilterBar();
     render();
-    const maxDate = allProps.reduce((m, p) => p.date > m ? p.date : m, '');
-    if (maxDate) localStorage.setItem(LS_SEEN, maxDate);
+    // 見た分は既読化（次回開くとNEWが消え、新たに増えた物件だけNEWになる）
+    if (maxDate && maxDate > (localStorage.getItem(LS_SEEN) || '')) {
+      localStorage.setItem(LS_SEEN, maxDate);
+    }
   } catch(e) {
     console.error(e);
     if (e.name === 'AbortError') {
@@ -257,9 +267,9 @@ function parseDate(s) {
   return isNaN(d) ? null : d;
 }
 function isFresh(p) {
-  const d = parseDate(p.date);
-  if (!d) return false;
-  return (Date.now() - d.getTime()) < FRESH_MS;
+  // 前回見たとき以降に追加された物件だけ NEW（取得日時の文字列比較）
+  if (!seenThreshold) return false;
+  return String(p.date || '') > seenThreshold;
 }
 
 function buildFilterBar() {
