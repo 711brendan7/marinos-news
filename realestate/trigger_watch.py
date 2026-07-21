@@ -75,11 +75,17 @@ def main():
             capture_output=True, text=True,
         )
         out = result.stdout
-        m = re.search(r"✅ (\d+) 件の新規物件を", out)
-        n = m.group(1) if m else "0"
+        mnew = re.search(r"✅ (\d+) 件の新規物件を", out)
+        mchg = re.search(r"💰 (\d+) 件の価格変更を", out)
+        n = mnew.group(1) if mnew else "0"
+        c = mchg.group(1) if mchg else "0"
         now = datetime.now().strftime("%H:%M")
+        msg = f"✅ 完了 新規{n}件"
+        if c != "0":
+            msg += f" / 価格変更{c}件"
+        msg += f"（{now}）"
         sh.update_acell("B3", str(requested))  # 処理済みマーク
-        sh.update_acell("B2", f"✅ 完了 {n}件（{now}）")
+        sh.update_acell("B2", msg)
     finally:
         fcntl.flock(lf, fcntl.LOCK_UN)
         lf.close()
