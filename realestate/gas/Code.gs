@@ -81,7 +81,8 @@ function listProperties() {
         address: String(r[4] || ''),
         layout:  String(r[5] || ''),
         url:     String(r[6] || ''),
-        source:  String(r[7] || '')
+        source:  String(r[7] || ''),
+        priceChange: String(r[8] || '')
       };
     });
 

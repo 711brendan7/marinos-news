@@ -35,7 +35,12 @@ OUTPUT_SHEET     = os.getenv("OUTPUT_SHEET", "物件情報")
 CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS", os.path.join(os.path.dirname(__file__), "credentials.json"))
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-OUTPUT_HEADERS = ["取得日時", "会社名", "物件名・タイトル", "価格・賃料", "所在地", "面積・間取り", "物件URL", "会社URL"]
+OUTPUT_HEADERS = ["取得日時", "会社名", "物件名・タイトル", "価格・賃料", "所在地", "面積・間取り", "物件URL", "会社URL", "価格変更"]
+CHANGE_SHEET = "価格変更"  # 価格変更の履歴ログ
+CHANGE_HEADERS = ["変更日時", "会社名", "物件名・タイトル", "所在地", "旧価格", "新価格", "物件URL"]
+
+PRICE_COL = 4   # D列（1-indexed）: 価格・賃料
+CHANGE_COL = 9  # I列（1-indexed）: 価格変更
 
 SHEETS_SCOPES = [
     "https://spreadsheets.google.com/feeds",
@@ -82,22 +87,36 @@ def ensure_output_headers(gc):
     ss = gc.open_by_key(SPREADSHEET_ID)
     sheet = ss.worksheet(OUTPUT_SHEET)
     first_row = sheet.row_values(1)
-    if first_row != OUTPUT_HEADERS:
+    if not first_row or first_row[0] != "取得日時":
         sheet.insert_row(OUTPUT_HEADERS, index=1)
-        sheet.format("A1:H1", {
-            "backgroundColor": {"red": 0.102, "green": 0.451, "blue": 0.914},
-            "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
-        })
+    elif len(first_row) < len(OUTPUT_HEADERS):
+        # 既存シートに不足列（価格変更）だけ追加（データは壊さない）
+        sheet.update_cell(1, len(OUTPUT_HEADERS), OUTPUT_HEADERS[-1])
 
 
-def get_existing_property_urls(gc):
+def get_change_log_sheet(gc):
+    ss = gc.open_by_key(SPREADSHEET_ID)
+    try:
+        return ss.worksheet(CHANGE_SHEET)
+    except gspread.WorksheetNotFound:
+        sh = ss.add_worksheet(title=CHANGE_SHEET, rows=1000, cols=len(CHANGE_HEADERS))
+        sh.append_row(CHANGE_HEADERS, value_input_option="USER_ENTERED")
+        return sh
+
+
+def get_existing_properties(gc):
+    """物件URL → {row: 行番号(1-indexed), price: 記録済み価格} の辞書を返す。"""
     ss = gc.open_by_key(SPREADSHEET_ID)
     sheet = ss.worksheet(OUTPUT_SHEET)
     data = sheet.get_all_values()
-    if len(data) <= 1:
-        return set()
-    url_col = 6  # G列（0-indexed）
-    return {row[url_col].strip() for row in data[1:] if len(row) > url_col and row[url_col].strip()}
+    result = {}
+    for i, row in enumerate(data[1:], start=2):  # 2行目以降（1-indexed行番号）
+        url = row[6].strip() if len(row) > 6 else ""
+        if not url:
+            continue
+        price = row[3].strip() if len(row) > 3 else ""
+        result[url] = {"row": i, "price": price}
+    return result
 
 
 def append_properties(gc, properties):
@@ -114,11 +133,43 @@ def append_properties(gc, properties):
             p.get("area_layout", ""),
             p.get("url", ""),
             p.get("source_url", ""),
+            "",  # 価格変更（新規は空）
         ]
         for p in properties
     ]
     if rows:
         sheet.insert_rows(rows, row=2, value_input_option="USER_ENTERED")
+
+
+def apply_price_changes(gc, changes):
+    """価格変更を本体シートに反映（価格更新＋価格変更列）し、履歴シートに追記する。"""
+    if not changes:
+        return
+    ss = gc.open_by_key(SPREADSHEET_ID)
+    sheet = ss.worksheet(OUTPUT_SHEET)
+    now = datetime.now().strftime("%Y/%m/%d %H:%M")
+    for c in changes:
+        row = c["row"]
+        arrow = "↓値下げ" if _price_num(c["price"]) < _price_num(c["old_price"]) else "↑値上げ"
+        sheet.update_cell(row, PRICE_COL, c["price"])
+        sheet.update_cell(row, CHANGE_COL,
+                          f"{arrow} {c['old_price']}→{c['price']}（{now}）")
+    log = get_change_log_sheet(gc)
+    log.insert_rows(
+        [[now, c.get("company_name", ""), c.get("title", ""), c.get("address", ""),
+          c["old_price"], c["price"], c.get("url", "")] for c in changes],
+        row=2, value_input_option="USER_ENTERED",
+    )
+
+
+def _price_num(s):
+    """「2,800万円」「1億2,000万円」を万円単位の数値に。比較用（失敗時0）。"""
+    s = str(s or "").replace(",", "").replace(" ", "")
+    m = re.search(r"(\d+(?:\.\d+)?)億(?:(\d+))?万?", s)
+    if m:
+        return int(float(m.group(1)) * 10000) + (int(m.group(2)) if m.group(2) else 0)
+    m = re.search(r"(\d+(?:\.\d+)?)万", s)
+    return int(float(m.group(1))) if m else 0
 
 
 # ── Web スクレイピング ─────────────────────────────────────────
@@ -298,17 +349,18 @@ async def fetch_with_fallback(url):
     return html
 
 
-async def scrape_company_parser(company_name, homepage_url, existing_urls, discover):
-    """会社別パーサーで抽出（API不使用）。"""
+async def scrape_company_parser(company_name, homepage_url, existing, discover):
+    """会社別パーサーで抽出（API不使用）。新規と価格変更を検知する。"""
     print(f"  🔍 {company_name}（パーサー / API不使用）: {homepage_url}")
     items = await discover(homepage_url, fetch_html)
-    new_props = []
+    new_props, changed_props = [], []
     seen_in_run = set()
     for it in items:
         url = it.get("url", "").strip()
-        if not url or url in existing_urls or url in seen_in_run:
-            continue  # 既出は詳細取得せずスキップ
-        # discovery がカードから抽出済み（address/price を含む）なら詳細取得不要
+        if not url or url in seen_in_run:
+            continue
+        seen_in_run.add(url)
+        # 現在の物件データを取得（価格変更検知のため既存もチェック）
         if "address" in it or "price" in it:
             prop = {
                 "title": it.get("title", ""),
@@ -326,33 +378,40 @@ async def scrape_company_parser(company_name, homepage_url, existing_urls, disco
             prop = parsers.parse_detail(html, url, it)
             if not prop:
                 continue
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
         prop["company_name"] = company_name
         prop["source_url"] = homepage_url
-        new_props.append(prop)
-        seen_in_run.add(url)
-        existing_urls.add(url)
-    print(f"    ✅ {len(new_props)} 件の新規物件")
-    return new_props
+
+        if url not in existing:
+            new_props.append(prop)
+            existing[url] = {"row": None, "price": prop["price"]}
+        else:
+            old = existing[url]["price"]
+            new_price = prop["price"]
+            if new_price and old and new_price != old:
+                changed_props.append({**prop, "old_price": old, "row": existing[url]["row"]})
+                existing[url]["price"] = new_price  # 同一実行内での二重検知を防ぐ
+    print(f"    ✅ 新規 {len(new_props)} 件 / 💰 価格変更 {len(changed_props)} 件")
+    return new_props, changed_props
 
 
-async def scrape_company(company_name, homepage_url, existing_urls):
+async def scrape_company(company_name, homepage_url, existing):
     # 会社別パーサーがあれば優先（API不使用）
     if company_name in parsers.PARSERS:
         return await scrape_company_parser(
-            company_name, homepage_url, existing_urls, parsers.PARSERS[company_name]
+            company_name, homepage_url, existing, parsers.PARSERS[company_name]
         )
 
     # パーサー未対応の会社は Claude API にフォールバック（キーがある場合のみ）
     if _anthropic_client is None:
         print(f"  ⏭️  {company_name}: パーサー未対応・APIキー無しのためスキップ")
-        return []
+        return [], []
 
     print(f"  🔍 {company_name}（AI / API使用）: {homepage_url}")
 
     html = await fetch_with_fallback(homepage_url)
     if not html:
-        return []
+        return [], []
 
     page_text, links = clean_html(html)
 
@@ -377,16 +436,16 @@ async def scrape_company(company_name, homepage_url, existing_urls):
     for p in all_properties:
         prop_url = p.get("url", "").strip()
         dedup_key = prop_url if prop_url else f"{p.get('title','')}__{p.get('address','')}"
-        if dedup_key and dedup_key not in existing_urls and dedup_key not in seen_in_run:
+        if dedup_key and dedup_key not in existing and dedup_key not in seen_in_run:
             p["company_name"] = company_name
             p["source_url"] = homepage_url
             new_props.append(p)
             seen_in_run.add(dedup_key)
             if prop_url:
-                existing_urls.add(prop_url)
+                existing[prop_url] = {"row": None, "price": p.get("price", "")}
 
     print(f"    ✅ {len(new_props)} 件の新規物件")
-    return new_props
+    return new_props, []
 
 
 # ── エントリポイント ──────────────────────────────────────────
@@ -423,14 +482,15 @@ async def main():
         sys.exit(0)
     print(f"📋 {len(companies)} 社を巡回します\n")
 
-    existing_urls = get_existing_property_urls(gc)
-    print(f"📊 既存登録物件数: {len(existing_urls)} 件\n")
+    existing = get_existing_properties(gc)
+    print(f"📊 既存登録物件数: {len(existing)} 件\n")
 
-    all_new_props = []
+    all_new_props, all_changed = [], []
     for company_name, url in companies:
         try:
-            props = await scrape_company(company_name, url, existing_urls)
-            all_new_props.extend(props)
+            new, changed = await scrape_company(company_name, url, existing)
+            all_new_props.extend(new)
+            all_changed.extend(changed)
         except Exception as e:
             print(f"    ⚠️  {company_name} でエラー（スキップ）: {e}")
         await asyncio.sleep(2)
@@ -440,7 +500,12 @@ async def main():
         append_properties(gc, all_new_props)
         print(f"✅ {len(all_new_props)} 件の新規物件を '{OUTPUT_SHEET}' シートに追記しました")
     else:
-        print("📭 本日の新規物件はありませんでした")
+        print("📭 新規物件はありませんでした")
+    if all_changed:
+        apply_price_changes(gc, all_changed)
+        print(f"💰 {len(all_changed)} 件の価格変更を検知・更新しました")
+        for c in all_changed:
+            print(f"    {c.get('company_name','')} {c.get('address','')[:16]} {c['old_price']}→{c['price']}")
 
     print(f"{'─'*40}")
     print(f"完了: {datetime.now().strftime('%Y/%m/%d %H:%M:%S')}")

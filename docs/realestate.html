@@ -43,6 +43,13 @@
     .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
     .company { font-size: 12px; color: #8e8e93; font-weight: 600; }
     .badge-new { font-size: 10px; font-weight: 700; color: #fff; background: #ff9500; padding: 2px 7px; border-radius: 7px; letter-spacing: 0.3px; }
+    .badge-price { font-size: 10px; font-weight: 700; color: #fff; padding: 2px 7px; border-radius: 7px; letter-spacing: 0.3px; }
+    .badge-price.down { background: #34c759; }
+    .badge-price.up { background: #ff3b30; }
+    .card.changed { border-left-color: #34c759; }
+    .pricechange { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+    .pricechange.down { color: #1a7a3a; }
+    .pricechange.up { color: #c0392b; }
     .date { font-size: 11px; color: #aeaeb2; margin-left: auto; }
     .title { font-size: 17px; font-weight: 700; line-height: 1.35; margin-bottom: 10px; word-break: break-word; }
     .price { color: #c0392b; font-weight: 700; font-size: 18px; margin-bottom: 10px; }
@@ -274,17 +281,22 @@ function isFresh(p) {
 
 function buildFilterBar() {
   const companies = [...new Set(allProps.map(p => p.company).filter(Boolean))].sort();
+  const changedCount = allProps.filter(p => (p.priceChange || '').trim()).length;
   const bar = document.getElementById('filter-bar');
   const btn = (val, label) =>
     `<button class="filter-btn ${filterCompany === val ? 'active' : ''}" onclick="setFilter('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
-  bar.innerHTML = btn('', 'すべて') + companies.map(c => btn(c, c)).join('');
+  let html = btn('', 'すべて');
+  if (changedCount) html += btn('__changed__', `💰価格変更 ${changedCount}`);
+  html += companies.map(c => btn(c, c)).join('');
+  bar.innerHTML = html;
 }
 function setFilter(val) { filterCompany = val; buildFilterBar(); render(); }
 
 function render() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   let list = allProps.slice();
-  if (filterCompany) list = list.filter(p => p.company === filterCompany);
+  if (filterCompany === '__changed__') list = list.filter(p => (p.priceChange || '').trim());
+  else if (filterCompany) list = list.filter(p => p.company === filterCompany);
   if (q) list = list.filter(p =>
     (p.title + p.address + p.company).toLowerCase().includes(q));
 
@@ -314,18 +326,22 @@ function render() {
 
 function cardHtml(p) {
   const fresh = isFresh(p);
+  const pc = (p.priceChange || '').trim();
+  const down = pc.indexOf('値下げ') >= 0;
   const meta = [];
   if (p.address) meta.push(`<div><span class="lbl">所在地</span>${escapeHtml(p.address)}</div>`);
   if (p.layout)  meta.push(`<div><span class="lbl">面積</span>${escapeHtml(p.layout)}</div>`);
   return `
-    <div class="card ${fresh ? 'fresh' : ''}">
+    <div class="card ${fresh ? 'fresh' : ''} ${pc ? 'changed' : ''}">
       <div class="card-top">
         <span class="company">${escapeHtml(p.company || '')}</span>
         ${fresh ? '<span class="badge-new">NEW</span>' : ''}
+        ${pc ? `<span class="badge-price ${down ? 'down' : 'up'}">💰 価格変更</span>` : ''}
         <span class="date">${escapeHtml(fmtDate(p.date))}</span>
       </div>
       <div class="title">${escapeHtml(p.title || '（無題）')}</div>
       ${p.price ? `<div class="price">${escapeHtml(p.price)}</div>` : ''}
+      ${pc ? `<div class="pricechange ${down ? 'down' : 'up'}">${escapeHtml(pc)}</div>` : ''}
       ${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}
       ${p.url ? `<a class="open-btn" href="${escapeAttr(p.url)}" target="_blank" rel="noopener">物件ページを開く →</a>` : ''}
     </div>`;
