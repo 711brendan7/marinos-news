@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="REINS仕入れ">
+  <meta name="theme-color" content="#1a73e8">
+  <link rel="apple-touch-icon" href="realestate-icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="realestate-icon-192.png">
+  <link rel="manifest" href="reins.webmanifest">
+  <title>REINS仕入れ</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Helvetica Neue', sans-serif; background: #f2f2f7; color: #1c1c1e; min-height: 100vh; }
+
+    header { background: #fff; padding: 14px 18px 10px; border-bottom: 1px solid #e5e5ea; position: sticky; top: 0; z-index: 10; }
+    .head-row { display: flex; align-items: baseline; gap: 10px; }
+    h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    .count { font-size: 13px; color: #8e8e93; }
+    .refresh-btn { margin-left: auto; padding: 6px 14px; background: #1a73e8; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .refresh-btn:active { opacity: 0.6; }
+
+    /* タブ（スコア順 / 新着順） */
+    .tabs { display: flex; gap: 6px; margin-top: 11px; background: #eef0f4; padding: 3px; border-radius: 11px; }
+    .tab { flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font-size: 14px; font-weight: 600; color: #636366; cursor: pointer; border: none; background: transparent; }
+    .tab.active { background: #fff; color: #1a73e8; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+    .search-row { margin-top: 10px; }
+    .search-row input { width: 100%; padding: 9px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
+    .search-row input:focus { border-color: #1a73e8; background: #fff; }
+
+    .filter-bar { display: flex; gap: 6px; padding: 10px 14px 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .filter-btn { padding: 5px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; border: 1px solid #d1d1d6; background: #fff; cursor: pointer; white-space: nowrap; color: #636366; flex-shrink: 0; }
+    .filter-btn.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+
+    .list { padding: 12px 14px 40px; }
+    .card { background: #fff; border-radius: 14px; padding: 15px 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); border-left: 3px solid transparent; }
+    .card.buy { border-left-color: #34c759; }
+    .card.fresh { border-left-color: #ff9500; }
+    .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .rank { font-size: 12px; color: #8e8e93; font-weight: 700; }
+    .ptype { font-size: 11px; font-weight: 700; color: #48484a; background: #eef2f7; padding: 2px 8px; border-radius: 7px; }
+    .badge-score { font-size: 12px; font-weight: 800; color: #fff; padding: 2px 9px; border-radius: 8px; letter-spacing: 0.3px; }
+    .badge-score.s-buy { background: #34c759; }
+    .badge-score.s-ok  { background: #ff9500; }
+    .badge-score.s-ng  { background: #c0c0c5; }
+    .badge-new { font-size: 10px; font-weight: 700; color: #fff; background: #ff9500; padding: 2px 7px; border-radius: 7px; letter-spacing: 0.3px; }
+    .date { font-size: 11px; color: #aeaeb2; margin-left: auto; }
+    .title { font-size: 17px; font-weight: 700; line-height: 1.35; margin-bottom: 8px; word-break: break-word; }
+    .price { color: #c0392b; font-weight: 700; font-size: 19px; margin-bottom: 8px; }
+    .price .unit { font-size: 13px; font-weight: 600; }
+    .meta { font-size: 13px; color: #48484a; line-height: 1.6; }
+    .meta .lbl { color: #aeaeb2; display: inline-block; width: 4.5em; }
+    .reasons { margin-top: 9px; font-size: 12px; color: #5a5a5f; line-height: 1.6; background: #f7f8fa; border-radius: 9px; padding: 8px 11px; }
+    .reasons .warn { color: #c0392b; font-weight: 600; }
+    .open-btn { display: block; margin-top: 12px; padding: 11px; background: #1a73e8; color: #fff; text-align: center; border-radius: 10px; font-size: 15px; font-weight: 700; text-decoration: none; }
+    .open-btn:active { opacity: 0.6; }
+
+    .empty { text-align: center; color: #aeaeb2; padding: 60px 20px; font-size: 15px; }
+    #spinner { display: none; text-align: center; padding: 40px; color: #8e8e93; }
+    #errbox { margin: 16px 14px; padding: 16px; background: #fff3f2; border: 1px solid #ffd3ce; border-radius: 12px; color: #c0392b; font-size: 14px; line-height: 1.6; }
+    #errbox .err-detail { color: #8e8e93; font-size: 12px; word-break: break-all; margin-top: 6px; }
+    #errbox button { margin-top: 12px; margin-right: 8px; padding: 9px 16px; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    #errbox .btn-retry { background: #1a73e8; color: #fff; }
+    #errbox .btn-reset { background: #f2f2f7; color: #636366; }
+
+    #setup-view { display: none; }
+    #setup-form { padding: 24px 20px; }
+    #setup-form p { margin-bottom: 16px; font-size: 14px; color: #636366; line-height: 1.6; }
+    #setup-form label { display: block; font-size: 13px; font-weight: 600; color: #48484a; margin: 14px 0 5px; }
+    #setup-form input { width: 100%; padding: 11px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
+    #setup-form input:focus { border-color: #1a73e8; background: #fff; }
+    #setup-form button { width: 100%; margin-top: 22px; padding: 13px; background: #1a73e8; color: #fff; border: none; border-radius: 11px; font-size: 16px; font-weight: 700; cursor: pointer; }
+    .hint { font-size: 12px; color: #8e8e93; margin-top: 6px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+
+<div id="main-view" style="display:none">
+  <header>
+    <div class="head-row">
+      <h1>REINS仕入れ</h1>
+      <span class="count" id="count"></span>
+      <button class="refresh-btn" onclick="loadProps()">更新</button>
+    </div>
+    <div class="tabs">
+      <button class="tab active" id="tab-score" onclick="setTab('score')">🏆 スコア順</button>
+      <button class="tab" id="tab-new" onclick="setTab('new')">🆕 新着順</button>
+    </div>
+    <div class="search-row">
+      <input type="search" id="search" placeholder="キーワード検索（所在地・商号・物件番号）" oninput="render()">
+    </div>
+  </header>
+  <div class="filter-bar" id="filter-bar"></div>
+  <div id="spinner">読み込み中…</div>
+  <div id="errbox" style="display:none"></div>
+  <div class="list" id="list"></div>
+</div>
+
+<div id="setup-view">
+  <header><h1>REINS仕入れ セットアップ</h1></header>
+  <div id="setup-form">
+    <p>reins の GAS デプロイ URL（末尾 <b>/exec</b>）を入力してください。<br>一度設定すればこのデバイスに保存されます。</p>
+    <label>GAS デプロイ URL</label>
+    <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/..." autocomplete="off" autocorrect="off" spellcheck="false">
+    <div class="hint">reins/Code.gs をデプロイしたウェブアプリ URL。<code>?csv=1</code> で物件シートを配信できるものです。</div>
+    <label>スプレッドシートID（任意）</label>
+    <input type="text" id="cfg-sid" placeholder="未入力なら既定のシートを使用">
+    <div class="hint">別のシートを見たいときだけ入力。通常は空でOK。</div>
+    <button onclick="saveConfig()">保存して開始</button>
+  </div>
+</div>
+
+<script>
+// ── 設定 ───────────────────────────────────────────────
+const LS_URL   = 'reins_gas_url';
+const LS_SID   = 'reins_gas_sid';
+const LS_SEEN  = 'reins_seen_max';       // 前回までに見た最新の取得日時(ms)
+const LS_SEEN_INIT = 'reins_seen_init';
+const LS_TAB   = 'reins_tab';
+// 既定：run_score_daily.sh と同じ reins デプロイURL（そのまま使えるよう初期値に）
+const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwg5gIdluJCKhxg5Ac37ojhD1RxblEidHziJUIo2vWPTMWdlzlxEkCeaE-CydbCHInz-g/exec';
+
+let gasUrl = localStorage.getItem(LS_URL) || DEFAULT_URL;
+let sid    = localStorage.getItem(LS_SID) || '';
+let allProps = [];
+let filterType = '';
+let activeTab = localStorage.getItem(LS_TAB) || 'score';
+let seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
+let lastDiag = '';
+
+function init() {
+  if (gasUrl) {
+    document.getElementById('setup-view').style.display = 'none';
+    document.getElementById('main-view').style.display  = 'block';
+    document.getElementById('tab-' + activeTab).classList.add('active');
+    document.getElementById('tab-' + (activeTab === 'score' ? 'new' : 'score')).classList.remove('active');
+    loadProps();
+  } else {
+    document.getElementById('setup-view').style.display = 'block';
+    document.getElementById('main-view').style.display  = 'none';
+    document.getElementById('cfg-url').value = DEFAULT_URL;
+  }
+}
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const s   = document.getElementById('cfg-sid').value.trim();
+  if (!url) { alert('GAS デプロイ URL を入力してください'); return; }
+  localStorage.setItem(LS_URL, url);
+  if (s) localStorage.setItem(LS_SID, s); else localStorage.removeItem(LS_SID);
+  gasUrl = url; sid = s; init();
+}
+function resetConfig() {
+  localStorage.removeItem(LS_URL); localStorage.removeItem(LS_SID);
+  gasUrl = ''; sid = '';
+  document.getElementById('errbox').style.display = 'none';
+  init();
+}
+function setTab(t) {
+  activeTab = t; localStorage.setItem(LS_TAB, t);
+  document.getElementById('tab-score').classList.toggle('active', t === 'score');
+  document.getElementById('tab-new').classList.toggle('active', t === 'new');
+  render();
+}
+
+function showError(msg, detail) {
+  const box = document.getElementById('errbox');
+  box.style.display = 'block';
+  box.innerHTML =
+    `<div>${escapeHtml(msg)}</div>` +
+    (detail ? `<div class="err-detail">${escapeHtml(detail)}</div>` : '') +
+    `<button class="btn-retry" onclick="loadProps()">再試行</button>` +
+    `<button class="btn-reset" onclick="resetConfig()">接続設定をやり直す</button>`;
+}
+
+// ── CSV パーサ（引用符・改行入りフィールド対応） ──────────
+function parseCSV(text) {
+  const rows = []; let row = [], field = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else if (c === '"') { q = true; }
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\r') { /* skip */ }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// ── データ取得 ─────────────────────────────────────────
+async function loadProps() {
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('errbox').style.display  = 'none';
+  document.getElementById('list').innerHTML = '';
+
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(gasUrl)) {
+    document.getElementById('spinner').style.display = 'none';
+    showError('GAS デプロイ URL の形式が正しくないようです。', '末尾が /exec の「ウェブアプリ URL」を貼り付けてください: ' + gasUrl);
+    return;
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    const qs = new URLSearchParams({ csv: '1' });
+    if (sid) qs.set('sid', sid);
+    const res = await fetch(`${gasUrl}?${qs.toString()}`, { redirect: 'follow', signal: ctrl.signal });
+    lastDiag = `URL: ${gasUrl}?csv=1\nHTTP: ${res.status}`;
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    lastDiag += `\n応答先頭: ${text.slice(0, 120)}`;
+    if (/^\s*</.test(text) || text.indexOf('物件番号') < 0) {
+      showError('物件CSVを取得できませんでした。', 'GAS が HTML を返しています（認証切れ / デプロイ未反映の可能性）。URL が reins 用か確認してください。');
+      return;
+    }
+    const rows = parseCSV(text).filter(r => r.length > 1);
+    const header = rows[0].map(h => stripParen(h));
+    allProps = rows.slice(1).map(r => rowToProp(header, r)).filter(p => p.key);
+    scoreAll(allProps);
+
+    const maxTs = allProps.reduce((m, p) => p.ts > m ? p.ts : m, 0);
+    if (!localStorage.getItem(LS_SEEN_INIT)) {
+      localStorage.setItem(LS_SEEN, String(maxTs));
+      localStorage.setItem(LS_SEEN_INIT, '1');
+    }
+    seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
+    buildFilterBar();
+    render();
+    if (maxTs > Number(localStorage.getItem(LS_SEEN) || 0)) {
+      localStorage.setItem(LS_SEEN, String(maxTs));
+    }
+  } catch (e) {
+    console.error(e);
+    if (e.name === 'AbortError') showError('応答がありません（25秒でタイムアウト）。', 'GAS URL とネットワークを確認してください。');
+    else showError('読み込みに失敗しました。', String(e && e.message || e));
+  } finally {
+    clearTimeout(timer);
+    document.getElementById('spinner').style.display = 'none';
+  }
+}
+
+function stripParen(h) { return String(h == null ? '' : h).replace(/[（(].*?[)）]/g, '').trim(); }
+function num(s) {
+  if (s == null) return 0;
+  const m = String(s).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : 0;
+}
+function areaFromAddr(a) {
+  const m = String(a || '').match(/([^\s都道府県]+?[市区町村])/);
+  return m ? m[1] : (a || '').trim();
+}
+function parseTs(s) {
+  s = String(s || '').replace(/\s*[（(].*?[)）]\s*$/, '').trim();
+  if (!s) return 0;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function rowToProp(header, r) {
+  const o = {};
+  header.forEach((h, i) => { o[h] = r[i] != null ? r[i] : ''; });
+  const addr = o['所在地'] || '';
+  const areaRaw = addr.trim();
+  return {
+    key:      (o['物件番号'] || '').trim(),
+    ptype:    (o['物件種目'] || '').trim(),
+    price_man: num(o['価格']),
+    land_m2:   num(o['土地面積']),
+    building_m2: num(o['建物面積']),
+    tsubo_price: num(o['坪単価']),
+    station_min: num(o['徒歩']),
+    yoto:     (o['用途地域'] || '').trim(),
+    setsudo:  (o['接道状況'] || '').trim(),
+    address:  addr.trim(),
+    area:     areaRaw.length > 6 ? areaFromAddr(areaRaw) : areaRaw,
+    line:     (o['路線'] || '').trim(),
+    station:  (o['駅'] || '').trim(),
+    bus:      (o['バス'] || '').trim(),
+    shogo:    (o['商号'] || '').trim(),
+    fetchedAt: (o['取得日時'] || '').trim(),
+    ts:       parseTs(o['取得日時']),
+    drawUrl:  (o['図面/詳細'] || o['図面詳細'] || '').trim(),
+    folderUrl: (o['フォルダ'] || '').trim(),
+    age:      -1,          // reins CSV に築年数列は無い → 対象外
+  };
+}
+
+// ── スコアリング（reins/scorer/score.py を JS 移植） ──────
+const M2_PER_TSUBO = 3.305785;
+const W = { yield_: 0.35, market: 0.30, station: 0.15, age: 0.10, area_fit: 0.10 };
+const SUSPICIOUS_DISCOUNT = 0.55;
+
+function median(arr) {
+  if (!arr.length) return null;
+  const a = arr.slice().sort((x, y) => x - y), n = a.length, m = n >> 1;
+  return n % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+function lin(x, x0, s0, x1, s1) {
+  if (x1 === x0) return s0;
+  const v = s0 + (x - x0) / (x1 - x0) * (s1 - s0);
+  return Math.max(0, Math.min(100, v));
+}
+function effTsubo(p) {
+  if (p.tsubo_price > 1) return p.tsubo_price;
+  const am2 = p.ptype === '区分' ? p.building_m2 : (p.land_m2 || p.building_m2);
+  if (p.price_man > 0 && am2 > 0) { const t = p.price_man / (am2 / M2_PER_TSUBO); return t > 1 ? t : null; }
+  return null;
+}
+function surfaceYield(p) {
+  return (p.rent_month_man > 0 && p.price_man > 0) ? p.rent_month_man * 12 / p.price_man * 100 : null;
+}
+function yieldScore(y) {
+  if (y == null) return null;
+  if (y <= 5) return 0;
+  if (y <= 8) return lin(y, 5, 0, 8, 70);
+  return lin(y, 8, 70, 12, 100);
+}
+function marketScore(t, med) {
+  if (!t || !med) return null;
+  const d = (med - t) / med;
+  return d <= 0.40 ? lin(d, -0.20, 0, 0.40, 100) : lin(d, 0.40, 100, 0.90, 40);
+}
+function stationScore(m) { return m <= 0 ? null : lin(m, 3, 100, 20, 0); }
+function ageScore(age, ptype) { return (ptype === '土地' || age < 0) ? null : lin(Math.min(age, 45), 5, 100, 45, 20); }
+function areaFitScore(p) {
+  const m2 = p.ptype === '区分' ? p.building_m2 : p.land_m2;
+  if (m2 <= 0) return null;
+  const lo = p.ptype === '区分' ? 25 : 80, hi = p.ptype === '区分' ? 80 : 300;
+  if (m2 < lo) return lin(m2, lo * 0.5, 20, lo, 100);
+  if (m2 > hi) return lin(m2, hi, 100, hi * 2, 30);
+  return 100;
+}
+function mark(s) { return s >= 75 ? '◎' : (s >= 50 ? '○' : (s >= 30 ? '△' : '×')); }
+
+function cautionFlags(p) {
+  const flags = []; let factor = 1.0; const y = p.yoto || '';
+  if (/(調整|定めなし|無指定)/.test(y)) { flags.push('⚠用途地域なし/調整区域の可能性（再建築・建築可否を要確認）'); factor *= 0.6; }
+  else if (y.indexOf('工専') >= 0) { flags.push('⚠工業専用地域（住宅建築不可）'); factor *= 0.6; }
+  if (!p.setsudo && ['区分', 'マンション', '区分マンション'].indexOf(p.ptype) < 0) {
+    flags.push('接道情報なし（無道路/再建築不可を要確認）'); factor *= 0.9;
+  }
+  return { flags, factor };
+}
+
+function areaMedianTsubo(props) {
+  const byKey = {}, byType = {}, all = [];
+  props.forEach(p => {
+    const t = effTsubo(p);
+    if (t) {
+      (byKey[p.area + ' ' + p.ptype] = byKey[p.area + ' ' + p.ptype] || []).push(t);
+      (byType[p.ptype] = byType[p.ptype] || []).push(t);
+      all.push(t);
+    }
+  });
+  const overall = median(all);
+  const med = { _overall: overall, _type: {}, _key: {} };
+  for (const tp in byType) med._type[tp] = median(byType[tp]) ?? overall;
+  for (const k in byKey) {
+    const tp = k.split(' ')[1];
+    med._key[k] = byKey[k].length >= 3 ? median(byKey[k]) : (med._type[tp] ?? overall);
+  }
+  return med;
+}
+function lookupMedian(med, area, ptype) {
+  return med._key[area + ' ' + ptype] ?? med._type[ptype] ?? med._overall;
+}
+
+function scoreProperty(p, med) {
+  const y = surfaceYield(p), tsubo = effTsubo(p), m = lookupMedian(med, p.area, p.ptype);
+  const subs = {
+    yield_: [yieldScore(y), W.yield_],
+    market: [marketScore(tsubo, m), W.market],
+    station: [stationScore(p.station_min), W.station],
+    age: [ageScore(p.age, p.ptype), W.age],
+    area_fit: [areaFitScore(p), W.area_fit],
+  };
+  let wsum = 0, total = 0;
+  for (const k in subs) { const [s, w] = subs[k]; if (s != null) { wsum += w; total += s * w; } }
+  total = wsum ? total / wsum : 0;
+
+  const reasons = [];
+  if (y != null) reasons.push({ t: `表面利回り ${y.toFixed(1)}% ${mark(subs.yield_[0])}` });
+  if (tsubo && m) {
+    const disc = (m - tsubo) / m;
+    const rel = disc >= 0 ? `相場より${(disc * 100).toFixed(0)}%安` : `相場より${(-disc * 100).toFixed(0)}%高`;
+    const warn = disc >= SUSPICIOUS_DISCOUNT;
+    reasons.push({ t: `坪単価 ${tsubo.toFixed(0)}万・${rel} ${mark(subs.market[0])}${warn ? ' ⚠激安・訳あり疑い' : ''}`, warn });
+  }
+  if (p.station_min > 0) reasons.push({ t: `駅徒歩 ${p.station_min.toFixed(0)}分 ${mark(subs.station[0])}` });
+  if (subs.age[0] != null) reasons.push({ t: `築 ${p.age.toFixed(0)}年 ${mark(subs.age[0])}` });
+
+  const { flags, factor } = cautionFlags(p);
+  total *= factor;
+  flags.forEach(f => reasons.push({ t: f, warn: true }));
+
+  p.score = Math.round(total * 10) / 10;
+  p.reasons = reasons;
+}
+
+function scoreAll(props) {
+  const med = areaMedianTsubo(props);
+  props.forEach(p => scoreProperty(p, med));
+}
+
+// ── 画面 ───────────────────────────────────────────────
+function isFresh(p) { return seenThreshold ? p.ts > seenThreshold : false; }
+
+function buildFilterBar() {
+  const types = [...new Set(allProps.map(p => p.ptype).filter(Boolean))]
+    .sort((a, b) => allProps.filter(p => p.ptype === b).length - allProps.filter(p => p.ptype === a).length);
+  const bar = document.getElementById('filter-bar');
+  const btn = (val, label) =>
+    `<button class="filter-btn ${filterType === val ? 'active' : ''}" onclick="setFilter('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
+  let html = btn('', `すべて ${allProps.length}`);
+  html += types.map(t => btn(t, `${t} ${allProps.filter(p => p.ptype === t).length}`)).join('');
+  bar.innerHTML = html;
+}
+function setFilter(val) { filterType = val; buildFilterBar(); render(); }
+
+function render() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  let list = allProps.slice();
+  if (filterType) list = list.filter(p => p.ptype === filterType);
+  if (q) list = list.filter(p => (p.address + p.shogo + p.key + p.station).toLowerCase().includes(q));
+
+  if (activeTab === 'score') list.sort((a, b) => b.score - a.score || b.ts - a.ts);
+  else list.sort((a, b) => b.ts - a.ts || b.score - a.score);
+
+  document.getElementById('count').textContent =
+    `${list.length} 件` + (allProps.length !== list.length ? ` / 全${allProps.length}件` : '');
+
+  const el = document.getElementById('list');
+  if (!list.length) {
+    el.innerHTML = allProps.length === 0
+      ? '<div class="empty">物件を取得できませんでした（0件）。<br>接続設定を確認してください。' +
+        (lastDiag ? '<pre style="text-align:left;white-space:pre-wrap;word-break:break-all;background:#f2f2f7;color:#636366;font-size:11px;padding:10px;border-radius:8px;margin-top:12px">' + escapeHtml(lastDiag) + '</pre>' : '') +
+        '<div style="margin-top:14px"><button class="btn-retry" style="padding:9px 16px;border:none;border-radius:9px;background:#1a73e8;color:#fff;font-weight:600;margin-right:8px" onclick="loadProps()">更新</button>' +
+        '<button class="btn-reset" style="padding:9px 16px;border:none;border-radius:9px;background:#f2f2f7;color:#636366;font-weight:600" onclick="resetConfig()">接続設定をやり直す</button></div></div>'
+      : '<div class="empty">該当する物件がありません（絞り込みを解除してください）</div>';
+    return;
+  }
+  el.innerHTML = list.map((p, i) => cardHtml(p, i + 1)).join('');
+}
+
+// フォルダ/図面URL から GAS 図面ビューア（←→スワイプ）URL を作る
+function viewerUrl(p) {
+  const mFile = p.drawUrl.match(/\/(?:file\/d|d)\/([^/?]+)/);
+  const mFolder = p.folderUrl.match(/\/folders\/([^/?]+)/);
+  if (mFolder && mFile) return `${gasUrl}?folderId=${mFolder[1]}&fileId=${mFile[1]}`;
+  if (mFolder) return `${gasUrl}?folderId=${mFolder[1]}`;
+  return p.drawUrl || '';
+}
+
+function cardHtml(p, rank) {
+  const fresh = isFresh(p);
+  const buy = p.score >= 70;
+  const scls = p.score >= 70 ? 's-buy' : (p.score >= 50 ? 's-ok' : 's-ng');
+  const title = p.address || p.key || '（番号のみ）';
+  const traffic = [p.line, p.station, p.station_min ? `徒歩${p.station_min}分` : '', p.bus].filter(Boolean).join(' ');
+  const meta = [];
+  if (traffic) meta.push(`<div><span class="lbl">交通</span>${escapeHtml(traffic)}</div>`);
+  const areas = [];
+  if (p.land_m2) areas.push(`土地${p.land_m2}㎡`);
+  if (p.building_m2) areas.push(`建物${p.building_m2}㎡`);
+  if (areas.length) meta.push(`<div><span class="lbl">面積</span>${escapeHtml(areas.join(' / '))}</div>`);
+  if (p.shogo) meta.push(`<div><span class="lbl">商号</span>${escapeHtml(p.shogo)}</div>`);
+  if (p.key) meta.push(`<div><span class="lbl">物件番号</span>${escapeHtml(p.key)}</div>`);
+  const url = viewerUrl(p);
+
+  return `
+    <div class="card ${buy ? 'buy' : ''} ${fresh ? 'fresh' : ''}">
+      <div class="card-top">
+        ${activeTab === 'score' ? `<span class="rank">#${rank}</span>` : ''}
+        <span class="badge-score ${scls}">${Math.round(p.score)}点</span>
+        ${p.ptype ? `<span class="ptype">${escapeHtml(p.ptype)}</span>` : ''}
+        ${fresh ? '<span class="badge-new">NEW</span>' : ''}
+        <span class="date">${escapeHtml(fmtDate(p.ts))}</span>
+      </div>
+      <div class="title">${escapeHtml(title)}</div>
+      ${p.price_man ? `<div class="price">${Number(p.price_man).toLocaleString()}<span class="unit"> 万円</span></div>` : ''}
+      ${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}
+      ${p.reasons && p.reasons.length ? `<div class="reasons">${p.reasons.map(r => `<div class="${r.warn ? 'warn' : ''}">${escapeHtml(r.t)}</div>`).join('')}</div>` : ''}
+      ${url ? `<a class="open-btn" href="${escapeAttr(url)}" target="_blank" rel="noopener">図面・詳細を見る →</a>` : ''}
+    </div>`;
+}
+
+function fmtDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}/${mm}/${dd}`;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+init();
+</script>
+</body>
+</html>
