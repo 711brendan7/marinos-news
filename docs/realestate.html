@@ -28,6 +28,7 @@
     .refresh-btn { padding: 6px 14px; background: #007aff; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .refresh-btn:active { opacity: 0.6; }
     #scrape-status { margin-top: 9px; padding: 9px 12px; background: #f0fff4; border: 1px solid #c3e6cb; border-radius: 9px; font-size: 13px; color: #1a7a3a; }
+    #last-run { margin-top: 7px; font-size: 12px; color: #8e8e93; }
 
     .search-row { margin-top: 10px; }
     .search-row input { width: 100%; padding: 9px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
@@ -86,6 +87,7 @@
       <button class="refresh-btn" onclick="loadProps()">更新</button>
     </div>
     <div id="scrape-status" style="display:none"></div>
+    <div id="last-run"></div>
     <div class="search-row">
       <input type="search" id="search" placeholder="キーワード検索（物件名・所在地）" oninput="render()">
     </div>
@@ -154,6 +156,21 @@ function resetConfig() {
   gasUrl = ''; token = '';
   document.getElementById('errbox').style.display = 'none';
   init();
+}
+
+// ── 最終巡回日時の表示 ──────────────────────────────────
+async function fetchLastRun() {
+  try {
+    const qs = new URLSearchParams({ token, action: 'scrapeStatus' }).toString();
+    const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
+    const data = await res.json();
+    const el = document.getElementById('last-run');
+    if (data.lastRun) {
+      el.textContent = `🕒 最終巡回: ${data.lastRun}` + (data.lastResult ? `（${data.lastResult}）` : '');
+    } else {
+      el.textContent = '';
+    }
+  } catch (_) { /* 無視 */ }
 }
 
 // ── 手動巡回トリガー ────────────────────────────────────
@@ -255,6 +272,7 @@ async function loadProps() {
     if (maxDate && maxDate > (localStorage.getItem(LS_SEEN) || '')) {
       localStorage.setItem(LS_SEEN, maxDate);
     }
+    fetchLastRun();
   } catch(e) {
     console.error(e);
     if (e.name === 'AbortError') {

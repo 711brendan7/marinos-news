@@ -36,6 +36,7 @@ CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS", os.path.join(os.path.dirname(
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 OUTPUT_HEADERS = ["取得日時", "会社名", "物件名・タイトル", "価格・賃料", "所在地", "面積・間取り", "物件URL", "会社URL", "価格変更"]
+CONTROL_SHEET = "制御"     # 手動トリガー・最終巡回日時
 CHANGE_SHEET = "価格変更"  # 価格変更の履歴ログ
 CHANGE_HEADERS = ["変更日時", "会社名", "物件名・タイトル", "所在地", "旧価格", "新価格", "物件URL"]
 
@@ -92,6 +93,19 @@ def ensure_output_headers(gc):
     elif len(first_row) < len(OUTPUT_HEADERS):
         # 既存シートに不足列（価格変更）だけ追加（データは壊さない）
         sheet.update_cell(1, len(OUTPUT_HEADERS), OUTPUT_HEADERS[-1])
+
+
+def record_last_run(gc, new_count, changed_count):
+    """最終巡回日時と結果を制御シートに記録（新着ゼロでも巡回した事実を残す）。"""
+    ss = gc.open_by_key(SPREADSHEET_ID)
+    try:
+        sh = ss.worksheet(CONTROL_SHEET)
+    except gspread.WorksheetNotFound:
+        sh = ss.add_worksheet(title=CONTROL_SHEET, rows=10, cols=2)
+    now = datetime.now().strftime("%Y/%m/%d %H:%M")
+    summary = f"新規{new_count}件 / 価格変更{changed_count}件"
+    sh.update("A4:B5", [["最終巡回日時", now], ["最終巡回結果", summary]],
+              value_input_option="USER_ENTERED")
 
 
 def get_change_log_sheet(gc):
@@ -506,6 +520,11 @@ async def main():
         print(f"💰 {len(all_changed)} 件の価格変更を検知・更新しました")
         for c in all_changed:
             print(f"    {c.get('company_name','')} {c.get('address','')[:16]} {c['old_price']}→{c['price']}")
+
+    try:
+        record_last_run(gc, len(all_new_props), len(all_changed))
+    except Exception as e:
+        print(f"⚠️  最終巡回日時の記録に失敗: {e}")
 
     print(f"{'─'*40}")
     print(f"完了: {datetime.now().strftime('%Y/%m/%d %H:%M:%S')}")
