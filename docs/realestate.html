@@ -28,7 +28,7 @@
     .refresh-btn { padding: 6px 14px; background: #007aff; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .refresh-btn:active { opacity: 0.6; }
     #scrape-status { margin-top: 9px; padding: 9px 12px; background: #f0fff4; border: 1px solid #c3e6cb; border-radius: 9px; font-size: 13px; color: #1a7a3a; }
-    #last-run { margin-top: 7px; font-size: 12px; color: #8e8e93; }
+    #last-run { margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #48484a; background: #eef2f7; border-radius: 8px; display: none; }
 
     .search-row { margin-top: 10px; }
     .search-row input { width: 100%; padding: 9px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
@@ -166,9 +166,10 @@ async function fetchLastRun() {
     const data = await res.json();
     const el = document.getElementById('last-run');
     if (data.lastRun) {
-      el.textContent = `🕒 最終巡回: ${data.lastRun}` + (data.lastResult ? `（${data.lastResult}）` : '');
+      el.textContent = `🕒 最終巡回 ${data.lastRun}` + (data.lastResult ? `（${data.lastResult}）` : '');
+      el.style.display = 'block';
     } else {
-      el.textContent = '';
+      el.style.display = 'none';
     }
   } catch (_) { /* 無視 */ }
 }
