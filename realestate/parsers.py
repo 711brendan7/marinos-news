@@ -276,7 +276,10 @@ async def discover_livable(homepage_url, fetch):
             break
         added = 0
         for card in cards:
-            a = card.find("a", href=re.compile(r"/kounyu/inquiry/[A-Z0-9]+/"))
+            # 物件詳細ページ /{mansion|kodate|tochi}/{ID}/ を優先（無ければ問い合わせページ）
+            a = card.find("a", href=re.compile(r"/(mansion|kodate|tochi)/[A-Z0-9]{6,}/"))
+            if not a:
+                a = card.find("a", href=re.compile(r"/kounyu/inquiry/[A-Z0-9]+/"))
             if not a:
                 continue
             purl = urljoin(url, a["href"]).split("?")[0]
