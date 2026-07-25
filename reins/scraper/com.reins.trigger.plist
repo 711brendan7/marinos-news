@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.reins.trigger</string>
+
+    <!-- スマホPWA「今すぐ巡回」→ GAS制御シート を20秒ごとにポーリングして実行 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/masato/test-project/reins/scraper/venv/bin/python</string>
+        <string>/Users/masato/test-project/reins/scraper/trigger_watch.py</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>20</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/masato/test-project/reins/scraper/trigger_watch.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/masato/test-project/reins/scraper/trigger_watch.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/masato/test-project/reins/scraper</string>
+</dict>
+</plist>

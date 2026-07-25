@@ -23,6 +23,69 @@ const PROP_COL_WIDTHS = [
 ];
 const PROP_NUM_COLS = { E: "#,##0", I: "#,##0.00", J: "#,##0.00", K: "#,##0.0", L: "#,##0.0" };
 
+// ── 手動巡回トリガー用 ───────────────────────────────────────
+// スマホPWAの「今すぐ巡回」→ 制御シートにフラグを書く → Mac常駐watcherが検知して実行。
+const REINS_DEFAULT_SID = "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE";
+const CONTROL_SHEET      = "制御";
+const SCRAPE_DONE_TOKEN  = "r3ins-trig-8f2a";  // markScrapeDone 用（Mac watcher と一致させる）
+// 制御シート: B1=リクエスト時刻(ms) B2=状態 B3=処理済み時刻(ms,Mac) B4=最終巡回 B5=結果
+
+function jsonOut_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+function getReinsControlSheet_(sid) {
+  const ss = SpreadsheetApp.openById(sid || REINS_DEFAULT_SID);
+  let sh = ss.getSheetByName(CONTROL_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CONTROL_SHEET);
+    sh.getRange("A1").setValue("巡回リクエスト時刻(ms)");
+    sh.getRange("A2").setValue("状態");
+    sh.getRange("A3").setValue("最終処理リクエスト(ms)");
+    sh.getRange("A4").setValue("最終巡回");
+    sh.getRange("A5").setValue("結果");
+  }
+  return sh;
+}
+function reinsRequestScrape_(sid) {
+  const sh = getReinsControlSheet_(sid);
+  const now = Date.now();
+  sh.getRange("B1").setValue(now);
+  sh.getRange("B2").setValue("🕐 リクエスト受付（実行待ち）");
+  return { ok: true, requested: now, status: "🕐 リクエスト受付（実行待ち）" };
+}
+function reinsScrapeStatus_(sid) {
+  const sh = getReinsControlSheet_(sid);
+  const requested = Number(sh.getRange("B1").getValue()) || 0;
+  const processed = Number(sh.getRange("B3").getValue()) || 0;
+  return {
+    status:     String(sh.getRange("B2").getValue() || "💤 待機中"),
+    requested:  requested,
+    processed:  processed,
+    pending:    requested > processed,
+    lastRun:    String(sh.getRange("B4").getValue() || ""),
+    lastResult: String(sh.getRange("B5").getValue() || ""),
+  };
+}
+// Mac watcher が巡回開始/完了時に呼ぶ（token必須）
+function reinsMarkScrape_(p) {
+  if (p.token !== SCRAPE_DONE_TOKEN) return { error: "Unauthorized" };
+  const sh = getReinsControlSheet_(p.sid);
+  if (p.phase === "start") {
+    sh.getRange("B2").setValue("🏃 巡回中…（2〜4分）");
+    return { ok: true };
+  }
+  // phase=done: 処理済みマーク＋結果を記録
+  const requested = Number(sh.getRange("B1").getValue()) || 0;
+  const now = Utilities.formatDate(new Date(), "Asia/Tokyo", "M/d HH:mm");
+  const result = String(p.result || "");
+  sh.getRange("B3").setValue(requested);
+  sh.getRange("B4").setValue(now);
+  sh.getRange("B5").setValue(result);
+  sh.getRange("B2").setValue("✅ 完了 " + result + "（" + now + "）");
+  return { ok: true };
+}
+
 // ── 行データ配列を生成（22列） ────────────────────────────────
 function buildPropertyRows_(props) {
   return props.map(p => [
@@ -386,6 +449,50 @@ function appendProperty(d) {
 // ── PDF/図面ビューア（ブラウザから GET でアクセス） ────────────
 function doGet(e) {
   const p        = e.parameter || {};
+
+  // ── CSV エクスポート（仕入れスコアリング用・読み取り専用）──
+  // ?csv=1[&sid=<スプレッドシートID>] で全種別シートを結合したCSVを返す。
+  // 既存の図面ビューア（folderId 経路）には一切影響しない追加機能。
+  if (p.csv) {
+    const sid = p.sid || "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE";
+    const ss  = SpreadsheetApp.openById(sid);
+    const esc = v => {
+      const s = (v === null || v === undefined) ? "" : String(v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const lines = [];
+    let headerDone = false;
+    ss.getSheets().forEach(sh => {
+      if (sh.getName() === "ダッシュボード") return;
+      const rng = sh.getDataRange();
+      const data = rng.getValues();
+      if (data.length < 2) return;
+      const formulas = rng.getFormulas();  // HYPERLINK から実URLを取り出す
+      const header = data[0].map(String);
+      if (!header.some(h => h.indexOf("物件") >= 0 || h.indexOf("価格") >= 0)) return;
+      const start = headerDone ? 1 : 0;
+      headerDone = true;
+      for (let r = start; r < data.length; r++) {
+        const rowOut = data[r].map((v, c) => {
+          const fml = formulas[r][c];
+          if (fml) {
+            const m = fml.match(/HYPERLINK\("([^"]+)"/i);
+            if (m) return esc(m[1]);   // Drive の実URLを出力
+          }
+          return esc(v);
+        });
+        lines.push(rowOut.join(","));
+      }
+    });
+    return ContentService.createTextOutput(lines.join("\n"))
+      .setMimeType(ContentService.MimeType.CSV);
+  }
+
+  // ── 手動巡回トリガー（スマホPWA ⇄ Mac常駐watcher）──
+  if (p.action === "requestScrape") return jsonOut_(reinsRequestScrape_(p.sid));
+  if (p.action === "scrapeStatus")  return jsonOut_(reinsScrapeStatus_(p.sid));
+  if (p.action === "markScrape")    return jsonOut_(reinsMarkScrape_(p));
+
   const folderId = p.folderId || "";
   const fileId   = p.fileId  || "";
   let   idx      = parseInt(p.i || "0");
@@ -433,16 +540,15 @@ function doGet(e) {
   // ナビゲーションURLの共通パラメータ
   const baseParam  = `folderId=${folderId}`;
 
-  const previewHtml = cur.isPdf
-    ? `<div style="flex:1;position:relative"><iframe src="https://drive.google.com/file/d/${cur.id}/preview" allowfullscreen style="position:absolute;inset:0;width:100%;height:100%;border:none"></iframe><div id="sw" style="position:absolute;inset:0;z-index:10"></div></div>`
-    : `<img src="https://drive.google.com/thumbnail?id=${cur.id}&sz=w1200" style="flex:1;max-width:100%;object-fit:contain" alt="${cur.name}">`;
+  // 全ファイルをクライアントに渡し、←→ はページ再読込せず瞬時に切替（高速化）
+  const filesJson = JSON.stringify(files.map(f => ({ id: f.id, name: f.name, pdf: f.isPdf })));
 
   const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>図面 ${safeIdx + 1}/${total}</title>
+<title>図面ビューア</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:sans-serif;display:flex;flex-direction:column;height:100vh;background:#222}
@@ -452,34 +558,44 @@ body{font-family:sans-serif;display:flex;flex-direction:column;height:100vh;back
 .info{flex:1;text-align:center;min-width:0;overflow:hidden}
 .name{font-size:11px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .count{font-size:15px;font-weight:bold}
+#stage{flex:1;position:relative;background:#222}
+#frame{position:absolute;inset:0;width:100%;height:100%;border:none}
+#img{position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;object-fit:contain;display:none}
+#sw{position:absolute;inset:0;z-index:10}
 </style>
 </head>
 <body>
 <nav class="nav">
-  <button class="btn" onclick="go(-1)" ${safeIdx <= 0 ? "disabled" : ""}>←</button>
-  <div class="info">
-    <div class="name">${cur.name}</div>
-    <div class="count">${safeIdx + 1} / ${total}</div>
-  </div>
-  <button class="btn" onclick="go(1)" ${safeIdx >= total - 1 ? "disabled" : ""}>→</button>
+  <button class="btn" id="prev">←</button>
+  <div class="info"><div class="name" id="nm"></div><div class="count" id="ct"></div></div>
+  <button class="btn" id="next">→</button>
 </nav>
-${previewHtml}
+<div id="stage">
+  <iframe id="frame" allowfullscreen></iframe>
+  <img id="img" alt="">
+  <div id="sw"></div>
+</div>
 <script>
-function go(d){
-  const next=${safeIdx}+d;
-  if(next<0||next>=${total})return;
-  location.href="${serviceUrl}?${baseParam}&i="+next;
+var F=${filesJson}, i=${safeIdx};
+function render(){
+  var f=F[i], fr=document.getElementById('frame'), im=document.getElementById('img');
+  document.getElementById('nm').textContent=f.name;
+  document.getElementById('ct').textContent=(i+1)+' / '+F.length;
+  if(f.pdf){im.style.display='none';fr.style.display='block';fr.src='https://drive.google.com/file/d/'+f.id+'/preview';}
+  else{fr.style.display='none';im.style.display='block';im.src='https://drive.google.com/thumbnail?id='+f.id+'&sz=w1200';}
+  document.getElementById('prev').disabled=i<=0;
+  document.getElementById('next').disabled=i>=F.length-1;
+  [i-1,i+1].forEach(function(j){if(j>=0&&j<F.length){var l=document.createElement('link');l.rel='prefetch';l.href=F[j].pdf?'https://drive.google.com/file/d/'+F[j].id+'/preview':'https://drive.google.com/thumbnail?id='+F[j].id+'&sz=w1200';document.head.appendChild(l);}});
 }
-(function(){
-  const el=document.getElementById('sw')||document;
-  let sx=0,sy=0;
-  el.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
-  el.addEventListener('touchend',e=>{
-    const dx=e.changedTouches[0].clientX-sx;
-    const dy=e.changedTouches[0].clientY-sy;
-    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40)go(dx<0?1:-1);
-  });
+function go(d){var n=i+d;if(n<0||n>=F.length)return;i=n;render();}
+document.getElementById('prev').onclick=function(){go(-1);};
+document.getElementById('next').onclick=function(){go(1);};
+document.addEventListener('keydown',function(e){if(e.key==='ArrowLeft')go(-1);if(e.key==='ArrowRight')go(1);});
+(function(){var el=document.getElementById('sw'),sx=0,sy=0;
+ el.addEventListener('touchstart',function(e){sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
+ el.addEventListener('touchend',function(e){var dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40)go(dx<0?1:-1);});
 })();
+render();
 </script>
 </body>
 </html>`;

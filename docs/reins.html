@@ -22,8 +22,13 @@
     .head-row { display: flex; align-items: baseline; gap: 10px; }
     h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
     .count { font-size: 13px; color: #8e8e93; }
-    .refresh-btn { margin-left: auto; padding: 6px 14px; background: #1a73e8; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .scrape-btn { margin-left: auto; padding: 6px 12px; background: #34c759; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .scrape-btn:active { opacity: 0.6; }
+    .scrape-btn:disabled { opacity: 0.5; }
+    .refresh-btn { padding: 6px 14px; background: #1a73e8; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .refresh-btn:active { opacity: 0.6; }
+    #scrape-status { margin-top: 9px; padding: 9px 12px; background: #f0fff4; border: 1px solid #c3e6cb; border-radius: 9px; font-size: 13px; color: #1a7a3a; }
+    #last-run { margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #48484a; background: #eef2f7; border-radius: 8px; display: none; }
 
     /* タブ（スコア順 / 新着順） */
     .tabs { display: flex; gap: 6px; margin-top: 11px; background: #eef0f4; padding: 3px; border-radius: 11px; }
@@ -42,7 +47,11 @@
     .card { background: #fff; border-radius: 14px; padding: 15px 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); border-left: 3px solid transparent; }
     .card.buy { border-left-color: #34c759; }
     .card.fresh { border-left-color: #ff9500; }
+    .card.fav { border-left-color: #ffcc00; }
     .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .fav-btn { background: none; border: none; font-size: 22px; line-height: 1; cursor: pointer; padding: 0 0 0 4px; color: #d1d1d6; -webkit-tap-highlight-color: transparent; }
+    .fav-btn.on { color: #ffcc00; }
+    .fav-btn:active { transform: scale(1.25); }
     .rank { font-size: 12px; color: #8e8e93; font-weight: 700; }
     .ptype { font-size: 11px; font-weight: 700; color: #48484a; background: #eef2f7; padding: 2px 8px; border-radius: 7px; }
     .badge-score { font-size: 12px; font-weight: 800; color: #fff; padding: 2px 9px; border-radius: 8px; letter-spacing: 0.3px; }
@@ -86,8 +95,11 @@
     <div class="head-row">
       <h1>REINS仕入れ</h1>
       <span class="count" id="count"></span>
+      <button class="scrape-btn" id="scrape-btn" onclick="requestScrape()">今すぐ巡回</button>
       <button class="refresh-btn" onclick="loadProps()">更新</button>
     </div>
+    <div id="scrape-status" style="display:none"></div>
+    <div id="last-run"></div>
     <div class="tabs">
       <button class="tab active" id="tab-score" onclick="setTab('score')">🏆 スコア順</button>
       <button class="tab" id="tab-new" onclick="setTab('new')">🆕 新着順</button>
@@ -123,6 +135,7 @@ const LS_SID   = 'reins_gas_sid';
 const LS_SEEN  = 'reins_seen_max';       // 前回までに見た最新の取得日時(ms)
 const LS_SEEN_INIT = 'reins_seen_init';
 const LS_TAB   = 'reins_tab';
+const LS_FAVS  = 'reins_favs';           // お気に入り物件番号の配列
 // 既定：run_score_daily.sh と同じ reins デプロイURL（そのまま使えるよう初期値に）
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwg5gIdluJCKhxg5Ac37ojhD1RxblEidHziJUIo2vWPTMWdlzlxEkCeaE-CydbCHInz-g/exec';
 
@@ -133,6 +146,8 @@ let filterType = '';
 let activeTab = localStorage.getItem(LS_TAB) || 'score';
 let seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
 let lastDiag = '';
+let favs = new Set(JSON.parse(localStorage.getItem(LS_FAVS) || '[]'));
+let showFavsOnly = false;
 
 function init() {
   if (gasUrl) {
@@ -166,6 +181,78 @@ function setTab(t) {
   document.getElementById('tab-score').classList.toggle('active', t === 'score');
   document.getElementById('tab-new').classList.toggle('active', t === 'new');
   render();
+}
+
+// ── お気に入り ─────────────────────────────────────────
+function toggleFav(key) {
+  const on = !favs.has(key);
+  if (on) favs.add(key); else favs.delete(key);
+  localStorage.setItem(LS_FAVS, JSON.stringify([...favs]));
+  const btn = document.querySelector(`.fav-btn[data-key="${cssEsc(key)}"]`);
+  if (btn) { btn.classList.toggle('on', on); btn.textContent = on ? '★' : '☆'; }
+  buildFilterBar();
+  if (showFavsOnly) render();  // お気に入り表示中に外したら一覧から消す
+}
+function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+
+// ── 手動巡回トリガー（GAS 制御シート経由・物件ウォッチと同方式）──
+let scrapePollTimer = null;
+function setScrapeStatus(msg) {
+  const el = document.getElementById('scrape-status');
+  el.style.display = 'block';
+  el.textContent = msg;
+}
+function scrapeQs(action) {
+  const qs = new URLSearchParams({ action });
+  if (sid) qs.set('sid', sid);
+  return qs.toString();
+}
+async function requestScrape() {
+  const btn = document.getElementById('scrape-btn');
+  btn.disabled = true;
+  setScrapeStatus('🕐 巡回をリクエスト中…');
+  try {
+    const res = await fetch(`${gasUrl}?${scrapeQs('requestScrape')}`, { redirect: 'follow' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    setScrapeStatus('🏃 巡回を開始しました。完了までお待ちください（2〜4分）…');
+    pollScrapeStatus(0);
+  } catch (e) {
+    setScrapeStatus('⚠️ 巡回リクエストに失敗しました: ' + (e.message || e));
+    btn.disabled = false;
+  }
+}
+async function pollScrapeStatus(tries) {
+  if (scrapePollTimer) clearTimeout(scrapePollTimer);
+  if (tries > 120) {  // 約8分でタイムアウト
+    setScrapeStatus('⏱️ 時間がかかっています。しばらくして「更新」を押してください。');
+    document.getElementById('scrape-btn').disabled = false;
+    return;
+  }
+  try {
+    const res = await fetch(`${gasUrl}?${scrapeQs('scrapeStatus')}`, { redirect: 'follow' });
+    const data = await res.json();
+    if (data.status) setScrapeStatus(data.status);
+    if (!data.pending && /✅/.test(data.status || '')) {
+      document.getElementById('scrape-btn').disabled = false;
+      await loadProps();
+      return;
+    }
+  } catch (_) { /* 一時的なエラーは無視して継続 */ }
+  scrapePollTimer = setTimeout(() => pollScrapeStatus(tries + 1), 4000);
+}
+async function fetchLastRun() {
+  try {
+    const res = await fetch(`${gasUrl}?${scrapeQs('scrapeStatus')}`, { redirect: 'follow' });
+    const data = await res.json();
+    const el = document.getElementById('last-run');
+    if (data.lastRun) {
+      el.textContent = `🕒 最終巡回 ${data.lastRun}` + (data.lastResult ? `（${data.lastResult}）` : '');
+      el.style.display = 'block';
+    } else {
+      el.style.display = 'none';
+    }
+  } catch (_) { /* 無視 */ }
 }
 
 function showError(msg, detail) {
@@ -235,6 +322,7 @@ async function loadProps() {
     seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
     buildFilterBar();
     render();
+    fetchLastRun();
     if (maxTs > Number(localStorage.getItem(LS_SEEN) || 0)) {
       localStorage.setItem(LS_SEEN, String(maxTs));
     }
@@ -419,17 +507,21 @@ function buildFilterBar() {
     .sort((a, b) => allProps.filter(p => p.ptype === b).length - allProps.filter(p => p.ptype === a).length);
   const bar = document.getElementById('filter-bar');
   const btn = (val, label) =>
-    `<button class="filter-btn ${filterType === val ? 'active' : ''}" onclick="setFilter('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
-  let html = btn('', `すべて ${allProps.length}`);
+    `<button class="filter-btn ${!showFavsOnly && filterType === val ? 'active' : ''}" onclick="setFilter('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
+  const favCount = allProps.filter(p => favs.has(p.key)).length;
+  let html = `<button class="filter-btn ${showFavsOnly ? 'active' : ''}" onclick="toggleFavFilter()">⭐ お気に入り ${favCount}</button>`;
+  html += btn('', `すべて ${allProps.length}`);
   html += types.map(t => btn(t, `${t} ${allProps.filter(p => p.ptype === t).length}`)).join('');
   bar.innerHTML = html;
 }
-function setFilter(val) { filterType = val; buildFilterBar(); render(); }
+function setFilter(val) { filterType = val; showFavsOnly = false; buildFilterBar(); render(); }
+function toggleFavFilter() { showFavsOnly = !showFavsOnly; buildFilterBar(); render(); }
 
 function render() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   let list = allProps.slice();
-  if (filterType) list = list.filter(p => p.ptype === filterType);
+  if (showFavsOnly) list = list.filter(p => favs.has(p.key));
+  else if (filterType) list = list.filter(p => p.ptype === filterType);
   if (q) list = list.filter(p => (p.address + p.shogo + p.key + p.station).toLowerCase().includes(q));
 
   if (activeTab === 'score') list.sort((a, b) => b.score - a.score || b.ts - a.ts);
@@ -445,7 +537,9 @@ function render() {
         (lastDiag ? '<pre style="text-align:left;white-space:pre-wrap;word-break:break-all;background:#f2f2f7;color:#636366;font-size:11px;padding:10px;border-radius:8px;margin-top:12px">' + escapeHtml(lastDiag) + '</pre>' : '') +
         '<div style="margin-top:14px"><button class="btn-retry" style="padding:9px 16px;border:none;border-radius:9px;background:#1a73e8;color:#fff;font-weight:600;margin-right:8px" onclick="loadProps()">更新</button>' +
         '<button class="btn-reset" style="padding:9px 16px;border:none;border-radius:9px;background:#f2f2f7;color:#636366;font-weight:600" onclick="resetConfig()">接続設定をやり直す</button></div></div>'
-      : '<div class="empty">該当する物件がありません（絞り込みを解除してください）</div>';
+      : (showFavsOnly
+          ? '<div class="empty">お気に入りはまだありません。<br>各カード右上の ☆ をタップすると登録できます。</div>'
+          : '<div class="empty">該当する物件がありません（絞り込みを解除してください）</div>');
     return;
   }
   el.innerHTML = list.map((p, i) => cardHtml(p, i + 1)).join('');
@@ -462,6 +556,7 @@ function viewerUrl(p) {
 
 function cardHtml(p, rank) {
   const fresh = isFresh(p);
+  const isFav = favs.has(p.key);
   const buy = p.score >= 70;
   const scls = p.score >= 70 ? 's-buy' : (p.score >= 50 ? 's-ok' : 's-ng');
   const title = p.address || p.key || '（番号のみ）';
@@ -476,14 +571,16 @@ function cardHtml(p, rank) {
   if (p.key) meta.push(`<div><span class="lbl">物件番号</span>${escapeHtml(p.key)}</div>`);
   const url = viewerUrl(p);
 
+  const cls = isFav ? 'fav' : (buy ? 'buy' : (fresh ? 'fresh' : ''));
   return `
-    <div class="card ${buy ? 'buy' : ''} ${fresh ? 'fresh' : ''}">
+    <div class="card ${cls}">
       <div class="card-top">
         ${activeTab === 'score' ? `<span class="rank">#${rank}</span>` : ''}
         <span class="badge-score ${scls}">${Math.round(p.score)}点</span>
         ${p.ptype ? `<span class="ptype">${escapeHtml(p.ptype)}</span>` : ''}
         ${fresh ? '<span class="badge-new">NEW</span>' : ''}
         <span class="date">${escapeHtml(fmtDate(p.ts))}</span>
+        <button class="fav-btn ${isFav ? 'on' : ''}" data-key="${escapeAttr(p.key)}" onclick="toggleFav('${jsEsc(p.key)}')" aria-label="お気に入り">${isFav ? '★' : '☆'}</button>
       </div>
       <div class="title">${escapeHtml(title)}</div>
       ${p.price_man ? `<div class="price">${Number(p.price_man).toLocaleString()}<span class="unit"> 万円</span></div>` : ''}
@@ -504,6 +601,7 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 function escapeAttr(s) { return escapeHtml(s); }
+function jsEsc(s) { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
 
 init();
 </script>
