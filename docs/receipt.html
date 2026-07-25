@@ -102,7 +102,6 @@
 <script>
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbwfdNLvQS0aajkqqU_qcO5NXIXjeR4XIsKnMTrS7hrmoZ2khiXe2Wl6l81zX462BcFiGQ/exec';
   const TOKEN   = 'Ulzdc5gG18YLMASwWNGJvg';
-  const APP_PIN = '1234';
   const DEFAULT_FOLDERS = [
     { id: '1H6XpCOQC1TOmjrqhvgdn63So8XxSOuC5', name: 'MICARE', isCurrent: true }
   ];
@@ -110,20 +109,32 @@
   let currentFile = null;
   let currentBase64 = null;
 
-  // PIN認証
-  (function checkPin() {
-    if (localStorage.getItem('pin_ok') === APP_PIN) return;
-    const pin = prompt('PINコードを入力してください');
-    if (pin === APP_PIN) {
-      localStorage.setItem('pin_ok', APP_PIN);
-    } else {
-      document.body.innerHTML = '<p style="text-align:center;margin-top:40vh;font-size:18px;color:#721c24">PINが違います</p>';
-      throw new Error('PIN error');
+  // PIN：正解はサーバー(GAS)側が持つ。ここには埋め込まず、入力値を端末に保存して毎回送るだけ。
+  // → 端末ごとに最初の1回だけ入力すればよい（間違ったPINのときだけ再入力）
+  let userPin = localStorage.getItem('userPin') || '';
+  function ensurePin() {
+    if (!userPin) {
+      userPin = (prompt('PINコードを入力してください') || '').trim();
+      if (userPin) localStorage.setItem('userPin', userPin);
     }
-  })();
+    return userPin;
+  }
+  function clearPin() { userPin = ''; localStorage.removeItem('userPin'); }
+  ensurePin();
+
+  // GAS呼び出し共通（token＋pinを自動付与）
+  async function callGas(payload) {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(Object.assign({ token: TOKEN, pin: userPin }, payload))
+    });
+    return res.json();
+  }
+  function isUnauthorized(data) { return data && data.error === 'Unauthorized'; }
 
   // フォルダ一覧をGASから取得してセレクトボックスに設定
-  async function loadFolders() {
+  async function loadFolders(retry) {
     const sel = document.getElementById('input-folder');
     const statusEl = document.getElementById('folder-status');
 
@@ -135,12 +146,13 @@
 
     // GASから最新を取得
     try {
-      const res = await fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ token: TOKEN, action: 'getFolders' })
-      });
-      const data = await res.json();
+      const data = await callGas({ action: 'getFolders' });
+      if (isUnauthorized(data)) {
+        clearPin();
+        if (!retry) { ensurePin(); if (userPin) return loadFolders(true); }
+        statusEl.textContent = 'PINが違います。開き直して再入力してください';
+        return;
+      }
       if (Array.isArray(data) && data.length > 0) {
         localStorage.setItem('folders_cache', JSON.stringify(data));
         localStorage.setItem('folders_cache_ts', Date.now());
@@ -198,12 +210,8 @@
     const statusEl = document.getElementById('folder-status');
     statusEl.textContent = 'フォルダを作成中…';
     try {
-      const res = await fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ token: TOKEN, action: 'createFolder', name: name, parentId: parentId })
-      });
-      const data = await res.json();
+      const data = await callGas({ action: 'createFolder', name: name, parentId: parentId });
+      if (isUnauthorized(data)) { statusEl.textContent = 'PINが違います'; sel.value = lastGoodFolderId; return; }
       if (data.success) {
         if (!knownFolders.find(f => f.id === data.id)) {
           if (parentId) {
@@ -281,11 +289,7 @@
   }
 
   function uploadOne(base64, mime, filename, folderId) {
-    return fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ token: TOKEN, image: base64, mimeType: mime || 'image/jpeg', filename: filename, folderId: folderId })
-    }).then(r => r.json());
+    return callGas({ image: base64, mimeType: mime || 'image/jpeg', filename: filename, folderId: folderId });
   }
 
   // 入力の振り分け：1枚→単枚フロー、複数→まとめフロー
@@ -387,6 +391,7 @@
         const filename = dateVal.replace(/-/g, '') + '_' + pad(i + 1) + '_receipt.jpg';
         const base64 = await fileToBase64(item.file);
         const data = await uploadOne(base64, item.file.type, filename, folderId);
+        if (isUnauthorized(data)) { stateEl.textContent = '🔒'; fail++; showStatus('error', 'PINが違います'); break; }
         if (data.success) { stateEl.textContent = '✅'; item.done = true; ok++; }
         else { stateEl.textContent = '⚠️'; fail++; }
       } catch (e) {
@@ -416,14 +421,10 @@
     showStatus('processing', 'アップロード中...');
     document.getElementById('upload-btn').disabled = true;
 
-    fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ token: TOKEN, image: currentBase64, mimeType: currentFile.type || 'image/jpeg', filename: filename, folderId: folderId })
-    })
-    .then(r => r.json())
+    callGas({ image: currentBase64, mimeType: currentFile.type || 'image/jpeg', filename: filename, folderId: folderId })
     .then(data => {
       document.getElementById('upload-btn').disabled = false;
+      if (isUnauthorized(data)) { showStatus('error', 'PINが違います'); return; }
       if (data.success) {
         showStatus('success', '✓ 保存完了！<br><b>' + data.name + '</b>');
         document.getElementById('upload-btn').style.display = 'none';

@@ -1,10 +1,14 @@
 const FOLDER_ID = '1H6XpCOQC1TOmjrqhvgdn63So8XxSOuC5';
 const SECRET_TOKEN = 'Ulzdc5gG18YLMASwWNGJvg';
+const APP_PIN = '55238888';  // このPINを知っている人だけが保存できる（サーバー側で検証）
 
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    if (body.token !== SECRET_TOKEN) return makeResponse({ error: 'Unauthorized' });
+    // トークン＋PINの両方が正しいときだけ許可（PINはクライアントに埋め込まない）
+    if (body.token !== SECRET_TOKEN || String(body.pin) !== APP_PIN) {
+      return makeResponse({ error: 'Unauthorized' });
+    }
 
     if (body.action === 'getFolders') {
       return makeResponse(getFolders());
