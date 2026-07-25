@@ -553,7 +553,7 @@ function doGet(e) {
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:sans-serif;display:flex;flex-direction:column;height:100vh;background:#222}
 .nav{display:flex;align-items:center;background:#1a73e8;color:#fff;padding:8px 12px;gap:8px;flex-shrink:0}
-.btn{background:rgba(255,255,255,.25);border:none;color:#fff;font-size:22px;padding:8px 20px;border-radius:6px;cursor:pointer;line-height:1}
+.btn{background:rgba(255,255,255,.25);border:none;color:#fff;font-size:24px;padding:11px 26px;border-radius:8px;cursor:pointer;line-height:1;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .btn:disabled{opacity:.3;cursor:default}
 .info{flex:1;text-align:center;min-width:0;overflow:hidden}
 .name{font-size:11px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -561,7 +561,6 @@ body{font-family:sans-serif;display:flex;flex-direction:column;height:100vh;back
 #stage{flex:1;position:relative;background:#222}
 #frame{position:absolute;inset:0;width:100%;height:100%;border:none}
 #img{position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;object-fit:contain;display:none}
-#sw{position:absolute;inset:0;z-index:10}
 </style>
 </head>
 <body>
@@ -573,7 +572,6 @@ body{font-family:sans-serif;display:flex;flex-direction:column;height:100vh;back
 <div id="stage">
   <iframe id="frame" allowfullscreen></iframe>
   <img id="img" alt="">
-  <div id="sw"></div>
 </div>
 <script>
 var F=${filesJson}, i=${safeIdx};
@@ -591,10 +589,6 @@ function go(d){var n=i+d;if(n<0||n>=F.length)return;i=n;render();}
 document.getElementById('prev').onclick=function(){go(-1);};
 document.getElementById('next').onclick=function(){go(1);};
 document.addEventListener('keydown',function(e){if(e.key==='ArrowLeft')go(-1);if(e.key==='ArrowRight')go(1);});
-(function(){var el=document.getElementById('sw'),sx=0,sy=0;
- el.addEventListener('touchstart',function(e){sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
- el.addEventListener('touchend',function(e){var dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>40)go(dx<0?1:-1);});
-})();
 render();
 </script>
 </body>
