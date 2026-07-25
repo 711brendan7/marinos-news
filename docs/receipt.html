@@ -44,7 +44,9 @@
   .batch-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
   .batch-row:last-child { border-bottom: none; }
   .batch-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: #eee; }
-  .batch-date { border: none; font-size: 14px; outline: none; background: transparent; flex: 1; min-width: 0; }
+  .batch-date { border: none; font-size: 13px; outline: none; background: transparent; flex: 1; min-width: 0; }
+  .batch-amount { border: none; border-bottom: 1px solid #eee; font-size: 14px; outline: none; background: transparent;
+    width: 74px; flex-shrink: 0; text-align: right; }
   .batch-state { font-size: 15px; width: 22px; text-align: center; flex-shrink: 0; }
   #filename-preview { margin-top: 10px; font-size: 12px; color: #8e8e93; word-break: break-all; }
   #status { margin-top: 16px; padding: 14px; border-radius: 12px; font-size: 14px; display: none; }
@@ -260,7 +262,8 @@
   // ---- 共通ヘルパー ----
   let ocrWorker = null;
   async function getWorker() {
-    if (!ocrWorker) ocrWorker = await Tesseract.createWorker('eng');
+    // 日本語＋英数字。合計などの日本語キーワードと数字を両方読む
+    if (!ocrWorker) ocrWorker = await Tesseract.createWorker('jpn+eng');
     return ocrWorker;
   }
 
@@ -269,14 +272,53 @@
     return n.getFullYear() + '-' + pad(n.getMonth()+1) + '-' + pad(n.getDate());
   }
 
-  async function detectDate(file) {
+  // OCRを1回だけ実行して {date, amount} を返す
+  async function scanReceipt(file) {
+    let text = '';
     try {
       const worker = await getWorker();
-      const { data: { text } } = await worker.recognize(file);
-      const m = text.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
-      if (m) return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
-    } catch (e) { /* OCR失敗時は今日の日付にフォールバック */ }
+      const r = await worker.recognize(file);
+      text = r.data.text || '';
+    } catch (e) { /* OCR失敗時はフォールバック */ }
+    return { date: parseDate(text), amount: parseAmount(text) };
+  }
+
+  // 日付だけ欲しいとき（後方互換）
+  async function detectDate(file) {
+    return (await scanReceipt(file)).date;
+  }
+
+  function parseDate(text) {
+    // 2026/7/25 ・ 2026-07-25 ・ 2026.7.25 ・ 2026年7月25日 に対応
+    const m = text.match(/(20\d{2})[\/\-\.年]\s*(\d{1,2})[\/\-\.月]\s*(\d{1,2})/);
+    if (m) {
+      const mo = Math.min(12, Math.max(1, +m[2]));
+      const da = Math.min(31, Math.max(1, +m[3]));
+      return m[1] + '-' + pad(mo) + '-' + pad(da);
+    }
     return todayStr();
+  }
+
+  // 金額を推定：「合計」等の行を優先、なければ最大の金額らしき数字
+  function parseAmount(text) {
+    if (!text) return '';
+    const totalKey = /(合\s*計|お?会計|お?買上|総額|税込|ご?請求|お支払)/;
+    const excludeKey = /(小計|お?預|釣|つり|点数|枚数|ポイント|residue|change)/;
+    const numRe = /[¥￥]?\s?([0-9][0-9,]{1,9})\s?円?/g;
+    const cands = [];
+    text.split(/\r?\n/).forEach(line => {
+      const isTotal = totalKey.test(line);
+      const isExcl = excludeKey.test(line);
+      let m; numRe.lastIndex = 0;
+      while ((m = numRe.exec(line)) !== null) {
+        const v = parseInt(m[1].replace(/,/g, ''), 10);
+        if (!v || v < 10 || v > 99999999) continue;
+        cands.push({ v: v, pri: isExcl ? -1 : (isTotal ? 3 : 0) });
+      }
+    });
+    if (!cands.length) return '';
+    cands.sort((a, b) => b.pri - a.pri || b.v - a.v);  // 優先度→金額大きい順
+    return String(cands[0].v);
   }
 
   function fileToBase64(file) {
@@ -317,12 +359,13 @@
     showStatus('processing', '🔍 テキスト認識中...');
 
     try {
-      document.getElementById('input-date').value = await detectDate(file);
-      document.getElementById('input-amount').value = '';
+      const scan = await scanReceipt(file);
+      document.getElementById('input-date').value = scan.date;
+      document.getElementById('input-amount').value = scan.amount;
       updatePreview();
       document.getElementById('edit-box').style.display = 'block';
       document.getElementById('upload-btn').style.display = 'block';
-      showStatus('processing', '✏️ 内容を確認して「保存」をタップ');
+      showStatus('processing', '✏️ 日付・金額を確認/修正して「保存」をタップ');
       currentBase64 = await fileToBase64(file);
     } catch (err) {
       showStatus('error', 'OCRエラー: ' + err.message);
@@ -348,6 +391,7 @@
       row.innerHTML =
         '<img class="batch-thumb" src="' + URL.createObjectURL(file) + '">' +
         '<input type="date" class="batch-date" id="bdate-' + i + '">' +
+        '<input type="number" inputmode="numeric" class="batch-amount" id="bamount-' + i + '" placeholder="金額">' +
         '<span class="batch-state" id="bstate-' + i + '">⏳</span>';
       box.appendChild(row);
       batchItems.push({ file: file, done: false });
@@ -356,10 +400,11 @@
     showStatus('processing', '🔍 ' + files.length + '枚を認識中…');
     document.getElementById('batch-upload-btn').style.display = 'none';
 
-    // 1枚ずつOCRして日付欄を埋める
+    // 1枚ずつOCRして日付・金額欄を埋める
     for (let i = 0; i < files.length; i++) {
-      const d = await detectDate(files[i]);
-      document.getElementById('bdate-' + i).value = d;
+      const scan = await scanReceipt(files[i]);
+      document.getElementById('bdate-' + i).value = scan.date;
+      document.getElementById('bamount-' + i).value = scan.amount;
       document.getElementById('bstate-' + i).textContent = '📄';
     }
 
@@ -367,7 +412,7 @@
     btn.textContent = '☁️ ' + files.length + '件をまとめて保存';
     btn.style.display = 'block';
     btn.disabled = false;
-    showStatus('processing', '✏️ 日付を確認して「まとめて保存」をタップ');
+    showStatus('processing', '✏️ 日付・金額を確認/修正して「まとめて保存」をタップ');
   }
 
   async function doBatchUpload() {
@@ -387,8 +432,9 @@
       showStatus('processing', '保存中… ' + (i + 1) + ' / ' + batchItems.length);
       try {
         const dateVal = document.getElementById('bdate-' + i).value || todayStr();
+        const amountVal = document.getElementById('bamount-' + i).value;
         // 同日でも重複しないよう連番を付与
-        const filename = dateVal.replace(/-/g, '') + '_' + pad(i + 1) + '_receipt.jpg';
+        const filename = dateVal.replace(/-/g, '') + (amountVal ? '_' + amountVal : '') + '_' + pad(i + 1) + '_receipt.jpg';
         const base64 = await fileToBase64(item.file);
         const data = await uploadOne(base64, item.file.type, filename, folderId);
         if (isUnauthorized(data)) { stateEl.textContent = '🔒'; fail++; showStatus('error', 'PINが違います'); break; }
