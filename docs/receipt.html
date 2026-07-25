@@ -35,12 +35,21 @@
   .field-label { font-size: 13px; color: #8e8e93; width: 50px; flex-shrink: 0; }
   .field-input { flex: 1; border: none; font-size: 16px; outline: none; background: transparent; text-align: right; }
   .field-select { flex: 1; border: none; font-size: 15px; outline: none; background: transparent; text-align: right; color: #1c1c1e; }
+  #folder-box { margin-top: 14px; background: white; border-radius: 12px; overflow: hidden; display: none; }
+  #batch-box { margin-top: 14px; background: white; border-radius: 12px; overflow: hidden; display: none; text-align: left; }
+  .batch-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
+  .batch-row:last-child { border-bottom: none; }
+  .batch-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: #eee; }
+  .batch-date { border: none; font-size: 14px; outline: none; background: transparent; flex: 1; min-width: 0; }
+  .batch-state { font-size: 15px; width: 22px; text-align: center; flex-shrink: 0; }
   #filename-preview { margin-top: 10px; font-size: 12px; color: #8e8e93; word-break: break-all; }
   #status { margin-top: 16px; padding: 14px; border-radius: 12px; font-size: 14px; display: none; }
   .status-processing { background: #fff3cd; color: #856404; }
   .status-success { background: #d4edda; color: #155724; }
   .status-error { background: #f8d7da; color: #721c24; }
   #upload-btn { display: none; margin-top: 12px; }
+  #batch-upload-btn { display: none; margin-top: 12px; }
+  #folder-status { font-size: 11px; color: #8e8e93; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -49,10 +58,17 @@
   <p class="subtitle">撮影 → 日付を自動認識 → Google Drive に保存</p>
 
   <button class="btn btn-primary" onclick="document.getElementById('cameraInput').click()">📷 カメラで撮影</button>
-  <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()">🖼️ 写真を選ぶ</button>
+  <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()">🖼️ 写真を選ぶ（複数OK）</button>
 
   <input type="file" id="cameraInput"  accept="image/*" capture="environment">
-  <input type="file" id="galleryInput" accept="image/*">
+  <input type="file" id="galleryInput" accept="image/*" multiple>
+
+  <div id="folder-box">
+    <div class="field-row">
+      <span class="field-label">保存先</span>
+      <select id="input-folder" class="field-select" onchange="onFolderChange()"></select>
+    </div>
+  </div>
 
   <div id="preview"><img id="previewImg"></div>
 
@@ -65,30 +81,32 @@
       <span class="field-label">金額</span>
       <input type="number" id="input-amount" class="field-input" placeholder="手動入力" inputmode="numeric" onchange="updatePreview()">
     </div>
-    <div class="field-row">
-      <span class="field-label">保存先</span>
-      <select id="input-folder" class="field-select">
-        <option value="">読み込み中...</option>
-      </select>
-    </div>
   </div>
+
+  <div id="batch-box"></div>
+
   <div id="filename-preview"></div>
+  <div id="folder-status"></div>
 
   <div id="status"></div>
   <button id="upload-btn" class="btn btn-primary" onclick="doUpload()">☁️ Google Drive に保存</button>
+  <button id="batch-upload-btn" class="btn btn-primary" onclick="doBatchUpload()">☁️ まとめて保存</button>
 </div>
 
 <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbwfdNLvQS0aajkqqU_qcO5NXIXjeR4XIsKnMTrS7hrmoZ2khiXe2Wl6l81zX462BcFiGQ/exec';
   const TOKEN   = 'Ulzdc5gG18YLMASwWNGJvg';
-  const APP_PIN = '1234'; // ← PINコードをここで変更
+  const APP_PIN = '1234';
+  const DEFAULT_FOLDERS = [
+    { id: '1H6XpCOQC1TOmjrqhvgdn63So8XxSOuC5', name: 'MICARE', isCurrent: true }
+  ];
 
   let currentFile = null;
   let currentBase64 = null;
 
   // PIN認証
-  function checkPin() {
+  (function checkPin() {
     if (localStorage.getItem('pin_ok') === APP_PIN) return;
     const pin = prompt('PINコードを入力してください');
     if (pin === APP_PIN) {
@@ -97,23 +115,101 @@
       document.body.innerHTML = '<p style="text-align:center;margin-top:40vh;font-size:18px;color:#721c24">PINが違います</p>';
       throw new Error('PIN error');
     }
-  }
-  checkPin();
+  })();
 
-  // フォルダ一覧取得
-  fetch(GAS_URL + '?action=getFolders&token=' + TOKEN)
-    .then(r => r.json())
-    .then(folders => {
-      const sel = document.getElementById('input-folder');
-      sel.innerHTML = folders.map(f =>
-        '<option value="' + f.id + '"' + (f.isCurrent ? ' selected' : '') + '>' + f.name + '</option>'
-      ).join('');
-      const saved = localStorage.getItem('lastFolderId');
-      if (saved) sel.value = saved;
-    })
-    .catch(() => {
-      document.getElementById('input-folder').innerHTML = '<option value="">（取得失敗）</option>';
-    });
+  // フォルダ一覧をGASから取得してセレクトボックスに設定
+  async function loadFolders() {
+    const sel = document.getElementById('input-folder');
+    const statusEl = document.getElementById('folder-status');
+
+    // まずキャッシュを表示（即時）
+    const cached = localStorage.getItem('folders_cache');
+    const cachedTs = parseInt(localStorage.getItem('folders_cache_ts') || '0');
+    const folders = cached ? JSON.parse(cached) : DEFAULT_FOLDERS;
+    renderFolderSelect(folders);
+
+    // GASから最新を取得
+    try {
+      const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ token: TOKEN, action: 'getFolders' })
+      });
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        localStorage.setItem('folders_cache', JSON.stringify(data));
+        localStorage.setItem('folders_cache_ts', Date.now());
+        renderFolderSelect(data);
+        statusEl.textContent = '保存先を更新しました';
+        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      }
+    } catch (e) {
+      if (cached) {
+        statusEl.textContent = '前回のフォルダ一覧を使用中';
+      }
+    }
+  }
+
+  function renderFolderSelect(folders) {
+    knownFolders = folders;
+    const lastId = localStorage.getItem('lastFolderId');
+    const sel = document.getElementById('input-folder');
+    const defaultId = folders.find(f => f.isCurrent)?.id || folders[0]?.id || '';
+    const selectedId = folders.find(f => f.id === lastId) ? lastId : defaultId;
+    lastGoodFolderId = selectedId;
+    sel.innerHTML = folders.map(f =>
+      '<option value="' + f.id + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc(f.name) + '</option>'
+    ).join('') + '<option value="__create__">＋ 新しいフォルダを作成…</option>';
+  }
+
+  // フォルダ選択欄の変更（「新しいフォルダを作成」を選んだら作成フローへ）
+  async function onFolderChange() {
+    const sel = document.getElementById('input-folder');
+    if (sel.value !== '__create__') {
+      lastGoodFolderId = sel.value;
+      localStorage.setItem('lastFolderId', sel.value);
+      return;
+    }
+    const name = (prompt('新しいフォルダ名を入力') || '').trim();
+    if (!name) { sel.value = lastGoodFolderId; return; }
+
+    const statusEl = document.getElementById('folder-status');
+    statusEl.textContent = 'フォルダを作成中…';
+    try {
+      const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ token: TOKEN, action: 'createFolder', name: name })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (!knownFolders.find(f => f.id === data.id)) {
+          knownFolders.push({ id: data.id, name: data.name });
+          knownFolders.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+        }
+        localStorage.setItem('folders_cache', JSON.stringify(knownFolders));
+        localStorage.setItem('lastFolderId', data.id);
+        renderFolderSelect(knownFolders);
+        statusEl.textContent = '📁「' + data.name + '」を作成しました';
+        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      } else {
+        statusEl.textContent = '作成失敗: ' + data.error;
+        sel.value = lastGoodFolderId;
+      }
+    } catch (e) {
+      statusEl.textContent = '通信エラー: ' + e.message;
+      sel.value = lastGoodFolderId;
+    }
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  }
+
+  let knownFolders = DEFAULT_FOLDERS;
+  let lastGoodFolderId = '';
+
+  loadFolders();
 
   function pad(n) { return String(n).padStart(2, '0'); }
 
@@ -125,10 +221,61 @@
     document.getElementById('filename-preview').textContent = '📄 ' + name;
   }
 
+  // ---- 共通ヘルパー ----
+  let ocrWorker = null;
+  async function getWorker() {
+    if (!ocrWorker) ocrWorker = await Tesseract.createWorker('eng');
+    return ocrWorker;
+  }
+
+  function todayStr() {
+    const n = new Date();
+    return n.getFullYear() + '-' + pad(n.getMonth()+1) + '-' + pad(n.getDate());
+  }
+
+  async function detectDate(file) {
+    try {
+      const worker = await getWorker();
+      const { data: { text } } = await worker.recognize(file);
+      const m = text.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+      if (m) return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
+    } catch (e) { /* OCR失敗時は今日の日付にフォールバック */ }
+    return todayStr();
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function uploadOne(base64, mime, filename, folderId) {
+    return fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ token: TOKEN, image: base64, mimeType: mime || 'image/jpeg', filename: filename, folderId: folderId })
+    }).then(r => r.json());
+  }
+
+  // 入力の振り分け：1枚→単枚フロー、複数→まとめフロー
+  function handleSelection(files) {
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+    document.getElementById('folder-box').style.display = 'block';
+    if (list.length === 1) handleFile(list[0]);
+    else handleBatch(list);
+  }
+
+  // ---- 単枚フロー（日付・金額を確認して保存）----
   async function handleFile(file) {
     if (!file) return;
     currentFile = file;
 
+    document.getElementById('batch-box').style.display = 'none';
+    document.getElementById('batch-upload-btn').style.display = 'none';
     document.getElementById('preview').style.display = 'block';
     document.getElementById('previewImg').src = URL.createObjectURL(file);
     document.getElementById('upload-btn').style.display = 'none';
@@ -138,27 +285,93 @@
     showStatus('processing', '🔍 テキスト認識中...');
 
     try {
-      const worker = await Tesseract.createWorker('eng');
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
-
-      const now = new Date();
-      const dateMatch = text.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
-      document.getElementById('input-date').value = dateMatch
-        ? dateMatch[1] + '-' + pad(dateMatch[2]) + '-' + pad(dateMatch[3])
-        : now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate());
-
+      document.getElementById('input-date').value = await detectDate(file);
       document.getElementById('input-amount').value = '';
       updatePreview();
       document.getElementById('edit-box').style.display = 'block';
       document.getElementById('upload-btn').style.display = 'block';
       showStatus('processing', '✏️ 内容を確認して「保存」をタップ');
-
-      const reader = new FileReader();
-      reader.onload = e => { currentBase64 = e.target.result.split(',')[1]; };
-      reader.readAsDataURL(file);
+      currentBase64 = await fileToBase64(file);
     } catch (err) {
       showStatus('error', 'OCRエラー: ' + err.message);
+    }
+  }
+
+  // ---- まとめフロー（複数枚を一覧表示 → 一括保存）----
+  let batchItems = [];
+  async function handleBatch(files) {
+    document.getElementById('preview').style.display = 'none';
+    document.getElementById('edit-box').style.display = 'none';
+    document.getElementById('upload-btn').style.display = 'none';
+    document.getElementById('filename-preview').textContent = '';
+
+    const box = document.getElementById('batch-box');
+    box.style.display = 'block';
+    box.innerHTML = '';
+    batchItems = [];
+
+    files.forEach((file, i) => {
+      const row = document.createElement('div');
+      row.className = 'batch-row';
+      row.innerHTML =
+        '<img class="batch-thumb" src="' + URL.createObjectURL(file) + '">' +
+        '<input type="date" class="batch-date" id="bdate-' + i + '">' +
+        '<span class="batch-state" id="bstate-' + i + '">⏳</span>';
+      box.appendChild(row);
+      batchItems.push({ file: file, done: false });
+    });
+
+    showStatus('processing', '🔍 ' + files.length + '枚を認識中…');
+    document.getElementById('batch-upload-btn').style.display = 'none';
+
+    // 1枚ずつOCRして日付欄を埋める
+    for (let i = 0; i < files.length; i++) {
+      const d = await detectDate(files[i]);
+      document.getElementById('bdate-' + i).value = d;
+      document.getElementById('bstate-' + i).textContent = '📄';
+    }
+
+    const btn = document.getElementById('batch-upload-btn');
+    btn.textContent = '☁️ ' + files.length + '件をまとめて保存';
+    btn.style.display = 'block';
+    btn.disabled = false;
+    showStatus('processing', '✏️ 日付を確認して「まとめて保存」をタップ');
+  }
+
+  async function doBatchUpload() {
+    const folderId = document.getElementById('input-folder').value;
+    if (folderId === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
+    localStorage.setItem('lastFolderId', folderId);
+
+    const btn = document.getElementById('batch-upload-btn');
+    btn.disabled = true;
+    let ok = 0, fail = 0;
+
+    for (let i = 0; i < batchItems.length; i++) {
+      const item = batchItems[i];
+      if (item.done) continue;
+      const stateEl = document.getElementById('bstate-' + i);
+      stateEl.textContent = '⏫';
+      showStatus('processing', '保存中… ' + (i + 1) + ' / ' + batchItems.length);
+      try {
+        const dateVal = document.getElementById('bdate-' + i).value || todayStr();
+        // 同日でも重複しないよう連番を付与
+        const filename = dateVal.replace(/-/g, '') + '_' + pad(i + 1) + '_receipt.jpg';
+        const base64 = await fileToBase64(item.file);
+        const data = await uploadOne(base64, item.file.type, filename, folderId);
+        if (data.success) { stateEl.textContent = '✅'; item.done = true; ok++; }
+        else { stateEl.textContent = '⚠️'; fail++; }
+      } catch (e) {
+        stateEl.textContent = '⚠️'; fail++;
+      }
+    }
+
+    btn.disabled = false;
+    if (fail === 0) {
+      showStatus('success', '✓ ' + ok + '件すべて保存しました');
+      btn.style.display = 'none';
+    } else {
+      showStatus('error', ok + '件保存 / ' + fail + '件失敗（⚠️の行をもう一度「まとめて保存」で再試行できます）');
     }
   }
 
@@ -168,6 +381,7 @@
     if (!dateVal) { showStatus('error', '日付を入力してください'); return; }
     const amount   = document.getElementById('input-amount').value;
     const folderId = document.getElementById('input-folder').value;
+    if (folderId === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
     const filename = dateVal.replace(/-/g, '') + (amount ? '_' + amount : '') + '_receipt.jpg';
 
     localStorage.setItem('lastFolderId', folderId);
@@ -203,8 +417,8 @@
     el.style.display = 'block';
   }
 
-  document.getElementById('cameraInput').addEventListener('change', e => handleFile(e.target.files[0]));
-  document.getElementById('galleryInput').addEventListener('change', e => handleFile(e.target.files[0]));
+  document.getElementById('cameraInput').addEventListener('change', e => handleSelection(e.target.files));
+  document.getElementById('galleryInput').addEventListener('change', e => handleSelection(e.target.files));
 </script>
 </body>
 </html>

@@ -1,12 +1,6 @@
 const FOLDER_ID = '1H6XpCOQC1TOmjrqhvgdn63So8XxSOuC5';
 const SECRET_TOKEN = 'Ulzdc5gG18YLMASwWNGJvg';
 
-function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('領収書スキャン')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0');
-}
-
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
@@ -14,6 +8,10 @@ function doPost(e) {
 
     if (body.action === 'getFolders') {
       return makeResponse(getFolders());
+    }
+
+    if (body.action === 'createFolder') {
+      return makeResponse(createFolder(body.name));
     }
 
     return makeResponse(uploadReceipt(body.image, body.mimeType, body.filename, body.folderId));
@@ -54,6 +52,25 @@ function getFolders() {
   }
 
   return result;
+}
+
+function createFolder(name) {
+  try {
+    const folderName = (name || '').trim();
+    if (!folderName) return { success: false, error: 'name required' };
+
+    const base = DriveApp.getFolderById(FOLDER_ID);
+    const parents = base.getParents();
+    const parent = parents.hasNext() ? parents.next() : base;
+
+    // 同名フォルダがあれば再利用（重複作成を防ぐ）
+    const existing = parent.getFoldersByName(folderName);
+    const folder = existing.hasNext() ? existing.next() : parent.createFolder(folderName);
+
+    return { success: true, id: folder.getId(), name: folder.getName() };
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  }
 }
 
 function buildFilenameFromNow(ext) {
