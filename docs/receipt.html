@@ -61,7 +61,7 @@
 <body>
 <div class="container">
   <h1>📄 領収書スキャン</h1>
-  <p class="subtitle">保存先を選ぶ → 撮影 → 日付を自動認識 → 保存</p>
+  <p class="subtitle">保存先を選ぶ → 撮影 → 日付・金額を入力 → 保存</p>
 
   <div id="folder-box">
     <div class="field-row">
@@ -100,7 +100,6 @@
   <button id="batch-upload-btn" class="btn btn-primary" onclick="doBatchUpload()">☁️ まとめて保存</button>
 </div>
 
-<script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbwfdNLvQS0aajkqqU_qcO5NXIXjeR4XIsKnMTrS7hrmoZ2khiXe2Wl6l81zX462BcFiGQ/exec';
   const TOKEN   = 'Ulzdc5gG18YLMASwWNGJvg';
@@ -260,65 +259,9 @@
   }
 
   // ---- 共通ヘルパー ----
-  let ocrWorker = null;
-  async function getWorker() {
-    // 日本語＋英数字。合計などの日本語キーワードと数字を両方読む
-    if (!ocrWorker) ocrWorker = await Tesseract.createWorker('jpn+eng');
-    return ocrWorker;
-  }
-
   function todayStr() {
     const n = new Date();
     return n.getFullYear() + '-' + pad(n.getMonth()+1) + '-' + pad(n.getDate());
-  }
-
-  // OCRを1回だけ実行して {date, amount} を返す
-  async function scanReceipt(file) {
-    let text = '';
-    try {
-      const worker = await getWorker();
-      const r = await worker.recognize(file);
-      text = r.data.text || '';
-    } catch (e) { /* OCR失敗時はフォールバック */ }
-    return { date: parseDate(text), amount: parseAmount(text) };
-  }
-
-  // 日付だけ欲しいとき（後方互換）
-  async function detectDate(file) {
-    return (await scanReceipt(file)).date;
-  }
-
-  function parseDate(text) {
-    // 2026/7/25 ・ 2026-07-25 ・ 2026.7.25 ・ 2026年7月25日 に対応
-    const m = text.match(/(20\d{2})[\/\-\.年]\s*(\d{1,2})[\/\-\.月]\s*(\d{1,2})/);
-    if (m) {
-      const mo = Math.min(12, Math.max(1, +m[2]));
-      const da = Math.min(31, Math.max(1, +m[3]));
-      return m[1] + '-' + pad(mo) + '-' + pad(da);
-    }
-    return todayStr();
-  }
-
-  // 金額を推定：「合計」等の行を優先、なければ最大の金額らしき数字
-  function parseAmount(text) {
-    if (!text) return '';
-    const totalKey = /(合\s*計|お?会計|お?買上|総額|税込|ご?請求|お支払)/;
-    const excludeKey = /(小計|お?預|釣|つり|点数|枚数|ポイント|residue|change)/;
-    const numRe = /[¥￥]?\s?([0-9][0-9,]{1,9})\s?円?/g;
-    const cands = [];
-    text.split(/\r?\n/).forEach(line => {
-      const isTotal = totalKey.test(line);
-      const isExcl = excludeKey.test(line);
-      let m; numRe.lastIndex = 0;
-      while ((m = numRe.exec(line)) !== null) {
-        const v = parseInt(m[1].replace(/,/g, ''), 10);
-        if (!v || v < 10 || v > 99999999) continue;
-        cands.push({ v: v, pri: isExcl ? -1 : (isTotal ? 3 : 0) });
-      }
-    });
-    if (!cands.length) return '';
-    cands.sort((a, b) => b.pri - a.pri || b.v - a.v);  // 優先度→金額大きい順
-    return String(cands[0].v);
   }
 
   function fileToBase64(file) {
@@ -356,19 +299,18 @@
     document.getElementById('edit-box').style.display = 'none';
     document.getElementById('filename-preview').textContent = '';
 
-    showStatus('processing', '🔍 テキスト認識中...');
+    // 日付は今日を初期値、金額は空欄。どちらも手入力で確定
+    document.getElementById('input-date').value = todayStr();
+    document.getElementById('input-amount').value = '';
+    updatePreview();
+    document.getElementById('edit-box').style.display = 'block';
+    document.getElementById('upload-btn').style.display = 'block';
+    showStatus('processing', '✏️ 日付・金額を入力して「保存」をタップ');
 
     try {
-      const scan = await scanReceipt(file);
-      document.getElementById('input-date').value = scan.date;
-      document.getElementById('input-amount').value = scan.amount;
-      updatePreview();
-      document.getElementById('edit-box').style.display = 'block';
-      document.getElementById('upload-btn').style.display = 'block';
-      showStatus('processing', '✏️ 日付・金額を確認/修正して「保存」をタップ');
       currentBase64 = await fileToBase64(file);
     } catch (err) {
-      showStatus('error', 'OCRエラー: ' + err.message);
+      showStatus('error', '画像の読み込みに失敗: ' + err.message);
     }
   }
 
@@ -390,29 +332,18 @@
       row.className = 'batch-row';
       row.innerHTML =
         '<img class="batch-thumb" src="' + URL.createObjectURL(file) + '">' +
-        '<input type="date" class="batch-date" id="bdate-' + i + '">' +
+        '<input type="date" class="batch-date" id="bdate-' + i + '" value="' + todayStr() + '">' +
         '<input type="number" inputmode="numeric" class="batch-amount" id="bamount-' + i + '" placeholder="金額">' +
-        '<span class="batch-state" id="bstate-' + i + '">⏳</span>';
+        '<span class="batch-state" id="bstate-' + i + '">📄</span>';
       box.appendChild(row);
       batchItems.push({ file: file, done: false });
     });
-
-    showStatus('processing', '🔍 ' + files.length + '枚を認識中…');
-    document.getElementById('batch-upload-btn').style.display = 'none';
-
-    // 1枚ずつOCRして日付・金額欄を埋める
-    for (let i = 0; i < files.length; i++) {
-      const scan = await scanReceipt(files[i]);
-      document.getElementById('bdate-' + i).value = scan.date;
-      document.getElementById('bamount-' + i).value = scan.amount;
-      document.getElementById('bstate-' + i).textContent = '📄';
-    }
 
     const btn = document.getElementById('batch-upload-btn');
     btn.textContent = '☁️ ' + files.length + '件をまとめて保存';
     btn.style.display = 'block';
     btn.disabled = false;
-    showStatus('processing', '✏️ 日付・金額を確認/修正して「まとめて保存」をタップ');
+    showStatus('processing', '✏️ 日付・金額を入力して「まとめて保存」をタップ');
   }
 
   async function doBatchUpload() {
