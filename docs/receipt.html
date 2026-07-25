@@ -38,6 +38,8 @@
   .field-input { flex: 1; border: none; font-size: 16px; outline: none; background: transparent; text-align: right; }
   .field-select { flex: 1; border: none; font-size: 15px; outline: none; background: transparent; text-align: right; color: #1c1c1e; }
   #folder-box { margin-bottom: 18px; background: white; border-radius: 12px; overflow: hidden; }
+  #open-folder-btn { flex-shrink: 0; margin-left: 10px; padding: 6px 12px; font-size: 13px; font-weight: 600;
+    color: #007aff; background: #eef4ff; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; }
   #batch-box { margin-top: 14px; background: white; border-radius: 12px; overflow: hidden; display: none; text-align: left; }
   .batch-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
   .batch-row:last-child { border-bottom: none; }
@@ -63,6 +65,7 @@
     <div class="field-row">
       <span class="field-label">保存先</span>
       <select id="input-folder" class="field-select" onchange="onFolderChange()"></select>
+      <button id="open-folder-btn" type="button" onclick="openFolder()" title="Google Driveでフォルダを開く">📂 開く</button>
     </div>
   </div>
 
@@ -163,6 +166,13 @@
       const label = (f.depth ? '　└ ' : '') + f.name;
       return '<option value="' + f.id + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc(label) + '</option>';
     }).join('') + '<option value="__create__">＋ 新しいフォルダを作成…</option>';
+  }
+
+  // 選択中の保存先フォルダを Google Drive で開く
+  function openFolder() {
+    const id = document.getElementById('input-folder').value;
+    if (!id || id === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
+    window.open('https://drive.google.com/drive/folders/' + id, '_blank');
   }
 
   // フォルダ選択欄の変更（「新しいフォルダを作成」を選んだら作成フローへ）
