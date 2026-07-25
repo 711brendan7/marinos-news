@@ -51,7 +51,7 @@ function scrapeStatus() {
     requested: requested,
     processed: processed,
     pending: requested > processed,
-    lastRun: String(sh.getRange('B4').getValue() || ''),
+    lastRun: fmtDate(sh.getRange('B4').getValue()),
     lastResult: String(sh.getRange('B5').getValue() || ''),
   };
 }
