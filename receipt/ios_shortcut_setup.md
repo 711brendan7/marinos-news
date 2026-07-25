@@ -1,3 +1,8 @@
+> ⚠️ **【廃止】この手順は使いません。**
+> 領収書アプリの本体は PWA になりました → https://711brendan7.github.io/marinos-news/receipt.html
+> （`docs/receipt.html`。ホーム画面に追加して使用。PIN `55238888`）
+> 以下のショートカット手順は参考用の記録です。
+
 # iOSショートカット セットアップ手順
 
 ## 全体の流れ
