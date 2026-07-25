@@ -159,9 +159,10 @@
     const defaultId = folders.find(f => f.isCurrent)?.id || folders[0]?.id || '';
     const selectedId = folders.find(f => f.id === lastId) ? lastId : defaultId;
     lastGoodFolderId = selectedId;
-    sel.innerHTML = folders.map(f =>
-      '<option value="' + f.id + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc(f.name) + '</option>'
-    ).join('') + '<option value="__create__">＋ 新しいフォルダを作成…</option>';
+    sel.innerHTML = folders.map(f => {
+      const label = (f.depth ? '　└ ' : '') + f.name;
+      return '<option value="' + f.id + '"' + (f.id === selectedId ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }).join('') + '<option value="__create__">＋ 新しいフォルダを作成…</option>';
   }
 
   // フォルダ選択欄の変更（「新しいフォルダを作成」を選んだら作成フローへ）
@@ -172,7 +173,16 @@
       localStorage.setItem('lastFolderId', sel.value);
       return;
     }
-    const name = (prompt('新しいフォルダ名を入力') || '').trim();
+    // どこに作るか：選択中が最上位フォルダなら「その中に作る」を選べる
+    const cur = knownFolders.find(f => f.id === lastGoodFolderId);
+    let parentId = null;
+    let whereLabel = '最上位';
+    if (cur && !cur.depth) {
+      const inside = confirm('「' + cur.name + '」の中に新しいフォルダを作りますか？\n\n［OK］＝「' + cur.name + '」の中に作成\n［キャンセル］＝最上位に作成');
+      if (inside) { parentId = cur.id; whereLabel = '「' + cur.name + '」の中'; }
+    }
+
+    const name = (prompt(whereLabel + 'に作る新しいフォルダ名を入力') || '').trim();
     if (!name) { sel.value = lastGoodFolderId; return; }
 
     const statusEl = document.getElementById('folder-status');
@@ -181,19 +191,25 @@
       const res = await fetch(GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ token: TOKEN, action: 'createFolder', name: name })
+        body: JSON.stringify({ token: TOKEN, action: 'createFolder', name: name, parentId: parentId })
       });
       const data = await res.json();
       if (data.success) {
         if (!knownFolders.find(f => f.id === data.id)) {
-          knownFolders.push({ id: data.id, name: data.name });
-          knownFolders.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+          if (parentId) {
+            const item = { id: data.id, name: data.name, depth: 1, parent: cur.name };
+            const idx = knownFolders.findIndex(f => f.id === parentId);
+            knownFolders.splice(idx >= 0 ? idx + 1 : knownFolders.length, 0, item);
+          } else {
+            knownFolders.push({ id: data.id, name: data.name, depth: 0 });
+          }
         }
-        localStorage.setItem('folders_cache', JSON.stringify(knownFolders));
         localStorage.setItem('lastFolderId', data.id);
+        localStorage.setItem('folders_cache', JSON.stringify(knownFolders));
         renderFolderSelect(knownFolders);
         statusEl.textContent = '📁「' + data.name + '」を作成しました';
         setTimeout(() => { statusEl.textContent = ''; }, 3000);
+        loadFolders();  // サーバーから正しい並びで取り直す
       } else {
         statusEl.textContent = '作成失敗: ' + data.error;
         sel.value = lastGoodFolderId;

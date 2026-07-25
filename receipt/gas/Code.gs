@@ -11,7 +11,7 @@ function doPost(e) {
     }
 
     if (body.action === 'createFolder') {
-      return makeResponse(createFolder(body.name));
+      return makeResponse(createFolder(body.name, body.parentId));
     }
 
     return makeResponse(uploadReceipt(body.image, body.mimeType, body.filename, body.folderId));
@@ -39,35 +39,52 @@ function getFolders() {
   const parents = target.getParents();
   const result = [];
 
+  // 最上位（MICAREとその兄弟）を集める
+  let topFolders = [];
   if (parents.hasNext()) {
     const parent = parents.next();
-    const siblings = parent.getFolders();
-    while (siblings.hasNext()) {
-      const f = siblings.next();
-      result.push({ id: f.getId(), name: f.getName(), isCurrent: f.getId() === FOLDER_ID });
-    }
-    result.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    const it = parent.getFolders();
+    while (it.hasNext()) topFolders.push(it.next());
+    topFolders.sort((a, b) => a.getName().localeCompare(b.getName(), 'ja'));
   } else {
-    result.push({ id: FOLDER_ID, name: target.getName(), isCurrent: true });
+    topFolders = [target];
   }
+
+  // 各最上位フォルダと、その直下のサブフォルダ（depth=1）を並べる
+  topFolders.forEach(function (f) {
+    result.push({ id: f.getId(), name: f.getName(), isCurrent: f.getId() === FOLDER_ID, depth: 0 });
+    const subs = [];
+    const sit = f.getFolders();
+    while (sit.hasNext()) subs.push(sit.next());
+    subs.sort((a, b) => a.getName().localeCompare(b.getName(), 'ja'));
+    subs.forEach(function (s) {
+      result.push({ id: s.getId(), name: s.getName(), depth: 1, parent: f.getName() });
+    });
+  });
 
   return result;
 }
 
-function createFolder(name) {
+function createFolder(name, parentId) {
   try {
     const folderName = (name || '').trim();
     if (!folderName) return { success: false, error: 'name required' };
 
-    const base = DriveApp.getFolderById(FOLDER_ID);
-    const parents = base.getParents();
-    const parent = parents.hasNext() ? parents.next() : base;
+    // parentId 指定があればその中に、なければ最上位（MICAREと同じ階層）に作成
+    let parent;
+    if (parentId) {
+      parent = DriveApp.getFolderById(parentId);
+    } else {
+      const base = DriveApp.getFolderById(FOLDER_ID);
+      const ps = base.getParents();
+      parent = ps.hasNext() ? ps.next() : base;
+    }
 
     // 同名フォルダがあれば再利用（重複作成を防ぐ）
     const existing = parent.getFoldersByName(folderName);
     const folder = existing.hasNext() ? existing.next() : parent.createFolder(folderName);
 
-    return { success: true, id: folder.getId(), name: folder.getName() };
+    return { success: true, id: folder.getId(), name: folder.getName(), parentId: parent.getId(), parentName: parent.getName() };
   } catch (err) {
     return { success: false, error: err.toString() };
   }
