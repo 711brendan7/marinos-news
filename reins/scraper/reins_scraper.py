@@ -650,20 +650,29 @@ async def download_from_list_row(page, context, reins_no, download_dir):
 
         prev_url = page.url
 
+        # タブ切替直後は p-loading オーバーレイが残っており、素の click が吸われて
+        # ダウンロード検出の待ち時間を食い潰し失敗していた。先に消滅を待つ。
+        await wait_no_loading(page)
+
         # ① ② を並行検出するためクリック前にタスクを作成
+        # 新着物件は 販売図面PDF の生成に時間がかかり 6 秒では間に合わず失敗していた
+        # （＝W列が空→PWAが別物件の最新図面を表示）。待ち時間を 15 秒に延長。
         new_page_task = asyncio.create_task(
-            context.wait_for_event("page", timeout=5000)
+            context.wait_for_event("page", timeout=15000)
         )
         download_task = asyncio.create_task(
-            page.wait_for_event("download", timeout=5000)
+            page.wait_for_event("download", timeout=15000)
         )
         await asyncio.sleep(0)  # タスクにリスナー登録の機会を与える
 
-        await btn.first.click()
+        try:
+            await btn.first.click(timeout=15000)
+        except PWTimeout:
+            await btn.first.click(timeout=15000, force=True)
 
         done, pending = await asyncio.wait(
             [new_page_task, download_task],
-            timeout=6.0,
+            timeout=16.0,
             return_when=asyncio.FIRST_COMPLETED,
         )
         for t in pending:
@@ -692,15 +701,23 @@ async def download_from_list_row(page, context, reins_no, download_dir):
 
         # ② ダウンロードが発火した（結果一覧に留まっている → 詳細ページで商号取得）
         if download_task in done:
+            file_path = None
             try:
                 dl = download_task.result()
                 ext = os.path.splitext(dl.suggested_filename)[1] or ".pdf"
                 file_path = os.path.join(download_dir, f"{datetime.now().strftime('%Y%m%d')}_{reins_no}_{file_type}{ext}")
                 await dl.save_as(file_path)
-                detail = await _visit_detail_page_for_fields(page, row)
-                return file_path, file_type, detail
             except Exception:
-                pass
+                file_path = None
+            # 保存に成功したら、商号取得(詳細ページ巡回)が失敗しても図面は必ず返す
+            # （以前はここで例外が出ると保存済みPDFごと握り潰され「失敗」になっていた）
+            if file_path:
+                detail = {}
+                try:
+                    detail = await _visit_detail_page_for_fields(page, row)
+                except Exception:
+                    detail = {}
+                return file_path, file_type, detail
 
         # ③ 同タブSPAナビゲーション（詳細ページ上で商号取得してからPDF・go_back）
         if page.url != prev_url:
