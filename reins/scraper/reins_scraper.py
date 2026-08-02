@@ -640,6 +640,7 @@ async def download_from_list_row(page, context, reins_no, download_dir):
 
     row = page.locator(".p-table-body-row").filter(has_text=reins_no).first
     if await row.count() == 0:
+        print("(行なし) ", end="", flush=True)
         return None, None, None
 
     # 図面ボタン優先、なければ詳細ボタン
@@ -735,6 +736,7 @@ async def download_from_list_row(page, context, reins_no, download_dir):
             return file_path, file_type, detail
 
         # どれでもなければ次のボタンを試す
+        print(f"({btn_text}:反応なし) ", end="", flush=True)
         continue
 
     return None, None, None
@@ -925,6 +927,17 @@ async def goto_row_page(page, reins_no, max_pages=30):
     結果画面は1ページ目のままだったため、2ページ目以降の新規物件の行が見つからず
     W列（図面リンク）が空 → PWAが別物件の最新図面を開く不具合が出ていた。その対策。
     """
+    # まず1ページ目へ戻す（scrape_tab がページ送りした状態のまま download_phase に
+    # 入ると、上位=1ページ目の物件が見えず「行なし」で失敗するため）
+    first_btn = page.locator("button.page-link[aria-label='Go to page 1']").first
+    if await first_btn.count() > 0:
+        try:
+            await wait_no_loading(page)
+            await safe_click(page, first_btn)
+            await page.wait_for_timeout(1000)
+        except Exception:
+            pass
+
     for _ in range(max_pages):
         if await page.locator(".p-table-body-row").filter(has_text=reins_no).count() > 0:
             return True
