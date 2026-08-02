@@ -1267,6 +1267,10 @@ async def main():
     fresh_updates = {}
     listed_by_type = {}
     complete_types = set()  # 全ページ取得しきった種目のみ「掲載外を沈める」対象にする
+    # 掲載順は「種目ごとの通し番号」を実行全体で連番にする。複数条件（三浦/秋谷）が
+    # 同じ種目シートに書くと、各条件で1から振ると衝突するため（土地の掲載順=1が2物件に
+    # なる等）。種目内で先の条件から連番＝三浦→秋谷の順・各エリアはREINS順で並ぶ。
+    type_order = {}
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -1317,6 +1321,10 @@ async def main():
                 no = p.get("reinsNo")
                 if not no:
                     continue
+                # 掲載順を種目ごとの実行通し番号で振り直す（条件をまたいで連番＝衝突防止）
+                t = p.get("propertyType", "")
+                type_order[t] = type_order.get(t, 0) + 1
+                p["reinsOrder"] = type_order[t]
                 fresh_updates[no] = {
                     "reinsNo":        no,
                     "price":          p.get("price", ""),
@@ -1325,7 +1333,7 @@ async def main():
                     "tsuboPrice":     p.get("tsuboPrice", ""),
                     "reinsOrder":     p.get("reinsOrder"),
                 }
-                listed_by_type.setdefault(p.get("propertyType", ""), set()).add(no)
+                listed_by_type.setdefault(t, set()).add(no)
 
             # 条件ごとにダウンロード（ブラウザが検索結果ページにある間に実行）
             if ENABLE_DOWNLOADS and GAS_URL:
