@@ -47,6 +47,7 @@
     .card { background: #fff; border-radius: 14px; padding: 15px 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); border-left: 3px solid transparent; }
     .card.buy { border-left-color: #34c759; }
     .card.fresh { border-left-color: #ff9500; }
+    .card.drop { border-left-color: #e0245e; }
     .card.fav { border-left-color: #ffcc00; }
     .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .fav-btn { background: none; border: none; font-size: 22px; line-height: 1; cursor: pointer; padding: 0 0 0 4px; color: #d1d1d6; -webkit-tap-highlight-color: transparent; }
@@ -59,6 +60,8 @@
     .badge-score.s-ok  { background: #ff9500; }
     .badge-score.s-ng  { background: #c0c0c5; }
     .badge-new { font-size: 10px; font-weight: 700; color: #fff; background: #ff9500; padding: 2px 7px; border-radius: 7px; letter-spacing: 0.3px; }
+    .badge-drop { font-size: 10px; font-weight: 700; color: #fff; background: #e0245e; padding: 2px 7px; border-radius: 7px; letter-spacing: 0.3px; }
+    .badge-bump { font-size: 10px; font-weight: 700; color: #fff; background: #7b5cff; padding: 2px 7px; border-radius: 7px; letter-spacing: 0.3px; }
     .date { font-size: 11px; color: #aeaeb2; margin-left: auto; }
     .title { font-size: 17px; font-weight: 700; line-height: 1.35; margin-bottom: 8px; word-break: break-word; }
     .price { color: #c0392b; font-weight: 700; font-size: 19px; margin-bottom: 8px; }
@@ -134,6 +137,8 @@ const LS_URL   = 'reins_gas_url';
 const LS_SID   = 'reins_gas_sid';
 const LS_SEEN  = 'reins_seen_max';       // 前回までに見た最新の取得日時(ms)
 const LS_SEEN_INIT = 'reins_seen_init';
+const LS_PREV  = 'reins_prev';           // 前回表示時の {物件番号: {p:価格, o:掲載順}} スナップショット
+const BUMP_MIN = 5;                       // 掲載順がこの数以上上昇したら「再掲(浮上)」扱い
 const LS_TAB   = 'reins_tab';
 const LS_FAVS  = 'reins_favs';           // お気に入り物件番号の配列
 // 既定：run_score_daily.sh と同じ reins デプロイURL（そのまま使えるよう初期値に）
@@ -313,6 +318,7 @@ async function loadProps() {
     const header = rows[0].map(h => stripParen(h));
     allProps = rows.slice(1).map(r => rowToProp(header, r)).filter(p => p.key);
     scoreAll(allProps);
+    computeChangeFlags(allProps);   // 値下げ / 再掲 を前回スナップショットと比較して付与
 
     const maxTs = allProps.reduce((m, p) => p.ts > m ? p.ts : m, 0);
     if (!localStorage.getItem(LS_SEEN_INIT)) {
@@ -323,8 +329,12 @@ async function loadProps() {
     buildFilterBar();
     render();
     fetchLastRun();
+    // 基準スナップショットは NEW と同じタイミングで進める（＝新しい巡回が来たときだけ）。
+    // 手動リロードでは基準を更新しないのでバッジは消えない。初回だけ基準を作る。
+    if (!localStorage.getItem(LS_PREV)) saveSnapshot(allProps);
     if (maxTs > Number(localStorage.getItem(LS_SEEN) || 0)) {
       localStorage.setItem(LS_SEEN, String(maxTs));
+      saveSnapshot(allProps);
     }
   } catch (e) {
     console.error(e);
@@ -501,6 +511,29 @@ function scoreAll(props) {
   props.forEach(p => scoreProperty(p, med));
 }
 
+// ── 変化フラグ（値下げ / 再掲=掲載順の浮上）──────────────
+// NEW と同様「前回表示時からの変化」。前回スナップショット(LS_PREV)と比較する。
+function computeChangeFlags(props) {
+  let prev = {};
+  try { prev = JSON.parse(localStorage.getItem(LS_PREV) || '{}'); } catch (_) {}
+  props.forEach(p => {
+    p.priceDrop = false; p.priceDropAmt = 0; p.bumped = false;
+    const pr = prev[p.key];
+    if (!pr) return;
+    if (pr.p > 0 && p.price_man > 0 && p.price_man < pr.p) {
+      p.priceDrop = true; p.priceDropAmt = pr.p - p.price_man;   // 値下げ
+    } else if (pr.p === p.price_man && pr.o && p.reinsOrder < pr.o &&
+               (pr.o - p.reinsOrder) >= BUMP_MIN) {
+      p.bumped = true;   // 価格据置きで掲載順が大きく上昇＝再度上位で掲載
+    }
+  });
+}
+function saveSnapshot(props) {
+  const snap = {};
+  props.forEach(p => { snap[p.key] = { p: p.price_man, o: p.reinsOrder }; });
+  try { localStorage.setItem(LS_PREV, JSON.stringify(snap)); } catch (_) {}
+}
+
 // ── 画面 ───────────────────────────────────────────────
 function isFresh(p) { return seenThreshold ? p.ts > seenThreshold : false; }
 
@@ -575,7 +608,7 @@ function cardHtml(p, rank) {
   if (p.key) meta.push(`<div><span class="lbl">物件番号</span>${escapeHtml(p.key)}</div>`);
   const url = viewerUrl(p);
 
-  const cls = isFav ? 'fav' : (buy ? 'buy' : (fresh ? 'fresh' : ''));
+  const cls = isFav ? 'fav' : (buy ? 'buy' : (p.priceDrop ? 'drop' : (fresh ? 'fresh' : '')));
   return `
     <div class="card ${cls}">
       <div class="card-top">
@@ -583,6 +616,8 @@ function cardHtml(p, rank) {
         <span class="badge-score ${scls}">${Math.round(p.score)}点</span>
         ${p.ptype ? `<span class="ptype">${escapeHtml(p.ptype)}</span>` : ''}
         ${fresh ? '<span class="badge-new">NEW</span>' : ''}
+        ${p.priceDrop ? `<span class="badge-drop">値下げ${p.priceDropAmt > 0 ? ' ▼' + p.priceDropAmt.toLocaleString() + '万' : ''}</span>` : ''}
+        ${p.bumped ? '<span class="badge-bump">再掲</span>' : ''}
         <span class="date">${escapeHtml(fmtDate(p.ts))}</span>
         <button class="fav-btn ${isFav ? 'on' : ''}" data-key="${escapeAttr(p.key)}" onclick="toggleFav('${jsEsc(p.key)}')" aria-label="お気に入り">${isFav ? '★' : '☆'}</button>
       </div>
