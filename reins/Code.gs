@@ -14,13 +14,17 @@ const PROP_HEADERS = [
   "土地面積(㎡)", "建物面積(㎡)", "㎡単価(万円)", "坪単価(万円)",
   "接道状況", "接道１",
   "所在地", "路線", "駅", "徒歩(分)", "バス",
-  "商号", "電話番号", "取得日時", "図面/詳細", "フォルダ", "サムネイル"
+  "商号", "電話番号", "取得日時", "図面/詳細", "フォルダ", "サムネイル",
+  "掲載順"
 ];
 const PROP_COL_WIDTHS = [
   130, 80, 100, 70, 90, 80, 70, 70,
   90, 90, 90, 90, 70, 110, 200, 130, 110, 70, 80,
-  170, 110, 110, 60, 60, 160
+  170, 110, 110, 60, 60, 160, 70
 ];
+// 掲載順（REINS最新順）を書き込む列。W/X/Y の数式を壊さないよう独立列で持つ。
+const ORDER_COL = 26;  // Z列
+const SUNK_ORDER = 99999;  // 現在REINSに掲載されていない行を末尾へ沈める値
 const PROP_NUM_COLS = { E: "#,##0", I: "#,##0.00", J: "#,##0.00", K: "#,##0.0", L: "#,##0.0" };
 
 // ── 手動巡回トリガー用 ───────────────────────────────────────
@@ -182,6 +186,9 @@ function doPost(e) {
     } else if (payload.action === "deleteRowByReinsNo") {
       const removed = deleteRowByReinsNo_(payload.spreadsheetId, payload.reinsNo);
       result = { status: "ok", removed: removed };
+    } else if (payload.action === "updateProps") {
+      const r = updatePropsFields_(payload.spreadsheetId, payload.updates, payload.listedByType);
+      result = { status: "ok", ...r };
     } else if (payload.action === "createDoc") {
       const url = createPropertyDoc(payload.properties, payload.condition);
       result = { status: "ok", docUrl: url };
@@ -281,9 +288,95 @@ function appendToPropertySheet(properties, spreadsheetId) {
     applyRichTextLinks_(sheet, props, 2);
     applySheetFormats_(sheet, 2, rows.length);
     sheet.setRowHeights(2, rows.length, 120);
+
+    // 掲載順（Z列）を新規行に書き込む（既存シートにも列・ヘッダーを確保）
+    ensureOrderColumn_(sheet);
+    const orders = props.map(p =>
+      [p.reinsOrder === 0 || p.reinsOrder ? Number(p.reinsOrder) : ""]);
+    sheet.getRange(2, ORDER_COL, orders.length, 1).setValues(orders);
   });
 
   return ss.getUrl();
+}
+
+// ── 掲載順列(Z)とヘッダーを確保 ───────────────────────────────
+function ensureOrderColumn_(sheet) {
+  if (sheet.getMaxColumns() < ORDER_COL) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), ORDER_COL - sheet.getMaxColumns());
+  }
+  if (String(sheet.getRange(1, ORDER_COL).getValue()) !== "掲載順") {
+    sheet.getRange(1, ORDER_COL).setValue("掲載順");
+  }
+}
+
+// ── 既存物件の価格・取引状況・掲載順だけを更新（W/X/Y の数式は保持）──
+// updates: [{reinsNo, price, torihikiStatus, sqmPrice, tsuboPrice, reinsOrder}]
+// listedByType: {種目: [現在REINSに掲載中のreinsNo...]} 完全取得できた種別のみ
+//   に渡すと、その種別で掲載外になった行の掲載順を末尾へ沈める。
+function updatePropsFields_(spreadsheetId, updates, listedByType) {
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const map = {};
+  (updates || []).forEach(u => { map[String(u.reinsNo)] = u; });
+  let priceChanged = 0, statusChanged = 0, orderSet = 0, sunk = 0;
+
+  ss.getSheets().forEach(sheet => {
+    const name = sheet.getName();
+    if (name === CONTROL_SHEET || name === "ダッシュボード") return;
+    const last = sheet.getLastRow();
+    if (last < 2) return;
+    const header = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn()))
+      .getValues()[0].map(String);
+    if (!header.some(h => h.indexOf("物件") >= 0)) return;  // 物件シートのみ
+
+    ensureOrderColumn_(sheet);
+    const n = last - 1;
+    const noCol = sheet.getRange(2, 1, n, 1).getValues();
+    const cCol  = sheet.getRange(2, 3, n, 1).getValues();   // C 取引状況
+    const eCol  = sheet.getRange(2, 5, n, 1).getValues();   // E 価格
+    const kCol  = sheet.getRange(2, 11, n, 1).getValues();  // K ㎡単価
+    const lCol  = sheet.getRange(2, 12, n, 1).getValues();  // L 坪単価
+    const zCol  = sheet.getRange(2, ORDER_COL, n, 1).getValues();  // Z 掲載順
+    const listed = (listedByType && listedByType[name])
+      ? new Set(listedByType[name].map(String)) : null;
+    let dC = false, dE = false, dK = false, dL = false, dZ = false;
+
+    for (let i = 0; i < n; i++) {
+      const no = String(noCol[i][0]);
+      const u = map[no];
+      if (u) {
+        if (u.torihikiStatus != null && u.torihikiStatus !== "" &&
+            String(cCol[i][0]) !== String(u.torihikiStatus)) {
+          cCol[i][0] = u.torihikiStatus; dC = true; statusChanged++;
+        }
+        if (u.price != null && u.price !== "" &&
+            Number(eCol[i][0]) !== Number(u.price)) {
+          eCol[i][0] = Number(u.price); dE = true; priceChanged++;
+        }
+        if (u.sqmPrice != null && u.sqmPrice !== "" &&
+            Number(kCol[i][0]) !== Number(u.sqmPrice)) {
+          kCol[i][0] = Number(u.sqmPrice); dK = true;
+        }
+        if (u.tsuboPrice != null && u.tsuboPrice !== "" &&
+            Number(lCol[i][0]) !== Number(u.tsuboPrice)) {
+          lCol[i][0] = Number(u.tsuboPrice); dL = true;
+        }
+        if (u.reinsOrder != null && Number(zCol[i][0]) !== Number(u.reinsOrder)) {
+          zCol[i][0] = Number(u.reinsOrder); dZ = true; orderSet++;
+        }
+      } else if (listed && !listed.has(no)) {
+        if (Number(zCol[i][0]) !== SUNK_ORDER) {
+          zCol[i][0] = SUNK_ORDER; dZ = true; sunk++;
+        }
+      }
+    }
+    if (dC) sheet.getRange(2, 3, n, 1).setValues(cCol);
+    if (dE) sheet.getRange(2, 5, n, 1).setValues(eCol);
+    if (dK) sheet.getRange(2, 11, n, 1).setValues(kCol);
+    if (dL) sheet.getRange(2, 12, n, 1).setValues(lCol);
+    if (dZ) sheet.getRange(2, ORDER_COL, n, 1).setValues(zCol);
+  });
+
+  return { priceChanged, statusChanged, orderSet, sunk };
 }
 
 // ── reinsNo(A列) で該当行を全シートから削除（空リンク行の手当て用）──

@@ -825,9 +825,16 @@ def upload_to_drive(file_path, folder_id):
 
 
 async def scrape_tab(page, tab_label, known_ids=None):
+    """1タブ(=物件種目)を全ページ取得する。
+    REINS のデフォルト並びは「最新順(最終更新年月日＋物件番号)」なので、
+    DOM順に付ける通し番号 reinsOrder がそのまま REINS 掲載順になる。
+    価格改定・取引状況の更新を拾うため、既知物件でもページを打ち切らず全件読む。
+    known_ids は互換のため残すが打ち切り判定には使わない。
+    """
     print(f"\n📋 {tab_label} をスクレイプ中...")
     all_props = []
     page_num = 1
+    prev_first = None
 
     while True:
         print(f"  ページ {page_num} ...", end=" ", flush=True)
@@ -847,24 +854,45 @@ async def scrape_tab(page, tab_label, known_ids=None):
         for r in raw_props:
             p = {"reinsNo": r["reinsNo"], "propertyType": tab_label}
             _extract_from_text(p, r["_raw"])
+            # タブ内通し番号 = REINS掲載順（1始まり。REINSのNo.列に合わせ、
+            # かつ空セルとの Number("")===0 衝突で先頭が書き込まれない問題を避ける）
+            p["reinsOrder"] = len(all_props) + len(props) + 1
             props.append(p)
 
         print(f"{len(props)} 件取得")
+
+        # 無限ループ防止: 先頭物件番号がページ送り後も変わらなければ終了
+        first_no = props[0]["reinsNo"] if props else None
+        if first_no is not None and first_no == prev_first:
+            print("  → ページが変わらないため終了")
+            break
+        prev_first = first_no
+
         all_props.extend(props)
 
-        # 新規追加のみモード: このページが全件既知なら以降をスキップ
-        if known_ids is not None and props and all(p["reinsNo"] in known_ids for p in props):
-            print(f"  → ページ {page_num} の全件が既知 → 以降のページをスキップ")
-            break
-
-        # 次ページリンクを探す
-        next_link = page.locator("a:has-text('次'), a[title='次ページ'], a:has-text('>')").last
+        # 次ページへ（REINS は Bootstrap-Vue ページャ。有効な「次」は
+        # <button aria-label="Go to next page" class="page-link">、最終ページでは
+        # <span> に変わり button が消える。SPA 再描画なので先頭物件番号が
+        # 変わるまで待ってから次ページを読む）
+        nxt = page.locator("button.page-link[aria-label='Go to next page']").first
         try:
-            if await next_link.is_visible():
+            if await nxt.count() > 0 and await nxt.is_enabled():
                 await wait_no_loading(page)
-                await next_link.click()
-                await page.wait_for_load_state("domcontentloaded")
+                await safe_click(page, nxt)
+                changed = False
+                for _ in range(16):  # 最大約8秒、再描画で先頭が変わるのを待つ
+                    await page.wait_for_timeout(500)
+                    fn = await page.evaluate(
+                        "() => { const m=document.body.innerText.match(/\\d{12}/); return m?m[0]:''; }")
+                    if fn and fn != first_no:
+                        changed = True
+                        break
+                if not changed:
+                    print("  → 次ページに切り替わらないため終了")
+                    break
                 page_num += 1
+                if page_num > 30:  # 安全弁
+                    break
             else:
                 break
         except PWTimeout:
@@ -1127,6 +1155,39 @@ def send_to_sheets(all_properties, condition):
     return None, []
 
 
+# ── 既知物件の価格・取引状況・掲載順を更新 ────────────────────
+def _update_existing_props(fresh_updates, listed_by_type, complete_types, known_ids, cache):
+    """既知物件（既にシートにある物件番号）の価格・取引状況・掲載順を GAS で更新する。
+    全ページ取得しきった種目(complete_types)だけ、掲載外になった行の掲載順を末尾へ沈める。
+    取り切れなかった種目は掲載中の物件を誤って沈めないよう沈下対象から除外する。
+    """
+    existing_url = cache.get(f"_spreadsheet_{CONDITION}", "")
+    m = re.search(r'/spreadsheets/d/([^/]+)', existing_url)
+    if not (GAS_URL and m and fresh_updates):
+        return
+    ss_id = m.group(1)
+
+    updates = [u for no, u in fresh_updates.items() if no in known_ids]
+    listed = {t: list(s) for t, s in listed_by_type.items() if t in complete_types}
+    if not updates:
+        print("🔄 既知物件の更新対象なし")
+        return
+
+    print(f"\n🔄 既知物件 {len(updates)}件 の価格・状況・掲載順を更新中...")
+    data = _post_to_gas({
+        "action": "updateProps",
+        "spreadsheetId": ss_id,
+        "updates": updates,
+        "listedByType": listed,
+    })
+    if data.get("status") == "ok":
+        print(f"✅ 更新完了: 価格{data.get('priceChanged', 0)}件 / "
+              f"状況{data.get('statusChanged', 0)}件 / 掲載順{data.get('orderSet', 0)}件 / "
+              f"掲載外へ沈めた{data.get('sunk', 0)}件")
+    else:
+        print(f"⚠️  更新エラー: {data.get('message', data)}")
+
+
 # ── メイン ────────────────────────────────────────────────────
 async def main():
     if not USER_ID or not PASSWORD:
@@ -1137,11 +1198,17 @@ async def main():
     tab_type_map = {"売土地": "土地", "売地": "土地", "売一戸建": "戸建",
                     "売マンション": "区分", "売外全": "アパート", "売外一": "収益物件（区分）"}
 
-    # 既送信済みの物件番号を取得（新規追加のみモード用）
+    # 既送信済みの物件番号を取得（新規=追記 / 既知=更新 の振り分け用）
     cache = load_cache()
     known_ids = set(cache.get(f"_sheet_sent_{CONDITION}", []))
     if known_ids:
-        print(f"📦 既知物件: {len(known_ids)} 件（新規のみ取得モード）")
+        print(f"📦 既知物件: {len(known_ids)} 件（新規は追記・既知は価格/状況/掲載順を更新）")
+
+    # 既知物件の更新用に、download_phase がキャッシュ価格で上書きする前の
+    # 「一覧に出ている生の値」を控えておく（reinsNo → 更新フィールド）。
+    fresh_updates = {}
+    listed_by_type = {}
+    complete_types = set()  # 全ページ取得しきった種目のみ「掲載外を沈める」対象にする
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -1179,6 +1246,28 @@ async def main():
                     await page.wait_for_timeout(1500)
                     props = await scrape_tab(page, label, known_ids=known_ids or None)
                     cond_props.extend(props)
+                    # タブ表示件数（例: 売土地(78件)）と取得数を突き合わせ、
+                    # 取り切れた種目だけ「掲載外を沈める」対象にする（誤沈防止）
+                    em = re.search(r'(\d+)\s*件', raw_label)
+                    expected = int(em.group(1)) if em else 0
+                    if expected and len(props) >= expected:
+                        complete_types.add(label)
+
+            # download_phase 前に「一覧の生の価格・状況・掲載順」を控える
+            # （download_phase は既知物件をキャッシュの古い価格で上書きするため）
+            for p in cond_props:
+                no = p.get("reinsNo")
+                if not no:
+                    continue
+                fresh_updates[no] = {
+                    "reinsNo":        no,
+                    "price":          p.get("price", ""),
+                    "torihikiStatus": p.get("torihikiStatus", ""),
+                    "sqmPrice":       p.get("sqmPrice", ""),
+                    "tsuboPrice":     p.get("tsuboPrice", ""),
+                    "reinsOrder":     p.get("reinsOrder"),
+                }
+                listed_by_type.setdefault(p.get("propertyType", ""), set()).add(no)
 
             # 条件ごとにダウンロード（ブラウザが検索結果ページにある間に実行）
             if ENABLE_DOWNLOADS and GAS_URL:
@@ -1192,8 +1281,14 @@ async def main():
     if len(all_properties) == 0:
         print("⚠️  物件が取得できませんでした。debug_*.png を確認してください。")
         return
+    # 新規物件は追記（掲載順つき）
     sheet_url, new_props = send_to_sheets(all_properties, CONDITION)
     cache = load_cache()
+
+    # 既知物件は価格・取引状況・掲載順を更新（追記対象=新規は除く）。
+    # download_phase 前に控えた fresh_updates を使う。
+    _update_existing_props(fresh_updates, listed_by_type, complete_types, known_ids, cache)
+
     if new_props and sheet_url:
         _notify_new_props(new_props, sheet_url, CONDITION, cache)
     else:

@@ -102,7 +102,7 @@
     <div id="last-run"></div>
     <div class="tabs">
       <button class="tab active" id="tab-score" onclick="setTab('score')">🏆 スコア順</button>
-      <button class="tab" id="tab-new" onclick="setTab('new')">🆕 新着順</button>
+      <button class="tab" id="tab-new" onclick="setTab('new')">🆕 REINS順</button>
     </div>
     <div class="search-row">
       <input type="search" id="search" placeholder="キーワード検索（所在地・商号・物件番号）" oninput="render()">
@@ -376,6 +376,8 @@ function rowToProp(header, r) {
     shogo:    (o['商号'] || '').trim(),
     fetchedAt: (o['取得日時'] || '').trim(),
     ts:       parseTs(o['取得日時']),
+    reinsOrder: (String(o['掲載順'] || '').trim() === '')
+                  ? Number.MAX_SAFE_INTEGER : num(o['掲載順']),
     drawUrl:  (o['図面/詳細'] || o['図面詳細'] || '').trim(),
     folderUrl: (o['フォルダ'] || '').trim(),
     age:      -1,          // reins CSV に築年数列は無い → 対象外
@@ -525,7 +527,7 @@ function render() {
   if (q) list = list.filter(p => (p.address + p.shogo + p.key + p.station).toLowerCase().includes(q));
 
   if (activeTab === 'score') list.sort((a, b) => b.score - a.score || b.ts - a.ts);
-  else list.sort((a, b) => b.ts - a.ts || b.score - a.score);
+  else list.sort((a, b) => a.reinsOrder - b.reinsOrder || b.ts - a.ts);  // REINS掲載順（最新順）
 
   document.getElementById('count').textContent =
     `${list.length} 件` + (allProps.length !== list.length ? ` / 全${allProps.length}件` : '');
