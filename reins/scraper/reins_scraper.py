@@ -902,6 +902,24 @@ async def scrape_tab(page, tab_label, known_ids=None):
     return all_props
 
 
+async def goto_row_page(page, reins_no, max_pages=30):
+    """結果一覧で reins_no の行が現在のページに無ければ、次ページへ送って探す。
+    ページ送り修正で2ページ目以降も取得するようになったが、図面DLフェーズの
+    結果画面は1ページ目のままだったため、2ページ目以降の新規物件の行が見つからず
+    W列（図面リンク）が空 → PWAが別物件の最新図面を開く不具合が出ていた。その対策。
+    """
+    for _ in range(max_pages):
+        if await page.locator(".p-table-body-row").filter(has_text=reins_no).count() > 0:
+            return True
+        nxt = page.locator("button.page-link[aria-label='Go to next page']").first
+        if await nxt.count() == 0 or not await nxt.is_enabled():
+            return False
+        await wait_no_loading(page)
+        await safe_click(page, nxt)
+        await page.wait_for_timeout(1200)
+    return False
+
+
 async def download_phase(page, context, all_properties, condition):
     """結果一覧の 図面/詳細 ボタンを直接クリックして Drive にアップロード。
     cache.json で既DL済みをスキップし、条件ごとに永続フォルダを再利用する。
@@ -984,6 +1002,9 @@ async def download_phase(page, context, all_properties, condition):
 
             # ── 新規: ダウンロード → アップロード ────────────────
             print(f"    [{i+1}/{len(target_props)}] {reins_no} ...", end=" ", flush=True)
+            # 2ページ目以降の物件は結果画面が1ページ目のままだと行が見つからない
+            # → 対象行のあるページまで送ってからDL
+            await goto_row_page(page, reins_no)
             file_path, file_type, detail = await download_from_list_row(
                 page, context, reins_no, download_dir)
 
@@ -1183,6 +1204,7 @@ def _update_existing_props(fresh_updates, listed_by_type, complete_types, known_
     if data.get("status") == "ok":
         print(f"✅ 更新完了: 価格{data.get('priceChanged', 0)}件 / "
               f"状況{data.get('statusChanged', 0)}件 / 掲載順{data.get('orderSet', 0)}件 / "
+              f"図面リンク後埋め{data.get('linkFilled', 0)}件 / "
               f"掲載外へ沈めた{data.get('sunk', 0)}件")
     else:
         print(f"⚠️  更新エラー: {data.get('message', data)}")
@@ -1272,6 +1294,15 @@ async def main():
             # 条件ごとにダウンロード（ブラウザが検索結果ページにある間に実行）
             if ENABLE_DOWNLOADS and GAS_URL:
                 await download_phase(page, context, cond_props, CONDITION)
+
+            # download_phase で図面を取得できた既知物件は、その driveUrl も更新へ渡す
+            # （W列が空の行だけ GAS 側で後埋めされる。既存リンクは上書きしない）
+            for p in cond_props:
+                no = p.get("reinsNo")
+                if no and no in fresh_updates and p.get("driveUrl"):
+                    fresh_updates[no]["driveUrl"]  = p.get("driveUrl", "")
+                    fresh_updates[no]["folderUrl"] = p.get("folderUrl", "")
+                    fresh_updates[no]["fileType"]  = p.get("fileType", "")
 
             all_properties.extend(cond_props)
 

@@ -585,7 +585,8 @@ function viewerUrl(p) {
   const mFile = p.drawUrl.match(/\/(?:file\/d|d)\/([^/?]+)/);
   const mFolder = p.folderUrl.match(/\/folders\/([^/?]+)/);
   if (mFolder && mFile) return `${gasUrl}?folderId=${mFolder[1]}&fileId=${mFile[1]}`;
-  if (mFolder) return `${gasUrl}?folderId=${mFolder[1]}`;
+  // fileId が無い物件でフォルダのみを開くと、ビューアが「最新ファイル＝別物件」を
+  // 表示してしまうため、フォルダのみのフォールバックは廃止（ボタン自体を出さない）。
   // drawUrl が実URLのときだけ返す。古い行は「図面」等のラベル文字列が入っており、
   // そのまま href にすると相対パス扱いになって開けない（＝図面が見れない）。
   return /^https?:\/\//.test(p.drawUrl) ? p.drawUrl : '';

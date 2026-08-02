@@ -309,15 +309,16 @@ function ensureOrderColumn_(sheet) {
   }
 }
 
-// ── 既存物件の価格・取引状況・掲載順だけを更新（W/X/Y の数式は保持）──
-// updates: [{reinsNo, price, torihikiStatus, sqmPrice, tsuboPrice, reinsOrder}]
+// ── 既存物件の価格・取引状況・掲載順を更新（W/X/Y の数式は保持）──
+// updates: [{reinsNo, price, torihikiStatus, sqmPrice, tsuboPrice, reinsOrder,
+//            driveUrl, folderUrl, fileType}]  ※driveUrl等は図面リンクが空の行だけ後埋め
 // listedByType: {種目: [現在REINSに掲載中のreinsNo...]} 完全取得できた種別のみ
 //   に渡すと、その種別で掲載外になった行の掲載順を末尾へ沈める。
 function updatePropsFields_(spreadsheetId, updates, listedByType) {
   const ss = SpreadsheetApp.openById(spreadsheetId);
   const map = {};
   (updates || []).forEach(u => { map[String(u.reinsNo)] = u; });
-  let priceChanged = 0, statusChanged = 0, orderSet = 0, sunk = 0;
+  let priceChanged = 0, statusChanged = 0, orderSet = 0, sunk = 0, linkFilled = 0;
 
   ss.getSheets().forEach(sheet => {
     const name = sheet.getName();
@@ -336,14 +337,24 @@ function updatePropsFields_(spreadsheetId, updates, listedByType) {
     const kCol  = sheet.getRange(2, 11, n, 1).getValues();  // K ㎡単価
     const lCol  = sheet.getRange(2, 12, n, 1).getValues();  // L 坪単価
     const zCol  = sheet.getRange(2, ORDER_COL, n, 1).getValues();  // Z 掲載順
+    const wCol  = sheet.getRange(2, 23, n, 1).getValues();  // W 図面/詳細（空判定用）
+    const wFml  = sheet.getRange(2, 23, n, 1).getFormulas(); // 既存HYPERLINK式の有無
     const listed = (listedByType && listedByType[name])
       ? new Set(listedByType[name].map(String)) : null;
     let dC = false, dE = false, dK = false, dL = false, dZ = false;
+    const linkRows = [];  // {row, driveUrl, folderUrl, fileType}
 
     for (let i = 0; i < n; i++) {
       const no = String(noCol[i][0]);
       const u = map[no];
       if (u) {
+        // 図面リンクが空の行だけ後埋め（既存の正しいリンクは絶対に上書きしない）
+        const wEmpty = !wFml[i][0] && String(wCol[i][0]).trim() === "";
+        if (u.driveUrl && wEmpty) {
+          linkRows.push({ row: i + 2, driveUrl: u.driveUrl,
+                          folderUrl: u.folderUrl || "", fileType: u.fileType || "ファイル" });
+          linkFilled++;
+        }
         if (u.torihikiStatus != null && u.torihikiStatus !== "" &&
             String(cCol[i][0]) !== String(u.torihikiStatus)) {
           cCol[i][0] = u.torihikiStatus; dC = true; statusChanged++;
@@ -374,9 +385,23 @@ function updatePropsFields_(spreadsheetId, updates, listedByType) {
     if (dK) sheet.getRange(2, 11, n, 1).setValues(kCol);
     if (dL) sheet.getRange(2, 12, n, 1).setValues(lCol);
     if (dZ) sheet.getRange(2, ORDER_COL, n, 1).setValues(zCol);
+
+    // 図面リンクの後埋め（W:図面 / X:フォルダ / Y:サムネイル）
+    linkRows.forEach(lr => {
+      const label = String(lr.fileType).replace(/"/g, "");
+      sheet.getRange(lr.row, 23).setFormula(`=HYPERLINK("${lr.driveUrl}","${label}")`);
+      const m = lr.driveUrl.match(/\/d\/([^\/\?]+)/);
+      if (m) {
+        sheet.getRange(lr.row, 25).setFormula(
+          `=IMAGE("https://drive.google.com/thumbnail?id=${m[1]}&sz=w400",1)`);
+      }
+      if (lr.folderUrl) {
+        sheet.getRange(lr.row, 24).setFormula(`=HYPERLINK("${lr.folderUrl}","フォルダ")`);
+      }
+    });
   });
 
-  return { priceChanged, statusChanged, orderSet, sunk };
+  return { priceChanged, statusChanged, orderSet, sunk, linkFilled };
 }
 
 // ── reinsNo(A列) で該当行を全シートから削除（空リンク行の手当て用）──
@@ -617,7 +642,14 @@ function doGet(e) {
   files.sort((a, b) => b.date - a.date);
   if (fileId) {
     const fi = files.findIndex(f => f.id === fileId);
-    if (fi >= 0) idx = fi;
+    if (fi >= 0) {
+      idx = fi;
+    } else {
+      // 指定 fileId がフォルダ一覧に無くても「最新ファイル＝別物件」を出さない。
+      // 指定ファイルを先頭に差し込んでそれを表示する（PDF/画像とも /preview で開ける）。
+      files.unshift({ id: fileId, name: "(指定ファイル)", date: Date.now(), isPdf: true });
+      idx = 0;
+    }
   }
 
   const total = files.length;
