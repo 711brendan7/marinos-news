@@ -19,7 +19,12 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 LOGIN_URL        = "https://system.reins.jp/login/main/KG/GKG001200"
 USER_ID          = os.getenv("REINS_USER_ID")
 PASSWORD         = os.getenv("REINS_PASSWORD")
-CONDITION        = os.getenv("REINS_CONDITION", "三浦")
+CONDITION        = os.getenv("REINS_CONDITION", "三浦")  # キャッシュ/シートの区分キー（単一）
+# 検索対象に含める保存条件のキーワード（カンマ区切り）。既定は CONDITION のみ。
+# 例: REINS_CONDITIONS=三浦,秋谷 で「三浦」「秋谷」を含む保存条件を全て巡回。
+# 取得物件はすべて CONDITION（三浦）の同一シート/フォルダにまとめて記録する。
+CONDITION_KEYWORDS = [k.strip() for k in
+                      os.getenv("REINS_CONDITIONS", CONDITION).split(",") if k.strip()]
 GAS_URL          = os.getenv("GAS_URL")
 HEADLESS             = os.getenv("HEADLESS", "false").lower() == "true"
 ENABLE_DOWNLOADS     = os.getenv("ENABLE_DOWNLOADS", "true").lower() == "true"
@@ -244,9 +249,9 @@ async def login(page):
     print("✅ ログイン完了")
 
 
-# ── ワンタッチ検索でCONDITIONにマッチする全条件テキストを列挙 ─────
+# ── ワンタッチ検索でキーワードにマッチする全条件テキストを列挙 ─────
 async def list_conditions(page):
-    """売買物件検索のワンタッチ検索からCONDITIONにマッチする条件テキスト一覧を返す"""
+    """売買物件検索のワンタッチ検索から CONDITION_KEYWORDS のいずれかを含む条件を返す"""
     await page.locator("a:has-text('売買 物件検索'), button:has-text('売買 物件検索')").first.click()
     await page.wait_for_load_state("networkidle")
     try:
@@ -264,7 +269,8 @@ async def list_conditions(page):
     matching = []
     for s in selects_info:
         for o in s['options']:
-            if CONDITION in o['text'] and o['value'] and o['text'] not in seen:
+            if (any(kw in o['text'] for kw in CONDITION_KEYWORDS)
+                    and o['value'] and o['text'] not in seen):
                 matching.append(o['text'])
                 seen.add(o['text'])
 
