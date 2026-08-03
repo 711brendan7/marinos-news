@@ -305,7 +305,9 @@ async function loadProps() {
   try {
     const qs = new URLSearchParams({ csv: '1' });
     if (sid) qs.set('sid', sid);
-    const res = await fetch(`${gasUrl}?${qs.toString()}`, { redirect: 'follow', signal: ctrl.signal });
+    qs.set('t', Date.now());  // キャッシュ回避（古いCSVを掴んで新規物件が出ない対策）
+    const res = await fetch(`${gasUrl}?${qs.toString()}`,
+      { redirect: 'follow', cache: 'no-store', signal: ctrl.signal });
     lastDiag = `URL: ${gasUrl}?csv=1\nHTTP: ${res.status}`;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
