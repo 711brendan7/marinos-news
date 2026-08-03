@@ -105,12 +105,13 @@
     <div id="last-run"></div>
     <div class="tabs">
       <button class="tab active" id="tab-score" onclick="setTab('score')">🏆 スコア順</button>
-      <button class="tab" id="tab-new" onclick="setTab('new')">🆕 REINS順</button>
+      <button class="tab" id="tab-new" onclick="setTab('new')">🆕 新しい順</button>
     </div>
     <div class="search-row">
       <input type="search" id="search" placeholder="キーワード検索（所在地・商号・物件番号）" oninput="render()">
     </div>
   </header>
+  <div class="filter-bar" id="area-bar"></div>
   <div class="filter-bar" id="filter-bar"></div>
   <div id="spinner">読み込み中…</div>
   <div id="errbox" style="display:none"></div>
@@ -148,6 +149,7 @@ let gasUrl = localStorage.getItem(LS_URL) || DEFAULT_URL;
 let sid    = localStorage.getItem(LS_SID) || '';
 let allProps = [];
 let filterType = '';
+let areaFilter = localStorage.getItem('reins_area') || '';   // エリア（市区町村）絞り込み
 let activeTab = localStorage.getItem(LS_TAB) || 'score';
 let seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
 let lastDiag = '';
@@ -328,6 +330,7 @@ async function loadProps() {
       localStorage.setItem(LS_SEEN_INIT, '1');
     }
     seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
+    buildAreaBar();
     buildFilterBar();
     render();
     fetchLastRun();
@@ -540,29 +543,51 @@ function saveSnapshot(props) {
 function isFresh(p) { return seenThreshold ? p.ts > seenThreshold : false; }
 
 function buildFilterBar() {
-  const types = [...new Set(allProps.map(p => p.ptype).filter(Boolean))]
-    .sort((a, b) => allProps.filter(p => p.ptype === b).length - allProps.filter(p => p.ptype === a).length);
+  // 種別チップの件数は選択中エリアに合わせる
+  const base = areaFilter ? allProps.filter(p => p.area === areaFilter) : allProps;
+  const types = [...new Set(base.map(p => p.ptype).filter(Boolean))]
+    .sort((a, b) => base.filter(p => p.ptype === b).length - base.filter(p => p.ptype === a).length);
   const bar = document.getElementById('filter-bar');
   const btn = (val, label) =>
     `<button class="filter-btn ${!showFavsOnly && filterType === val ? 'active' : ''}" onclick="setFilter('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
-  const favCount = allProps.filter(p => favs.has(p.key)).length;
+  const favCount = base.filter(p => favs.has(p.key)).length;
   let html = `<button class="filter-btn ${showFavsOnly ? 'active' : ''}" onclick="toggleFavFilter()">⭐ お気に入り ${favCount}</button>`;
-  html += btn('', `すべて ${allProps.length}`);
-  html += types.map(t => btn(t, `${t} ${allProps.filter(p => p.ptype === t).length}`)).join('');
+  html += btn('', `すべて ${base.length}`);
+  html += types.map(t => btn(t, `${t} ${base.filter(p => p.ptype === t).length}`)).join('');
   bar.innerHTML = html;
 }
 function setFilter(val) { filterType = val; showFavsOnly = false; buildFilterBar(); render(); }
 function toggleFavFilter() { showFavsOnly = !showFavsOnly; buildFilterBar(); render(); }
 
+// エリア（市区町村）タブ。三浦市/横須賀市(=秋谷) 等を選択できる
+function buildAreaBar() {
+  const areas = [...new Set(allProps.map(p => p.area).filter(Boolean))]
+    .sort((a, b) => allProps.filter(p => p.area === b).length - allProps.filter(p => p.area === a).length);
+  const bar = document.getElementById('area-bar');
+  if (areaFilter && !areas.includes(areaFilter)) { areaFilter = ''; localStorage.setItem('reins_area', ''); }
+  if (areas.length < 2) { bar.innerHTML = ''; return; }  // 1エリアだけなら出さない
+  const btn = (val, label) =>
+    `<button class="filter-btn ${areaFilter === val ? 'active' : ''}" onclick="setArea('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
+  let html = btn('', `全エリア ${allProps.length}`);
+  html += areas.map(a => btn(a, `${a} ${allProps.filter(p => p.area === a).length}`)).join('');
+  bar.innerHTML = html;
+}
+function setArea(val) {
+  areaFilter = val;
+  localStorage.setItem('reins_area', val);
+  buildAreaBar(); buildFilterBar(); render();
+}
+
 function render() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   let list = allProps.slice();
+  if (areaFilter) list = list.filter(p => p.area === areaFilter);   // エリア絞り込み
   if (showFavsOnly) list = list.filter(p => favs.has(p.key));
   else if (filterType) list = list.filter(p => p.ptype === filterType);
   if (q) list = list.filter(p => (p.address + p.shogo + p.key + p.station).toLowerCase().includes(q));
 
   if (activeTab === 'score') list.sort((a, b) => b.score - a.score || b.ts - a.ts);
-  else list.sort((a, b) => a.reinsOrder - b.reinsOrder || b.ts - a.ts);  // REINS掲載順（最新順）
+  else list.sort((a, b) => b.ts - a.ts || a.reinsOrder - b.reinsOrder);  // 新しい順（取得日時→掲載順）
 
   document.getElementById('count').textContent =
     `${list.length} 件` + (allProps.length !== list.length ? ` / 全${allProps.length}件` : '');
