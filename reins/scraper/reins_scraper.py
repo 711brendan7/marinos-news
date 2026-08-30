@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import sys
 from datetime import datetime
 
@@ -160,18 +161,35 @@ def _notify_new_props(new_props, sheet_url, condition, cache):
 
 
 def load_cache():
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+    # 本体が壊れていたら .bak にフォールバック。
+    # 破損を黙って {} で返すと _spreadsheet_*/_sheet_sent_* を失い、
+    # シート再作成＋全件を新着として再通知してしまうため、バックアップを必ず試す。
+    for path in (CACHE_FILE, CACHE_FILE + ".bak"):
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"⚠️  キャッシュ読込失敗 {os.path.basename(path)}: {e}")
+                continue
     return {}
 
 
 def save_cache(cache):
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+    # アトミック保存: 一時ファイルに書き切って fsync → 直前の正本を .bak に退避 → rename で置換。
+    # 書き込み途中でプロセスが落ちても cache.json が truncate されない
+    # （破損→空扱い→シート再作成＋全件再通知、という事故を防ぐ）。
+    tmp = CACHE_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    if os.path.exists(CACHE_FILE):
+        try:
+            shutil.copy2(CACHE_FILE, CACHE_FILE + ".bak")
+        except OSError:
+            pass
+    os.replace(tmp, CACHE_FILE)  # アトミック置換
 
 
 # ── モーダル確実クローズ ──────────────────────────────────────
@@ -970,6 +988,11 @@ async def download_phase(page, context, all_properties, condition):
     cache = load_cache()
     cache_key_folder = f"_folder_{condition}"
 
+    # 新規のみDL（毎回の全件巡回を避ける）。既知(_sheet_sent)の物件は download_phase を丸ごとスキップ
+    # ＝過去に「行なし」で失敗した行を毎回リトライしない。価格/状況の更新はリスト走査側で従来どおり行う。
+    download_new_only = os.getenv("REINS_DOWNLOAD_NEW_ONLY", "").strip() == "1"
+    known_sent = set(cache.get(f"_sheet_sent_{condition}", [])) if download_new_only else set()
+
     if cache_key_folder in cache:
         folder_id  = cache[cache_key_folder]["id"]
         folder_url = cache[cache_key_folder]["url"]
@@ -1015,6 +1038,11 @@ async def download_phase(page, context, all_properties, condition):
             await page.wait_for_timeout(1000)
 
         target_props = props[:TEST_LIMIT] if TEST_LIMIT > 0 else props
+        if download_new_only:
+            skipped = [p for p in target_props if p["reinsNo"] in known_sent]
+            target_props = [p for p in target_props if p["reinsNo"] not in known_sent]
+            if skipped:
+                print(f"    ⏭  既知 {len(skipped)}件はDLスキップ（新規のみ）")
         for i, prop in enumerate(target_props):
           reins_no   = prop["reinsNo"]
           cache_key  = f"{condition}_{reins_no}"
@@ -1154,7 +1182,14 @@ def send_to_sheets(all_properties, condition):
     ss_url_key   = f"_spreadsheet_{condition}"
     sent_set_key = f"_sheet_sent_{condition}"
 
-    existing_url = cache.get(ss_url_key)
+    # スプレッドシートURLのピン（env）。設定時は常にこのシートへ追記し、新規作成しない
+    # ＝シートIDが巡回ごとに変わらず、PWAの merge 先とも一致し続ける（足立区で使用）。
+    pinned_url = os.getenv("REINS_SPREADSHEET_URL", "").strip()
+    existing_url = pinned_url or cache.get(ss_url_key)
+    if pinned_url and cache.get(ss_url_key) != pinned_url:
+        cache[ss_url_key] = pinned_url
+        save_cache(cache)
+        print(f"📌 スプレッドシート固定: {pinned_url}")
     sent_set     = set(cache.get(sent_set_key, []))
 
     # 内部キー(_raw, _is_new 等)を除去
@@ -1381,6 +1416,9 @@ async def main():
 
     if new_props and sheet_url:
         _notify_new_props(new_props, sheet_url, CONDITION, cache)
+    elif os.getenv("REINS_NOTIFY_ONLY_NEW", "").strip() == "1":
+        # 新着のみ通知モード（足立区）: 新規0件のときは通知しない（毎回の「確認完了」 pingを出さない）。
+        print("🔕 新規なし・新着のみ通知モードのため通知しません")
     else:
         sheet_url = sheet_url or cache.get(f"_spreadsheet_{CONDITION}", "")
         send_line_notify(f"✅ REINS確認完了（新着なし）\n📊 シート: {sheet_url}")

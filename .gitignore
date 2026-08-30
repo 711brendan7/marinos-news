@@ -5,6 +5,8 @@ reins/scraper/venv/
 reins/scraper/.env
 reins/scraper/*.log
 reins/scraper/*.json
+reins/scraper/*.json.bak
+reins/scraper/*.json.tmp
 realestate/.env
 todo/.env
 book-reader/.env

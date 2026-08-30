@@ -574,7 +574,7 @@ function doGet(e) {
   if (p.csv) {
     // PWA が ?csv=1&merge=1 のときだけ、三浦に加えて読む独立スプレッドシート（足立区など）。
     // 素の ?csv=1（スコアラーが使用）は三浦のみ＝足立区をスコアラー通知に混ぜない。
-    const MERGE_SIDS = ["1-RDVEKGX-PZrD2KtXMXvU6g1pdQ6kZSKMu7s7Tgtf-c"];  // 足立区スプレッドシート（cache.json _spreadsheet_足立区）
+    const MERGE_SIDS = ["1ojob_Y8MyAnZ7OV0ySbcsC1FvNkHOqiIJLsD-FqEEzU"];  // 足立区スプレッドシート（.env REINS_SPREADSHEET_URL_ADACHI と一致させる）
     const primary = p.sid || "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE";
     const sids = [primary];
     if (p.merge) MERGE_SIDS.forEach(s => { if (s && sids.indexOf(s) < 0) sids.push(s); });
