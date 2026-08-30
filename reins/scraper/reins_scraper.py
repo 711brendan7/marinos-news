@@ -79,7 +79,9 @@ def _notify_new_props(new_props, sheet_url, condition, cache):
     for p in new_props:
         addr      = p.get("address") or f"No.{p.get('reinsNo', '')}"
         price     = f" {p.get('price')}万円" if p.get("price") else ""
-        text      = f"・{addr}{price}"
+        ptype     = p.get("propertyType", "")
+        ptype_s   = f" ［{ptype}］" if ptype else ""   # 住所・金額の後ろに種目（土地/戸建）を表示
+        text      = f"・{addr}{price}{ptype_s}"
         drive_url = p.get("driveUrl", "")
         m         = re.search(r'/d/([^/?]+)', drive_url) if drive_url else None
         file_id   = m.group(1) if m else None
@@ -242,7 +244,10 @@ async def safe_click(page, locator, timeout=10000):
         # まだ阻まれている → ローディング/モーダルを片付けて短く再試行
         await wait_no_loading(page)
         await dismiss_dialogs(page)
-        await locator.scroll_into_view_if_needed()
+        try:
+            await locator.scroll_into_view_if_needed(timeout=5000)  # 無指定だと不可視要素で30秒ハング
+        except PWTimeout:
+            pass
         await locator.click(timeout=timeout)
 
 
@@ -666,7 +671,8 @@ async def download_from_list_row(page, context, reins_no, download_dir):
     """
     os.makedirs(download_dir, exist_ok=True)
 
-    row = page.locator(".p-table-body-row").filter(has_text=reins_no).first
+    # 複数タブ分の行が DOM に同居するため :visible で現在タブの行に限定（別タブの隠れ行を掴まない）
+    row = page.locator(".p-table-body-row:visible").filter(has_text=reins_no).first
     if await row.count() == 0:
         print("(行なし) ", end="", flush=True)
         return None, None, None
@@ -955,25 +961,47 @@ async def goto_row_page(page, reins_no, max_pages=30):
     結果画面は1ページ目のままだったため、2ページ目以降の新規物件の行が見つからず
     W列（図面リンク）が空 → PWAが別物件の最新図面を開く不具合が出ていた。その対策。
     """
-    # まず1ページ目へ戻す（scrape_tab がページ送りした状態のまま download_phase に
-    # 入ると、上位=1ページ目の物件が見えず「行なし」で失敗するため）
-    first_btn = page.locator("button.page-link[aria-label='Go to page 1']").first
-    if await first_btn.count() > 0:
+    # 対象行が現在ページに描画されるまで待ってから判定するヘルパ。
+    # タブ切替・ページ送り直後は行が未描画で、即判定すると誤って「行なし」になるため、
+    # まず行(.p-table-body-row)が1つ以上描画されるのを待ってから has_text を確認する。
+    # 複数タブ分の .p-table-body-row が DOM に同居するため :visible で現在タブに限定する。
+    async def _found_on_page():
+        for _try in range(10):
+            rows = page.locator(".p-table-body-row:visible")
+            if await rows.count() > 0:
+                if await rows.filter(has_text=reins_no).count() > 0:
+                    return True
+                return False  # 行は描画済みだが対象は居ない → 次ページへ
+            await page.wait_for_timeout(400)  # 行がまだ描画されていない → 少し待つ
+        return False
+
+    # まず1ページ目へ戻す。scrape_tab が最終ページに居座ったまま download_phase に入ると
+    # 上位ページの物件が「行なし」になる。このページャは数字ボタン式（'Go to page 1'…）なので
+    # page1 を直接クリックする。複数タブ分の pager が DOM に同居するため :visible で現在タブに限定
+    # （これを怠ると別タブ=隠れた pager を操作してしまい、表示中テーブルが動かない）。
+    await wait_no_loading(page)
+    p1 = page.locator("button.page-link[aria-label='Go to page 1']:visible").first
+    if await p1.count() > 0 and await p1.is_enabled():
         try:
+            await p1.click(timeout=5000)
+            await page.wait_for_timeout(700)
             await wait_no_loading(page)
-            await safe_click(page, first_btn)
-            await page.wait_for_timeout(1000)
         except Exception:
             pass
 
-    for _ in range(max_pages):
-        if await page.locator(".p-table-body-row").filter(has_text=reins_no).count() > 0:
+    for _pg in range(max_pages):
+        await wait_no_loading(page)
+        if await _found_on_page():
             return True
-        nxt = page.locator("button.page-link[aria-label='Go to next page']").first
+        # 次ページも :visible で現在タブのページャに限定（最終ページでは span になり button は消える）
+        nxt = page.locator("button.page-link[aria-label='Go to next page']:visible").first
         if await nxt.count() == 0 or not await nxt.is_enabled():
             return False
         await wait_no_loading(page)
-        await safe_click(page, nxt)
+        try:
+            await nxt.click(timeout=5000)  # safe_click（30秒ハング）は使わない
+        except Exception:
+            return False
         await page.wait_for_timeout(1200)
     return False
 
@@ -1020,22 +1048,37 @@ async def download_phase(page, context, all_properties, condition):
     tab_type_map = {"土地": "売土地", "戸建": "売一戸建", "区分": "売マンション", "アパート": "売外全",
                     "マンション": "売マンション", "収益物件（一棟）": "売外全"}
 
+    # download側のタブ切替は、リスト走査（main）と同じ「全タブ列挙→ラベル一致タブをクリック」に統一。
+    # 旧実装は a:has-text('売一戸建') の .first を1回押すだけで、非タブ要素（見出し等）を掴むと
+    # タブが切り替わらず、戸建の行が全滅して「行なし」を量産していた。
+    TAB_RE = re.compile(r'売土地|売一戸建|売マンション|売外全|売外一')
+
     for prop_type, props in by_type.items():
         print(f"\n  📂 {prop_type} タブ（{len(props)} 件）")
 
-        tab_text = tab_type_map.get(prop_type, prop_type)
-        tab_loc = page.locator("a").filter(has_text=re.compile(tab_text))
-        if await tab_loc.count() > 0:
-            await safe_click(page, tab_loc.first)
-        else:
-            print(f"    ⚠️  {tab_text} タブが見つかりません")
+        tab_text = tab_type_map.get(prop_type, prop_type)   # 例: 戸建 → 売一戸建
+        tabs = page.locator("a").filter(has_text=TAB_RE)
+        n = await tabs.count()
+        clicked = False
+        for i in range(n):
+            tab = tabs.nth(i)
+            label = re.sub(r'[\(（].*', '', (await tab.inner_text()).strip()).strip()
+            if label == tab_text:
+                await wait_no_loading(page)
+                await safe_click(page, tab)
+                clicked = True
+                break
+        if not clicked:
+            print(f"    ⚠️  {tab_text} タブが見つかりません（候補{n}個）")
             continue
 
-        for _ in range(15):
-            cnt = await page.evaluate("() => (document.body.innerText.match(/\\d{12}/g)||[]).length")
-            if cnt > 0:
+        # タブ切替直後は行が未描画。ローディング消滅＋行(.p-table-body-row)の描画を待つ。
+        # ここで待たずに先頭物件を探すと「行なし」で取りこぼす（戸建タブで多発していた）。
+        await wait_no_loading(page)
+        for _ in range(20):
+            if await page.locator(".p-table-body-row").count() > 0:
                 break
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(500)
 
         target_props = props[:TEST_LIMIT] if TEST_LIMIT > 0 else props
         if download_new_only:
