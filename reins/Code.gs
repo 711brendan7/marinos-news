@@ -572,35 +572,43 @@ function doGet(e) {
   // ?csv=1[&sid=<スプレッドシートID>] で全種別シートを結合したCSVを返す。
   // 既存の図面ビューア（folderId 経路）には一切影響しない追加機能。
   if (p.csv) {
-    const sid = p.sid || "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE";
-    const ss  = SpreadsheetApp.openById(sid);
+    // PWA が ?csv=1&merge=1 のときだけ、三浦に加えて読む独立スプレッドシート（足立区など）。
+    // 素の ?csv=1（スコアラーが使用）は三浦のみ＝足立区をスコアラー通知に混ぜない。
+    const MERGE_SIDS = ["1-RDVEKGX-PZrD2KtXMXvU6g1pdQ6kZSKMu7s7Tgtf-c"];  // 足立区スプレッドシート（cache.json _spreadsheet_足立区）
+    const primary = p.sid || "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE";
+    const sids = [primary];
+    if (p.merge) MERGE_SIDS.forEach(s => { if (s && sids.indexOf(s) < 0) sids.push(s); });
     const esc = v => {
       const s = (v === null || v === undefined) ? "" : String(v);
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     const lines = [];
     let headerDone = false;
-    ss.getSheets().forEach(sh => {
-      if (sh.getName() === "ダッシュボード") return;
-      const rng = sh.getDataRange();
-      const data = rng.getValues();
-      if (data.length < 2) return;
-      const formulas = rng.getFormulas();  // HYPERLINK から実URLを取り出す
-      const header = data[0].map(String);
-      if (!header.some(h => h.indexOf("物件") >= 0 || h.indexOf("価格") >= 0)) return;
-      const start = headerDone ? 1 : 0;
-      headerDone = true;
-      for (let r = start; r < data.length; r++) {
-        const rowOut = data[r].map((v, c) => {
-          const fml = formulas[r][c];
-          if (fml) {
-            const m = fml.match(/HYPERLINK\("([^"]+)"/i);
-            if (m) return esc(m[1]);   // Drive の実URLを出力
-          }
-          return esc(v);
-        });
-        lines.push(rowOut.join(","));
-      }
+    sids.forEach(sid => {
+      let ss;
+      try { ss = SpreadsheetApp.openById(sid); } catch (_) { return; }  // 消えてても他を返す
+      ss.getSheets().forEach(sh => {
+        if (sh.getName() === "ダッシュボード") return;
+        const rng = sh.getDataRange();
+        const data = rng.getValues();
+        if (data.length < 2) return;
+        const formulas = rng.getFormulas();  // HYPERLINK から実URLを取り出す
+        const header = data[0].map(String);
+        if (!header.some(h => h.indexOf("物件") >= 0 || h.indexOf("価格") >= 0)) return;
+        const start = headerDone ? 1 : 0;
+        headerDone = true;
+        for (let r = start; r < data.length; r++) {
+          const rowOut = data[r].map((v, c) => {
+            const fml = formulas[r][c];
+            if (fml) {
+              const m = fml.match(/HYPERLINK\("([^"]+)"/i);
+              if (m) return esc(m[1]);   // Drive の実URLを出力
+            }
+            return esc(v);
+          });
+          lines.push(rowOut.join(","));
+        }
+      });
     });
     return ContentService.createTextOutput(lines.join("\n"))
       .setMimeType(ContentService.MimeType.CSV);

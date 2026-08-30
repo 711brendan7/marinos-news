@@ -307,6 +307,7 @@ async function loadProps() {
   try {
     const qs = new URLSearchParams({ csv: '1' });
     if (sid) qs.set('sid', sid);
+    qs.set('merge', '1');     // 三浦に加えて足立区など独立シートも結合（スコアラーの素の?csv=1は非結合）
     qs.set('t', Date.now());  // キャッシュ回避（古いCSVを掴んで新規物件が出ない対策）
     const res = await fetch(`${gasUrl}?${qs.toString()}`,
       { redirect: 'follow', cache: 'no-store', signal: ctrl.signal });

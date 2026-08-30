@@ -31,12 +31,16 @@ ENABLE_DOWNLOADS     = os.getenv("ENABLE_DOWNLOADS", "true").lower() == "true"
 TEST_LIMIT           = int(os.getenv("TEST_LIMIT", "0"))  # 0=無制限、N=N件でストップ
 LINE_CHANNEL_TOKEN   = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_USER_ID         = os.getenv("LINE_USER_ID", "")
+# 通知の宛先。LINE_TO を指定するとそこへ push（グループIDや別ユーザーID）。
+# 未指定なら従来通り自分（LINE_USER_ID）へ。条件ごとに宛先を変えたい時は
+# run_adachi.sh のように LINE_TO を渡して同じスクレイパーを別条件で走らせる。
+LINE_TARGET          = os.getenv("LINE_TO", "").strip() or LINE_USER_ID
 
 CACHE_FILE = os.path.join(os.path.dirname(__file__), "cache.json")
 
 
 def send_line_notify(message):
-    if not LINE_CHANNEL_TOKEN or not LINE_USER_ID:
+    if not LINE_CHANNEL_TOKEN or not LINE_TARGET:
         return
     try:
         requests.post(
@@ -46,7 +50,7 @@ def send_line_notify(message):
                 "Content-Type": "application/json",
             },
             json={
-                "to": LINE_USER_ID,
+                "to": LINE_TARGET,
                 "messages": [{"type": "text", "text": message}],
             },
             timeout=10,
@@ -57,7 +61,7 @@ def send_line_notify(message):
 
 
 def _notify_new_props(new_props, sheet_url, condition, cache):
-    if not LINE_CHANNEL_TOKEN or not LINE_USER_ID:
+    if not LINE_CHANNEL_TOKEN or not LINE_TARGET:
         return
 
     folder_meta = cache.get(f"_folder_{condition}", {})
@@ -147,7 +151,7 @@ def _notify_new_props(new_props, sheet_url, condition, cache):
                 "Authorization": f"Bearer {LINE_CHANNEL_TOKEN}",
                 "Content-Type": "application/json",
             },
-            json={"to": LINE_USER_ID, "messages": [flex]},
+            json={"to": LINE_TARGET, "messages": [flex]},
             timeout=10,
         )
         print("📱 LINE通知送信完了")
@@ -1012,9 +1016,11 @@ async def download_phase(page, context, all_properties, condition):
 
         target_props = props[:TEST_LIMIT] if TEST_LIMIT > 0 else props
         for i, prop in enumerate(target_props):
-            reins_no   = prop["reinsNo"]
-            cache_key  = f"{condition}_{reins_no}"
-
+          reins_no   = prop["reinsNo"]
+          cache_key  = f"{condition}_{reins_no}"
+          # 1件のDL失敗（図面ボタンのclick Timeout・p-loading等）で run 全体が落ちないよう隔離。
+          # 失敗物件は _upload_failed 扱いで追記保留＝次回再試行。残骸を掃除して次へ進む。
+          try:
             # ── キャッシュヒット: ダウンロードをスキップ ──────────
             if cache_key in cache:
                 cached = cache[cache_key]
@@ -1106,6 +1112,15 @@ async def download_phase(page, context, all_properties, condition):
                     "folderUrl": folder_url,
                 })
                 print("失敗")
+          except Exception as e:
+            prop["_upload_failed"] = True
+            print(f"⚠️  DL失敗（スキップ・次回再試行）: {reins_no} {type(e).__name__}: {e}")
+            try:
+                await dismiss_dialogs(page)
+                await wait_no_loading(page)
+            except Exception:
+                pass
+            continue
 
     try:
         os.rmdir(download_dir)
