@@ -30,7 +30,7 @@
     #scrape-status { margin-top: 9px; padding: 9px 12px; background: #f0fff4; border: 1px solid #c3e6cb; border-radius: 9px; font-size: 13px; color: #1a7a3a; }
     #last-run { margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #48484a; background: #eef2f7; border-radius: 8px; display: none; }
 
-    /* タブ（スコア順 / 新着順） */
+    /* タブ（新しい順 / REINS順） */
     .tabs { display: flex; gap: 6px; margin-top: 11px; background: #eef0f4; padding: 3px; border-radius: 11px; }
     .tab { flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font-size: 14px; font-weight: 600; color: #636366; cursor: pointer; border: none; background: transparent; }
     .tab.active { background: #fff; color: #1a73e8; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -104,8 +104,8 @@
     <div id="scrape-status" style="display:none"></div>
     <div id="last-run"></div>
     <div class="tabs">
-      <button class="tab active" id="tab-score" onclick="setTab('score')">🏆 スコア順</button>
-      <button class="tab" id="tab-new" onclick="setTab('new')">🆕 新しい順</button>
+      <button class="tab active" id="tab-new" onclick="setTab('new')">🆕 新しい順</button>
+      <button class="tab" id="tab-reins" onclick="setTab('reins')">📋 REINS順</button>
     </div>
     <div class="search-row">
       <input type="search" id="search" placeholder="キーワード検索（所在地・商号・物件番号）" oninput="render()">
@@ -150,7 +150,8 @@ let sid    = localStorage.getItem(LS_SID) || '';
 let allProps = [];
 let filterType = '';
 let areaFilter = localStorage.getItem('reins_area') || '';   // エリア（市区町村）絞り込み
-let activeTab = localStorage.getItem(LS_TAB) || 'score';
+let activeTab = localStorage.getItem(LS_TAB) || 'new';
+if (activeTab !== 'new' && activeTab !== 'reins') activeTab = 'new';  // 旧'score'保存の掃除
 let seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
 let lastDiag = '';
 let favs = new Set(JSON.parse(localStorage.getItem(LS_FAVS) || '[]'));
@@ -161,7 +162,7 @@ function init() {
     document.getElementById('setup-view').style.display = 'none';
     document.getElementById('main-view').style.display  = 'block';
     document.getElementById('tab-' + activeTab).classList.add('active');
-    document.getElementById('tab-' + (activeTab === 'score' ? 'new' : 'score')).classList.remove('active');
+    document.getElementById('tab-' + (activeTab === 'new' ? 'reins' : 'new')).classList.remove('active');
     loadProps();
   } else {
     document.getElementById('setup-view').style.display = 'block';
@@ -185,8 +186,8 @@ function resetConfig() {
 }
 function setTab(t) {
   activeTab = t; localStorage.setItem(LS_TAB, t);
-  document.getElementById('tab-score').classList.toggle('active', t === 'score');
   document.getElementById('tab-new').classList.toggle('active', t === 'new');
+  document.getElementById('tab-reins').classList.toggle('active', t === 'reins');
   render();
 }
 
@@ -322,7 +323,6 @@ async function loadProps() {
     const rows = parseCSV(text).filter(r => r.length > 1);
     const header = rows[0].map(h => stripParen(h));
     allProps = rows.slice(1).map(r => rowToProp(header, r)).filter(p => p.key);
-    scoreAll(allProps);
     computeChangeFlags(allProps);   // 値下げ / 再掲 を前回スナップショットと比較して付与
 
     const maxTs = allProps.reduce((m, p) => p.ts > m ? p.ts : m, 0);
@@ -400,122 +400,7 @@ function rowToProp(header, r) {
   };
 }
 
-// ── スコアリング（reins/scorer/score.py を JS 移植） ──────
-const M2_PER_TSUBO = 3.305785;
-const W = { yield_: 0.35, market: 0.30, station: 0.15, age: 0.10, area_fit: 0.10 };
-const SUSPICIOUS_DISCOUNT = 0.55;
-
-function median(arr) {
-  if (!arr.length) return null;
-  const a = arr.slice().sort((x, y) => x - y), n = a.length, m = n >> 1;
-  return n % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
-}
-function lin(x, x0, s0, x1, s1) {
-  if (x1 === x0) return s0;
-  const v = s0 + (x - x0) / (x1 - x0) * (s1 - s0);
-  return Math.max(0, Math.min(100, v));
-}
-function effTsubo(p) {
-  if (p.tsubo_price > 1) return p.tsubo_price;
-  const am2 = p.ptype === '区分' ? p.building_m2 : (p.land_m2 || p.building_m2);
-  if (p.price_man > 0 && am2 > 0) { const t = p.price_man / (am2 / M2_PER_TSUBO); return t > 1 ? t : null; }
-  return null;
-}
-function surfaceYield(p) {
-  return (p.rent_month_man > 0 && p.price_man > 0) ? p.rent_month_man * 12 / p.price_man * 100 : null;
-}
-function yieldScore(y) {
-  if (y == null) return null;
-  if (y <= 5) return 0;
-  if (y <= 8) return lin(y, 5, 0, 8, 70);
-  return lin(y, 8, 70, 12, 100);
-}
-function marketScore(t, med) {
-  if (!t || !med) return null;
-  const d = (med - t) / med;
-  return d <= 0.40 ? lin(d, -0.20, 0, 0.40, 100) : lin(d, 0.40, 100, 0.90, 40);
-}
-function stationScore(m) { return m <= 0 ? null : lin(m, 3, 100, 20, 0); }
-function ageScore(age, ptype) { return (ptype === '土地' || age < 0) ? null : lin(Math.min(age, 45), 5, 100, 45, 20); }
-function areaFitScore(p) {
-  const m2 = p.ptype === '区分' ? p.building_m2 : p.land_m2;
-  if (m2 <= 0) return null;
-  const lo = p.ptype === '区分' ? 25 : 80, hi = p.ptype === '区分' ? 80 : 300;
-  if (m2 < lo) return lin(m2, lo * 0.5, 20, lo, 100);
-  if (m2 > hi) return lin(m2, hi, 100, hi * 2, 30);
-  return 100;
-}
-function mark(s) { return s >= 75 ? '◎' : (s >= 50 ? '○' : (s >= 30 ? '△' : '×')); }
-
-function cautionFlags(p) {
-  const flags = []; let factor = 1.0; const y = p.yoto || '';
-  if (/(調整|定めなし|無指定)/.test(y)) { flags.push('⚠用途地域なし/調整区域の可能性（再建築・建築可否を要確認）'); factor *= 0.6; }
-  else if (y.indexOf('工専') >= 0) { flags.push('⚠工業専用地域（住宅建築不可）'); factor *= 0.6; }
-  if (!p.setsudo && ['区分', 'マンション', '区分マンション'].indexOf(p.ptype) < 0) {
-    flags.push('接道情報なし（無道路/再建築不可を要確認）'); factor *= 0.9;
-  }
-  return { flags, factor };
-}
-
-function areaMedianTsubo(props) {
-  const byKey = {}, byType = {}, all = [];
-  props.forEach(p => {
-    const t = effTsubo(p);
-    if (t) {
-      (byKey[p.area + ' ' + p.ptype] = byKey[p.area + ' ' + p.ptype] || []).push(t);
-      (byType[p.ptype] = byType[p.ptype] || []).push(t);
-      all.push(t);
-    }
-  });
-  const overall = median(all);
-  const med = { _overall: overall, _type: {}, _key: {} };
-  for (const tp in byType) med._type[tp] = median(byType[tp]) ?? overall;
-  for (const k in byKey) {
-    const tp = k.split(' ')[1];
-    med._key[k] = byKey[k].length >= 3 ? median(byKey[k]) : (med._type[tp] ?? overall);
-  }
-  return med;
-}
-function lookupMedian(med, area, ptype) {
-  return med._key[area + ' ' + ptype] ?? med._type[ptype] ?? med._overall;
-}
-
-function scoreProperty(p, med) {
-  const y = surfaceYield(p), tsubo = effTsubo(p), m = lookupMedian(med, p.area, p.ptype);
-  const subs = {
-    yield_: [yieldScore(y), W.yield_],
-    market: [marketScore(tsubo, m), W.market],
-    station: [stationScore(p.station_min), W.station],
-    age: [ageScore(p.age, p.ptype), W.age],
-    area_fit: [areaFitScore(p), W.area_fit],
-  };
-  let wsum = 0, total = 0;
-  for (const k in subs) { const [s, w] = subs[k]; if (s != null) { wsum += w; total += s * w; } }
-  total = wsum ? total / wsum : 0;
-
-  const reasons = [];
-  if (y != null) reasons.push({ t: `表面利回り ${y.toFixed(1)}% ${mark(subs.yield_[0])}` });
-  if (tsubo && m) {
-    const disc = (m - tsubo) / m;
-    const rel = disc >= 0 ? `相場より${(disc * 100).toFixed(0)}%安` : `相場より${(-disc * 100).toFixed(0)}%高`;
-    const warn = disc >= SUSPICIOUS_DISCOUNT;
-    reasons.push({ t: `坪単価 ${tsubo.toFixed(0)}万・${rel} ${mark(subs.market[0])}${warn ? ' ⚠激安・訳あり疑い' : ''}`, warn });
-  }
-  if (p.station_min > 0) reasons.push({ t: `駅徒歩 ${p.station_min.toFixed(0)}分 ${mark(subs.station[0])}` });
-  if (subs.age[0] != null) reasons.push({ t: `築 ${p.age.toFixed(0)}年 ${mark(subs.age[0])}` });
-
-  const { flags, factor } = cautionFlags(p);
-  total *= factor;
-  flags.forEach(f => reasons.push({ t: f, warn: true }));
-
-  p.score = Math.round(total * 10) / 10;
-  p.reasons = reasons;
-}
-
-function scoreAll(props) {
-  const med = areaMedianTsubo(props);
-  props.forEach(p => scoreProperty(p, med));
-}
+// スコアリングは廃止（2026-09-01）。一覧は「新しい順 / REINS順」で並べる。
 
 // ── 変化フラグ（値下げ / 再掲=掲載順の浮上）──────────────
 // NEW と同様「前回表示時からの変化」。前回スナップショット(LS_PREV)と比較する。
@@ -587,7 +472,7 @@ function render() {
   else if (filterType) list = list.filter(p => p.ptype === filterType);
   if (q) list = list.filter(p => (p.address + p.shogo + p.key + p.station).toLowerCase().includes(q));
 
-  if (activeTab === 'score') list.sort((a, b) => b.score - a.score || b.ts - a.ts);
+  if (activeTab === 'reins') list.sort((a, b) => a.reinsOrder - b.reinsOrder || b.ts - a.ts);  // REINS掲載順
   else list.sort((a, b) => b.ts - a.ts || a.reinsOrder - b.reinsOrder);  // 新しい順（取得日時→掲載順）
 
   document.getElementById('count').textContent =
@@ -623,8 +508,6 @@ function viewerUrl(p) {
 function cardHtml(p, rank) {
   const fresh = isFresh(p);
   const isFav = favs.has(p.key);
-  const buy = p.score >= 70;
-  const scls = p.score >= 70 ? 's-buy' : (p.score >= 50 ? 's-ok' : 's-ng');
   const title = p.address || p.key || '（番号のみ）';
   const traffic = [p.line, p.station, p.station_min ? `徒歩${p.station_min}分` : '', p.bus].filter(Boolean).join(' ');
   const meta = [];
@@ -637,12 +520,10 @@ function cardHtml(p, rank) {
   if (p.key) meta.push(`<div><span class="lbl">物件番号</span>${escapeHtml(p.key)}</div>`);
   const url = viewerUrl(p);
 
-  const cls = isFav ? 'fav' : (buy ? 'buy' : (p.priceDrop ? 'drop' : (fresh ? 'fresh' : '')));
+  const cls = isFav ? 'fav' : (p.priceDrop ? 'drop' : (fresh ? 'fresh' : ''));
   return `
     <div class="card ${cls}">
       <div class="card-top">
-        ${activeTab === 'score' ? `<span class="rank">#${rank}</span>` : ''}
-        <span class="badge-score ${scls}">${Math.round(p.score)}点</span>
         ${p.ptype ? `<span class="ptype">${escapeHtml(p.ptype)}</span>` : ''}
         ${fresh ? '<span class="badge-new">NEW</span>' : ''}
         ${p.priceDrop ? `<span class="badge-drop">値下げ${p.priceDropAmt > 0 ? ' ▼' + p.priceDropAmt.toLocaleString() + '万' : ''}</span>` : ''}
@@ -653,7 +534,6 @@ function cardHtml(p, rank) {
       <div class="title">${escapeHtml(title)}</div>
       ${p.price_man ? `<div class="price">${Number(p.price_man).toLocaleString()}<span class="unit"> 万円</span></div>` : ''}
       ${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}
-      ${p.reasons && p.reasons.length ? `<div class="reasons">${p.reasons.map(r => `<div class="${r.warn ? 'warn' : ''}">${escapeHtml(r.t)}</div>`).join('')}</div>` : ''}
       ${url ? `<a class="open-btn" href="${escapeAttr(url)}" target="_blank" rel="noopener">図面・詳細を見る →</a>` : ''}
     </div>`;
 }
