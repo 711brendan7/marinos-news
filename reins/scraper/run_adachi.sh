@@ -1,7 +1,11 @@
 #!/bin/bash
 # 足立区の独立巡回。三浦とは別スプレッドシート・別Driveフォルダ・別通知（（足立区）表記）。
-# 仕入れスコアは通さない（スコア無しの生「🏠 REINS新着」通知のみ）。
-# 通知先は .env の LINE_TO_ADACHI（LINEグループID）。未設定なら自分（LINE_USER_ID）へフォールバック。
+# 仕入れスコアは通さない（スコア無しの生「🏠 REINS新着（足立区）」通知のみ）。
+# 挙動（下の env で制御）:
+#   - REINS_SPREADSHEET_URL: 専用シート固定＝作り直さない（新規0で再通知しない・PWA merge先と一致）
+#   - REINS_DOWNLOAD_NEW_ONLY=1: 既知物件は図面DLをスキップ（毎回全件巡回しない）
+#   - REINS_NOTIFY_ONLY_NEW=1: 新規0件のときは通知しない（新着があるときだけ）
+#   - LINE_TO: 通知先を .env の LINE_TO_ADACHI（LINEグループID）に。未設定なら自分にフォールバック
 cd "$(dirname "$0")"
 
 # .env から足立区の通知先（LINEグループID）だけを取り出す
