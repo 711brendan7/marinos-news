@@ -5,6 +5,7 @@
 #   - REINS_SPREADSHEET_URL: 専用シート固定＝作り直さない（新規0で再通知しない・PWA merge先と一致）
 #   - REINS_DOWNLOAD_NEW_ONLY=1: 既知物件は図面DLをスキップ（毎回全件巡回しない）
 #   - REINS_NOTIFY_ONLY_NEW=1: 新規0件のときは通知しない（新着があるときだけ）
+#   - REINS_WALK_MAX_MIN=10: 駅徒歩10分超と確定した物件はLINE通知から除外（徒歩不明は通知＝安全側。シートは全件記録）
 #   - LINE_TO: 通知先を .env の LINE_TO_ADACHI（LINEグループID）に。未設定なら自分にフォールバック
 cd "$(dirname "$0")"
 
@@ -21,6 +22,7 @@ REINS_CONDITIONS=足立 \
 REINS_SPREADSHEET_URL="$PIN_URL" \
 REINS_DOWNLOAD_NEW_ONLY=1 \
 REINS_NOTIFY_ONLY_NEW=1 \
+REINS_WALK_MAX_MIN=10 \
 LINE_TO="$LINE_TO_ADACHI" \
 HEADLESS=false \
 venv/bin/python reins_scraper.py

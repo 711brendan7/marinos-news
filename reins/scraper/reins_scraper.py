@@ -61,7 +61,18 @@ def send_line_notify(message):
         print(f"⚠️  LINE通知エラー: {e}")
 
 
-def _notify_new_props(new_props, sheet_url, condition, cache):
+def _walk_minutes(p):
+    """物件の駅徒歩分を int で返す。取れなければ None（=確認不可）。"""
+    w = p.get("walkMinutes")
+    if w is None or str(w).strip() == "":
+        return None
+    try:
+        return int(str(w).strip())
+    except (ValueError, TypeError):
+        return None
+
+
+def _notify_new_props(new_props, sheet_url, condition, cache, walk_label=False):
     if not LINE_CHANNEL_TOKEN or not LINE_TARGET:
         return
 
@@ -81,7 +92,11 @@ def _notify_new_props(new_props, sheet_url, condition, cache):
         price     = f" {p.get('price')}万円" if p.get("price") else ""
         ptype     = p.get("propertyType", "")
         ptype_s   = f" ［{ptype}］" if ptype else ""   # 住所・金額の後ろに種目（土地/戸建）を表示
-        text      = f"・{addr}{price}{ptype_s}"
+        walk_s    = ""
+        if walk_label:
+            w = _walk_minutes(p)
+            walk_s = f" 🚉徒歩{w}分" if w is not None else " 🚉徒歩不明"
+        text      = f"・{addr}{price}{ptype_s}{walk_s}"
         drive_url = p.get("driveUrl", "")
         m         = re.search(r'/d/([^/?]+)', drive_url) if drive_url else None
         file_id   = m.group(1) if m else None
@@ -632,6 +647,12 @@ def _extract_detail_fields(text):
     if m:
         result["buildingArea"] = m.group(1)
 
+    # 駅からの徒歩分（図面/詳細が権威。一覧に徒歩が載らない足立区等で使う）。
+    # 複数駅あれば最短を採用。「停歩(バス停から)」は 徒歩 を含まないのでヒットしない。
+    walks = re.findall(r'徒歩\s*(\d+)\s*分', text)
+    if walks:
+        result["walkMinutes"] = str(min(int(w) for w in walks))
+
     return result
 
 
@@ -1139,6 +1160,9 @@ async def download_phase(page, context, all_properties, condition):
                 for field in ["shogo", "kenpei", "yoseki", "sqmPrice", "tsuboPrice", "buildingArea"]:
                     if detail.get(field) and not prop.get(field):
                         prop[field] = detail[field]
+                # 徒歩分は図面/詳細を優先（一覧に載らない足立区等で拾う）＝取れたら上書き
+                if detail.get("walkMinutes"):
+                    prop["walkMinutes"] = detail["walkMinutes"]
                 # 戸建: ㎡単価が未取得なら 価格÷土地面積 で計算
                 if prop.get("propertyType") == "戸建" and prop.get("price") and prop.get("landArea") and not prop.get("sqmPrice"):
                     try:
@@ -1460,11 +1484,25 @@ async def main():
     # download_phase 前に控えた fresh_updates を使う。
     _update_existing_props(fresh_updates, listed_by_type, complete_types, known_ids, cache)
 
-    if new_props and sheet_url:
-        _notify_new_props(new_props, sheet_url, CONDITION, cache)
+    # 駅徒歩フィルタ（足立区）: REINS_WALK_MAX_MIN=10 なら「徒歩10分超」と確定した物件を
+    # LINE通知からのみ除外する（シート/PWA には全件記録する）。徒歩不明（図面が画像で読めない等）は
+    # 確認不可なので除外せず通知する＝安全側。三浦は env 未設定＝従来どおり全件通知。
+    _wm = os.getenv("REINS_WALK_MAX_MIN", "").strip()
+    walk_max = int(_wm) if _wm.isdigit() else None
+    notify_props = new_props
+    if walk_max is not None and new_props:
+        notify_props = [p for p in new_props
+                        if _walk_minutes(p) is None or _walk_minutes(p) <= walk_max]
+        dropped = len(new_props) - len(notify_props)
+        if dropped:
+            print(f"🚉 徒歩{walk_max}分超のため通知除外: {dropped}件（シートには記録済み）")
+
+    if notify_props and sheet_url:
+        _notify_new_props(notify_props, sheet_url, CONDITION, cache,
+                          walk_label=(walk_max is not None))
     elif os.getenv("REINS_NOTIFY_ONLY_NEW", "").strip() == "1":
-        # 新着のみ通知モード（足立区）: 新規0件のときは通知しない（毎回の「確認完了」 pingを出さない）。
-        print("🔕 新規なし・新着のみ通知モードのため通知しません")
+        # 新着のみ通知モード（足立区）: 新規0件（または全件が徒歩超過で除外）のときは通知しない。
+        print("🔕 新着通知対象なし・新着のみ通知モードのため通知しません")
     else:
         sheet_url = sheet_url or cache.get(f"_spreadsheet_{CONDITION}", "")
         send_line_notify(f"✅ REINS確認完了（新着なし）\n📊 シート: {sheet_url}")
