@@ -30,7 +30,17 @@ import argparse
 import datetime as dt
 import urllib.parse
 import urllib.request
+import concurrent.futures
 from pathlib import Path
+
+# ファイル/パイプへリダイレクトすると stdout がフルバッファリングされ、
+# 出力が少ない間はプロセス終了までログに何も書かれない＝「ハングしている」ように
+# 見えてしまう（2026-09-07、実際は正常進行中だったのに無反応と誤認した）。
+# 行バッファに強制して、print() の都度すぐ書き出す。
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 # ========================= 設定 =========================
 MY_URLNAME = "musyoku_ooya"          # 自分（対象から除外）
@@ -124,10 +134,25 @@ def todays_caps(state: dict) -> tuple[int, int]:
 
 
 # ========================= 収集（read-only API）=========================
-def _get_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.load(r)
+# urlopen(timeout=N) はソケットレベルのtimeoutで、DNS解決やCDN側の接続不良では
+# 効かず無期限ハングすることが実際にあった（2026-09-07、discoverが15分以上停止）。
+# SIGALRMでの壁時計保険も試したが、ブロッキングのC/SSL層にシグナルが届かず無力
+# だったため、別スレッド+ハードjoinタイムアウトに変更。呼び出し元は必ず制御を
+# 取り戻せる（下層が本当に無限ハングしても、そのスレッドを置き去りにして進む）。
+_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="note_api")
+
+
+def _get_json(url: str, hang_timeout: float = 12.0) -> dict:
+    def _fetch():
+        req = urllib.request.Request(url, headers=UA)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.load(r)
+    fut = _POOL.submit(_fetch)
+    try:
+        return fut.result(timeout=hang_timeout)
+    except concurrent.futures.TimeoutError:
+        fut.cancel()  # 実行中でも キャンセルはできないが、待つのはここで打ち切る
+        raise TimeoutError(f"_get_json hung >{hang_timeout}s: {url[:80]}")
 
 
 def creator_followers(urlname: str) -> int | None:
