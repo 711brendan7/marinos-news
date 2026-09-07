@@ -76,8 +76,9 @@ EXCLUDE_TITLE_RE = re.compile(
     r"週刊|日刊|今週の|マーケット速報)"
 )
 
-DAILY_LIKE_CAP = 30                  # ウォームアップ後の1日上限（控えめ）
-DAILY_FOLLOW_CAP = 10
+AUTO_FOLLOW = False                  # 自動フォローはしない（本人指示、2026-09-07）。cold/reciprocateともスキのみ。
+DAILY_LIKE_CAP = 50                  # ウォームアップ後の1日上限
+DAILY_FOLLOW_CAP = 10                # AUTO_FOLLOW=False の間は使われない
 WARMUP_DAYS = 7                      # 初日から7日かけて上限まで線形に増やす
 LIKE_FLOOR, FOLLOW_FLOOR = 8, 3      # 初日でも最低これだけは動く
 
@@ -129,7 +130,7 @@ def todays_caps(state: dict) -> tuple[int, int]:
     day = (dt.date.today() - start).days
     frac = min(1.0, (day + 1) / WARMUP_DAYS)
     likes = max(LIKE_FLOOR, round(DAILY_LIKE_CAP * frac))
-    follows = max(FOLLOW_FLOOR, round(DAILY_FOLLOW_CAP * frac))
+    follows = max(FOLLOW_FLOOR, round(DAILY_FOLLOW_CAP * frac)) if AUTO_FOLLOW else 0
     return likes, follows
 
 
@@ -475,7 +476,7 @@ def run(dry_run: bool, headful: bool):
                     liked_keys.add(c["key"])
 
                 followed_now = False
-                if (follows_done < follow_cap and c["author"] not in followed
+                if (AUTO_FOLLOW and follows_done < follow_cap and c["author"] not in followed
                         and random.random() < 0.6):   # 全員はフォローしない（自然さ）
                     if try_follow(page):
                         follows_done += 1
