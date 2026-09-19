@@ -18,3 +18,23 @@ __pycache__/
 *.pyc
 .DS_Store
 /index.html
+busshin/venv/
+busshin/.env
+busshin/.mercari_profile/
+busshin/reprice.html
+busshin/reprice_results.csv
+
+# 横断: シークレット・仮想環境・キャッシュ類はプロジェクトを問わず常に除外
+# (個別プロジェクトのgitignoreが漏れていても、ここで二重に防止する)
+**/.env
+!**/.env.example
+**/venv/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+**/credentials.json
+**/token.json
+**/*.log
+*.tmp
+.DS_Store
