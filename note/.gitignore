@@ -1,0 +1,13 @@
+
+# 半自動投稿ヘルパーのログイン維持プロファイル（絶対コミットしない）
+.note_profile/
+
+# スキ周り自動化のログ・状態（個人データ）
+engaged.log
+followed.log
+engage.log
+engage_state.json
+
+# 使い捨ての中間データ（各スクリプトが都度生成、再生成可能）
+scratch_*.json
+venv/

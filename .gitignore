@@ -35,6 +35,9 @@ busshin/reprice_results.csv
 **/node_modules/
 **/credentials.json
 **/token.json
+**/*.db
+**/*.sqlite
+**/*.sqlite3
 **/*.log
 *.tmp
 .DS_Store

@@ -1,0 +1,11 @@
+# 実行ログ（再生成可能・使い捨て）
+*.log
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# 注意: *.csv はここには含めない。ratings_full.csv 等は ../stock-data/ への
+# シンボリックリンク、revisions_all.csv や trades.csv 等はサイズの大きい
+# 実体ファイル（数MB〜）で、バックテスト結果として意図的に手元に置かれている
+# 可能性があるため、gitignoreするかどうかは利用者の判断に委ねる。

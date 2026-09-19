@@ -65,12 +65,19 @@ def extract_address(text: str) -> str:
     # 都道府県付きを優先（例: 神奈川県横須賀市佐島３丁目）
     m = re.search(r"(?:[^\s、。「]{2,4}県)[^\s、。「]*?[市区町村][^\s、。「0-9]*", text)
     if m:
-        return m.group(0).strip()
+        return _strip_leading_separators(m.group(0).strip())
     # 県なしフォールバック（市・町のみ。「区画図」等の誤ヒットを避けるため区は使わない）
     m = re.search(r"[^\s、。「0-9]{0,6}[市町][^\s、。「0-9]*", text)
     if m and "区画" not in m.group(0) and "図" not in m.group(0):
-        return m.group(0).strip()
+        return _strip_leading_separators(m.group(0).strip())
     return ""
+
+
+def _strip_leading_separators(s: str) -> str:
+    """ラベルの区切り文字（「所在地：」の「：」等）が県名の前にマッチ範囲の先頭へ
+    混入するケースを除去する。マッチ範囲は「[^除外文字]{2,4}県」のように県より前を
+    非貪欲に取るため、区切り文字自体が県名の直前2〜4文字に含まれると先頭に残ってしまう。"""
+    return s.lstrip("：:　 ・-－―")
 
 
 def _valid_value(key: str, value: str) -> bool:
