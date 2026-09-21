@@ -295,11 +295,25 @@ async function loadProps() {
     return;
   }
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000); // 60秒でタイムアウト（GASは混雑時に数十秒かかる）
+  // GAS の応答は同じ内容でも 2秒〜80秒とばらつき、混雑時は一時的に 404 を返す。
+  // 遅い応答を待ち続けるより引き直した方が速いので、1回あたり25秒で見切って3回試す。
+  let timer = null;
   try {
     const qs  = new URLSearchParams({ token, action: 'list' }).toString();
-    const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow', signal: ctrl.signal });
+    let res;
+    for (let attempt = 1; ; attempt++) {
+      const ctrl = new AbortController();
+      timer = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow', signal: ctrl.signal });
+        clearTimeout(timer);
+        if (res.status !== 404 || attempt >= 3) break;
+      } catch (e) {
+        clearTimeout(timer);
+        if (attempt >= 3) throw e;
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
     lastDiag = `URL: ${gasUrl}\nHTTP: ${res.status} ${res.redirected ? '(redirected→' + res.url.slice(0, 60) + '…)' : ''}`;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
@@ -338,7 +352,7 @@ async function loadProps() {
   } catch(e) {
     console.error(e);
     if (e.name === 'AbortError') {
-      showError('応答がありません（20秒でタイムアウト）。', 'GAS URL が正しいか、ネットワーク接続を確認してください。');
+      showError('応答がありません（3回試して届きませんでした）。', 'GAS が混雑している可能性があります。少し待って「更新」を押してください。');
     } else {
       showError('読み込みに失敗しました。', String(e && e.message || e));
     }
