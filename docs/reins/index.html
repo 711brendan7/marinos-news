@@ -98,8 +98,9 @@
     <div class="head-row">
       <h1>REINS仕入れ</h1>
       <span class="count" id="count"></span>
+      <span class="count" id="updating" style="display:none">更新中…</span>
       <button class="scrape-btn" id="scrape-btn" onclick="requestScrape()">今すぐ巡回</button>
-      <button class="refresh-btn" onclick="loadProps()">更新</button>
+      <button class="refresh-btn" onclick="loadProps(allProps.length > 0)">更新</button>
       <button class="refresh-btn" id="push-btn" onclick="enablePush()" style="display:none;background:#8e8e93">🔔通知</button>
     </div>
     <div id="scrape-status" style="display:none"></div>
@@ -142,6 +143,7 @@ const LS_SEEN_INIT = 'reins_seen_init';
 const LS_PREV  = 'reins_prev';           // 前回表示時の {物件番号: {p:価格, o:掲載順}} スナップショット
 const BUMP_MIN = 5;                       // 掲載順がこの数以上上昇したら「再掲(浮上)」扱い
 const LS_TAB   = 'reins_tab';
+const LS_CSV   = 'reins_csv_cache';      // 前回取得したCSV。起動直後の即描画に使う
 const LS_FAVS  = 'reins_favs';           // お気に入り物件番号の配列
 // 既定：run_score_daily.sh と同じ reins デプロイURL（そのまま使えるよう初期値に）
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwg5gIdluJCKhxg5Ac37ojhD1RxblEidHziJUIo2vWPTMWdlzlxEkCeaE-CydbCHInz-g/exec';
@@ -169,7 +171,8 @@ function init() {
     document.getElementById('main-view').style.display  = 'block';
     document.getElementById('tab-' + activeTab).classList.add('active');
     document.getElementById('tab-' + (activeTab === 'new' ? 'reins' : 'new')).classList.remove('active');
-    loadProps();
+    // 前回のデータで即描画してから、裏で最新を取りに行く
+    loadProps(renderFromCache());
     initPush();
   } else {
     document.getElementById('setup-view').style.display = 'block';
@@ -305,7 +308,7 @@ async function pollScrapeStatus(tries) {
     if (data.status) setScrapeStatus(data.status);
     if (!data.pending && /✅/.test(data.status || '')) {
       document.getElementById('scrape-btn').disabled = false;
-      await loadProps();
+      await loadProps(allProps.length > 0);
       return;
     }
   } catch (_) { /* 一時的なエラーは無視して継続 */ }
@@ -354,10 +357,36 @@ function parseCSV(text) {
 }
 
 // ── データ取得 ─────────────────────────────────────────
-async function loadProps() {
-  document.getElementById('spinner').style.display = 'block';
+// CSVを描画に反映する。起動直後のキャッシュ描画と、GASから取り直した本体の
+// 描画で同じ経路を通す。戻り値は取得日時の最大値（既読化の判定に使う）。
+function applyCsv(text) {
+  const rows = parseCSV(text).filter(r => r.length > 1);
+  const header = rows[0].map(h => stripParen(h));
+  allProps = rows.slice(1).map(r => rowToProp(header, r)).filter(p => p.key);
+  computeChangeFlags(allProps);   // 値下げ / 再掲 を前回スナップショットと比較して付与
+  seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
+  buildAreaBar();
+  buildFilterBar();
+  render();
+  return allProps.reduce((m, p) => p.ts > m ? p.ts : m, 0);
+}
+
+// 前回のCSVで即描画する（GASの応答は数秒〜数十秒かかるため、待たずに中身を出す）。
+// 既読化やスナップショット更新はここでは一切行わない＝NEW判定は本体取得時のみ動かす。
+function renderFromCache() {
+  const text = localStorage.getItem(LS_CSV);
+  if (!text) return false;
+  try { applyCsv(text); return true; } catch (_) { return false; }
+}
+
+async function loadProps(keepView) {
+  if (keepView) {
+    document.getElementById('updating').style.display = 'inline';
+  } else {
+    document.getElementById('spinner').style.display = 'block';
+    document.getElementById('list').innerHTML = '';
+  }
   document.getElementById('errbox').style.display  = 'none';
-  document.getElementById('list').innerHTML = '';
 
   if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(gasUrl)) {
     document.getElementById('spinner').style.display = 'none';
@@ -382,20 +411,16 @@ async function loadProps() {
       showError('物件CSVを取得できませんでした。', 'GAS が HTML を返しています（認証切れ / デプロイ未反映の可能性）。URL が reins 用か確認してください。');
       return;
     }
-    const rows = parseCSV(text).filter(r => r.length > 1);
-    const header = rows[0].map(h => stripParen(h));
-    allProps = rows.slice(1).map(r => rowToProp(header, r)).filter(p => p.key);
-    computeChangeFlags(allProps);   // 値下げ / 再掲 を前回スナップショットと比較して付与
-
-    const maxTs = allProps.reduce((m, p) => p.ts > m ? p.ts : m, 0);
+    const maxTs = applyCsv(text);
+    // 初回だけ全件を既読扱いにして、以降に増えた物件だけNEWにする
     if (!localStorage.getItem(LS_SEEN_INIT)) {
       localStorage.setItem(LS_SEEN, String(maxTs));
       localStorage.setItem(LS_SEEN_INIT, '1');
+      seenThreshold = maxTs;
+      render();
     }
-    seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
-    buildAreaBar();
-    buildFilterBar();
-    render();
+    try { localStorage.setItem(LS_CSV, text); } catch (_) { /* 容量超過時は諦める */ }
+    document.getElementById('updating').style.display = 'none';
     fetchLastRun();
     // 基準スナップショットは NEW と同じタイミングで進める（＝新しい巡回が来たときだけ）。
     // 手動リロードでは基準を更新しないのでバッジは消えない。初回だけ基準を作る。
@@ -406,6 +431,13 @@ async function loadProps() {
     }
   } catch (e) {
     console.error(e);
+    // キャッシュで中身が出ているときは、更新の失敗で画面を消さない
+    if (keepView) {
+      const u = document.getElementById('updating');
+      u.textContent = '更新できませんでした';
+      setTimeout(() => { u.style.display = 'none'; u.textContent = '更新中…'; }, 4000);
+      return;
+    }
     if (e.name === 'AbortError') showError('応答がありません（25秒でタイムアウト）。', 'GAS URL とネットワークを確認してください。');
     else showError('読み込みに失敗しました。', String(e && e.message || e));
   } finally {

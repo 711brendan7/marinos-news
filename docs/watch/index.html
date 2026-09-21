@@ -83,8 +83,9 @@
     <div class="head-row">
       <h1>物件ウォッチ</h1>
       <span class="count" id="count"></span>
+      <span class="count" id="updating" style="display:none">更新中…</span>
       <button class="scrape-btn" id="scrape-btn" onclick="requestScrape()">今すぐ巡回</button>
-      <button class="refresh-btn" onclick="loadProps()">更新</button>
+      <button class="refresh-btn" onclick="loadProps(allProps.length > 0)">更新</button>
       <button class="refresh-btn" id="push-btn" onclick="enablePush()" style="display:none;background:#8e8e93">🔔通知</button>
     </div>
     <div id="scrape-status" style="display:none"></div>
@@ -116,6 +117,7 @@ const LS_URL   = 'realestate_gas_url';
 const LS_TOKEN = 'realestate_gas_token';
 const LS_SEEN  = 'realestate_seen_max';    // 前回までに見た最新の取得日時
 const LS_SEEN_INIT = 'realestate_seen_init'; // 初期化済みフラグ
+const LS_CACHE = 'realestate_cache';         // 前回取得した一覧。起動直後の即描画に使う
 
 let gasUrl = localStorage.getItem(LS_URL)   || '';
 let token  = localStorage.getItem(LS_TOKEN) || '';
@@ -187,7 +189,7 @@ function init() {
   if (gasUrl && token) {
     document.getElementById('setup-view').style.display = 'none';
     document.getElementById('main-view').style.display  = 'block';
-    loadProps();
+    loadProps(renderFromCache());  // 前回のデータで即描画してから裏で最新を取る
     initPush();
   } else {
     document.getElementById('setup-view').style.display = 'block';
@@ -276,17 +278,44 @@ async function pollScrapeStatus(tries) {
     // 完了（pending=false かつ 状態が ✅）なら一覧を更新して終了
     if (!data.pending && /✅/.test(data.status || '')) {
       document.getElementById('scrape-btn').disabled = false;
-      await loadProps();
+      await loadProps(allProps.length > 0);
       return;
     }
   } catch (_) { /* 一時的なエラーは無視して継続 */ }
   scrapePollTimer = setTimeout(() => pollScrapeStatus(tries + 1), 4000);
 }
 
-async function loadProps() {
-  document.getElementById('spinner').style.display = 'block';
+// 物件配列を描画に反映する。起動直後のキャッシュ描画と本体の描画で同じ経路を通す。
+// 戻り値は取得日時の最大値（既読化の判定に使う）。
+function applyProps(props) {
+  allProps = props;
+  seenThreshold = localStorage.getItem(LS_SEEN) || '';
+  buildFilterBar();
+  render();
+  return allProps.reduce((m, p) => p.date > m ? p.date : m, '');
+}
+
+// 前回の一覧で即描画する（GASの応答は数秒〜数十秒かかるため、待たずに中身を出す）。
+// 既読化はここでは行わない＝NEW判定は本体取得時のみ動かす。
+function renderFromCache() {
+  const raw = localStorage.getItem(LS_CACHE);
+  if (!raw) return false;
+  try {
+    const props = JSON.parse(raw);
+    if (!Array.isArray(props) || !props.length) return false;
+    applyProps(props);
+    return true;
+  } catch (_) { return false; }
+}
+
+async function loadProps(keepView) {
+  if (keepView) {
+    document.getElementById('updating').style.display = 'inline';
+  } else {
+    document.getElementById('spinner').style.display = 'block';
+    document.getElementById('list').innerHTML = '';
+  }
   document.getElementById('errbox').style.display  = 'none';
-  document.getElementById('list').innerHTML = '';
 
   // URL 形式の軽いチェック
   if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(gasUrl)) {
@@ -334,16 +363,16 @@ async function loadProps() {
       showError('URL が正しくないようです。', hint);
       return;
     }
-    allProps = data.properties;
-    const maxDate = allProps.reduce((m, p) => p.date > m ? p.date : m, '');
+    const maxDate = applyProps(data.properties);
     // 初回のみ: 既存を全て「既読」にして、以降に増えた物件だけNEWにする
     if (!localStorage.getItem(LS_SEEN_INIT)) {
       localStorage.setItem(LS_SEEN, maxDate);
       localStorage.setItem(LS_SEEN_INIT, '1');
+      seenThreshold = maxDate;
+      render();
     }
-    seenThreshold = localStorage.getItem(LS_SEEN) || maxDate;  // 今回更新前の基準でNEW判定
-    buildFilterBar();
-    render();
+    try { localStorage.setItem(LS_CACHE, JSON.stringify(allProps)); } catch (_) { /* 容量超過時は諦める */ }
+    document.getElementById('updating').style.display = 'none';
     // 見た分は既読化（次回開くとNEWが消え、新たに増えた物件だけNEWになる）
     if (maxDate && maxDate > (localStorage.getItem(LS_SEEN) || '')) {
       localStorage.setItem(LS_SEEN, maxDate);
@@ -351,6 +380,13 @@ async function loadProps() {
     fetchLastRun();
   } catch(e) {
     console.error(e);
+    // キャッシュで中身が出ているときは、更新の失敗で画面を消さない
+    if (keepView) {
+      const u = document.getElementById('updating');
+      u.textContent = '更新できませんでした';
+      setTimeout(() => { u.style.display = 'none'; u.textContent = '更新中…'; }, 4000);
+      return;
+    }
     if (e.name === 'AbortError') {
       showError('応答がありません（3回試して届きませんでした）。', 'GAS が混雑している可能性があります。少し待って「更新」を押してください。');
     } else {
