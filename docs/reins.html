@@ -100,6 +100,7 @@
       <span class="count" id="count"></span>
       <button class="scrape-btn" id="scrape-btn" onclick="requestScrape()">今すぐ巡回</button>
       <button class="refresh-btn" onclick="loadProps()">更新</button>
+      <button class="refresh-btn" id="push-btn" onclick="enablePush()" style="display:none;background:#8e8e93">🔔通知</button>
     </div>
     <div id="scrape-status" style="display:none"></div>
     <div id="last-run"></div>
@@ -145,6 +146,11 @@ const LS_FAVS  = 'reins_favs';           // お気に入り物件番号の配列
 // 既定：run_score_daily.sh と同じ reins デプロイURL（そのまま使えるよう初期値に）
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwg5gIdluJCKhxg5Ac37ojhD1RxblEidHziJUIo2vWPTMWdlzlxEkCeaE-CydbCHInz-g/exec';
 
+// ── アプリアイコンのバッジ表示（Web Push）───────────────────
+// reins/scraper/.env の VAPID_PUBLIC_KEY と同じ値。秘密鍵は Mac 側にのみ置く。
+const VAPID_PUBLIC_KEY = 'BPfDxGXMXtAtmRLyV2sj71t2yWzPRQm2EiNudWqBheNR4PIACWpIGG4u3k1RsI1i7pox8wTSwQFoBPgF9c9knRk';
+const LS_PUSH_SUB = 'reins_push_subscribed';
+
 let gasUrl = localStorage.getItem(LS_URL) || DEFAULT_URL;
 let sid    = localStorage.getItem(LS_SID) || '';
 let allProps = [];
@@ -164,6 +170,7 @@ function init() {
     document.getElementById('tab-' + activeTab).classList.add('active');
     document.getElementById('tab-' + (activeTab === 'new' ? 'reins' : 'new')).classList.remove('active');
     loadProps();
+    initPush();
   } else {
     document.getElementById('setup-view').style.display = 'block';
     document.getElementById('main-view').style.display  = 'none';
@@ -202,6 +209,61 @@ function toggleFav(key) {
   if (showFavsOnly) render();  // お気に入り表示中に外したら一覧から消す
 }
 function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+
+// ── アプリアイコンのバッジ表示（Web Push 購読）────────────────
+function urlB64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function initPush() {
+  // アプリを開いた＝新着を確認しにきたタイミングなのでバッジは消す（SW側のカウンタも0に戻す）
+  try { if ('clearAppBadge' in navigator) await navigator.clearAppBadge(); } catch (_) {}
+
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;  // 非対応ブラウザ
+  const btn = document.getElementById('push-btn');
+  if (Notification.permission === 'granted' && localStorage.getItem(LS_PUSH_SUB) === '1') {
+    btn.style.display = 'none';
+    // 購読が切れていないか静かに確認（ユーザー操作なしで再subscribe可能）
+    try {
+      const reg = await navigator.serviceWorker.register('reins-sw.js');
+      await navigator.serviceWorker.ready;
+      if (reg.active) reg.active.postMessage({ type: 'clearBadge' });
+      const sub = await reg.pushManager.getSubscription();
+      if (!sub) await subscribePush(reg);
+    } catch (_) {}
+  } else if (Notification.permission === 'denied') {
+    btn.style.display = 'none';
+  } else {
+    btn.style.display = 'inline-block';
+  }
+}
+async function subscribePush(reg) {
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY),
+  });
+  await fetch(gasUrl, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'pushSubscribe', endpoint: sub.endpoint, subscription: sub.toJSON() }),
+  });
+  localStorage.setItem(LS_PUSH_SUB, '1');
+  return sub;
+}
+async function enablePush() {
+  const btn = document.getElementById('push-btn');
+  try {
+    const reg = await navigator.serviceWorker.register('reins-sw.js');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { alert('通知が許可されませんでした。設定アプリから許可できます。'); return; }
+    await subscribePush(reg);
+    btn.style.display = 'none';
+    alert('新着通知をオンにしました。以後、新着があるとアプリアイコンに件数バッジが表示されます。');
+  } catch (e) {
+    alert('通知の設定に失敗しました: ' + (e.message || e));
+  }
+}
 
 // ── 手動巡回トリガー（GAS 制御シート経由・物件ウォッチと同方式）──
 let scrapePollTimer = null;

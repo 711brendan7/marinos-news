@@ -14,6 +14,11 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+try:
+    from pywebpush import webpush, WebPushException
+except ImportError:
+    webpush = None
+    WebPushException = Exception
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -36,8 +41,65 @@ LINE_USER_ID         = os.getenv("LINE_USER_ID", "")
 # 未指定なら従来通り自分（LINE_USER_ID）へ。条件ごとに宛先を変えたい時は
 # run_adachi.sh のように LINE_TO を渡して同じスクレイパーを別条件で走らせる。
 LINE_TARGET          = os.getenv("LINE_TO", "").strip() or LINE_USER_ID
+# 新着通知に図面そのもの（Driveサムネイルの画像）を続けて送るか。0 で従来どおりリンクのみ。
+# 物件名をタップしなくても LINE 上で図面が読めるようにするための機能。
+LINE_SEND_IMAGES     = os.getenv("REINS_LINE_IMAGES", "1").strip() != "0"
+# 1回の新着通知で送る図面画像の上限（多すぎるとトークが流れるため）。
+LINE_IMAGES_MAX      = int(os.getenv("REINS_LINE_IMAGES_MAX", "10"))
 
 CACHE_FILE = os.path.join(os.path.dirname(__file__), "cache.json")
+
+# PWA(reins.html) アプリアイコンのバッジ表示用（Web Push）。
+_VAPID_PRIVATE_KEY_FILE = os.getenv("VAPID_PRIVATE_KEY_FILE", "vapid_private.pem")
+VAPID_PRIVATE_KEY_PATH  = os.path.join(os.path.dirname(__file__), _VAPID_PRIVATE_KEY_FILE)
+VAPID_SUBJECT            = os.getenv("VAPID_SUBJECT", "")
+
+
+def send_web_push(new_count, sheet_url):
+    """新着件数をアプリアイコンのバッジに反映するため、登録済みの全端末へ Web Push を送る。
+    LINE通知とは独立（LINE_CHANNEL_TOKEN 等は不要）。GAS未設定/鍵未生成なら黙って何もしない。"""
+    if webpush is None or new_count <= 0 or not GAS_URL:
+        return
+    if not os.path.exists(VAPID_PRIVATE_KEY_PATH):
+        return
+    try:
+        res = requests.get(f"{GAS_URL}?action=pushSubscriptions", timeout=15)
+        subs = res.json()
+    except Exception as e:
+        print(f"⚠️  Push購読者取得エラー: {e}")
+        return
+    if not subs:
+        return
+
+    payload = json.dumps({
+        "title": "REINS仕入れ",
+        "body": f"新着 {new_count}件",
+        "count": new_count,
+        "url": sheet_url or "./reins.html",
+    })
+    sent, expired = 0, 0
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info=sub,
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY_PATH,
+                vapid_claims={"sub": VAPID_SUBJECT},
+                timeout=10,
+            )
+            sent += 1
+        except WebPushException as e:
+            code = getattr(e.response, "status_code", None)
+            if code in (404, 410):  # 購読が失効（アプリ削除・通知拒否など）→ GAS側の登録も消す
+                expired += 1
+                try:
+                    requests.post(GAS_URL, json={"action": "pushUnsubscribe",
+                                                  "endpoint": sub.get("endpoint", "")}, timeout=10)
+                except Exception:
+                    pass
+            else:
+                print(f"⚠️  Push送信エラー: {e}")
+    print(f"🔔 バッジPush送信完了（{sent}件" + (f"・失効{expired}件を解除" if expired else "") + "）")
 
 
 def send_line_notify(message):
@@ -72,7 +134,122 @@ def _walk_minutes(p):
         return None
 
 
-def _notify_new_props(new_props, sheet_url, condition, cache, walk_label=False):
+# 足立区の優先駅（LINE通知で ◎ を付ける）。徒歩フィルタとは独立。
+ADACHI_PRIORITY_STATIONS = {
+    "北千住", "五反野", "梅島", "西新井", "江北", "青井", "六町", "綾瀬", "北綾瀬",
+}
+
+
+def _station_name(p):
+    """物件の駅名を返す（末尾の「駅」は除去）。取れなければ ""。"""
+    st = p.get("station")
+    if not st:
+        return ""
+    return str(st).strip().rstrip("駅").strip()
+
+
+def _tsubo_by_land_area(p):
+    """価格 ÷ 土地面積 を 万円/坪 に換算して返す（1坪 = 3.3058㎡）。取れなければ None。"""
+    try:
+        price = float(str(p.get("price", "")).replace(",", "").strip())
+        land  = float(str(p.get("landArea", "")).replace(",", "").strip())
+    except (ValueError, TypeError):
+        return None
+    if price > 0 and land > 0:
+        return round(price / land * 3.3058, 1)
+    return None
+
+
+def _land_tsubo_for_notify(p):
+    """LINE通知の坪単価フィルタ／ラベル用の坪単価（万円/坪）。取れなければ None（=確認不可）。
+    戸建は必ず「価格 ÷ 土地面積」で評価する（REINS表示の坪単価＝建物条件込みの値は使わない）。
+    土地はREINS表示の坪単価（tsuboPrice）を使い、無ければ「価格 ÷ 土地面積」で代用。"""
+    ptype = p.get("propertyType")
+    if ptype == "戸建":
+        return _tsubo_by_land_area(p)
+    if ptype == "土地":
+        v = p.get("tsuboPrice")
+        if v is not None and str(v).strip() != "":
+            try:
+                fv = float(str(v).replace(",", "").strip())
+                if fv > 0:
+                    return fv
+            except (ValueError, TypeError):
+                pass
+        return _tsubo_by_land_area(p)
+    return None
+
+
+def _drive_file_id(drive_url):
+    """Drive の共有URL（/d/<id>/view）から fileId を取り出す。取れなければ None。"""
+    if not drive_url:
+        return None
+    m = re.search(r'/d/([^/?]+)', drive_url)
+    return m.group(1) if m else None
+
+
+def _drive_image_url(file_id, width):
+    """Drive のサムネイル画像の直リンク。
+    drive.google.com/thumbnail?id= は 302 で lh3 に飛ぶため、LINE には
+    リダイレクト無しで image/png を返す lh3 の直リンクを渡す。
+    PDF（図面）でも1ページ目の画像が返る。ファイルは
+    uploadFileToDrive で ANYONE_WITH_LINK 公開済みなので LINE 側から取得できる。"""
+    return f"https://lh3.googleusercontent.com/d/{file_id}=w{width}"
+
+
+def _image_ready(url):
+    """LINE に渡す前にサムネイルが生成済みか確認する。
+    アップロード直後はサムネイル未生成で 404 のことがあり、そのまま送ると
+    LINE 側で「画像を読み込めません」になるため、生成前の分は送らない。"""
+    try:
+        r = requests.head(url, timeout=10, allow_redirects=True)
+        return r.status_code == 200 and r.headers.get("Content-Type", "").startswith("image/")
+    except Exception:
+        return False
+
+
+def _push_messages(messages):
+    """LINE push は1リクエスト最大5メッセージ。超える分は分割して送る。"""
+    for i in range(0, len(messages), 5):
+        chunk = messages[i:i + 5]
+        r = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={
+                "Authorization": f"Bearer {LINE_CHANNEL_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={"to": LINE_TARGET, "messages": chunk},
+            timeout=30,
+        )
+        # 200以外は黙って捨てず中身を出す（画像URL不正・メッセージ数超過の切り分け用）
+        if r.status_code != 200:
+            print(f"⚠️  LINE push 失敗 {r.status_code}: {r.text[:300]}")
+
+
+def _drawing_image_messages(new_props):
+    """新着物件の図面を LINE の画像メッセージにして返す（Flex と同じ並び順）。
+    タップせずにトーク上で図面が読め、タップすれば LINE の画像ビューアで拡大できる。"""
+    messages = []
+    for p in new_props:
+        if len(messages) >= LINE_IMAGES_MAX:
+            break
+        file_id = _drive_file_id(p.get("driveUrl", ""))
+        if not file_id:
+            continue
+        url = _drive_image_url(file_id, 1200)
+        if not _image_ready(url):
+            print(f"  ⚠️  図面サムネイル未生成のため画像送信をスキップ: {p.get('reinsNo', '')}")
+            continue
+        messages.append({
+            "type": "image",
+            "originalContentUrl": url,
+            "previewImageUrl": _drive_image_url(file_id, 480),
+        })
+    return messages
+
+
+def _notify_new_props(new_props, sheet_url, condition, cache, walk_label=False,
+                      tsubo_label=False):
     if not LINE_CHANNEL_TOKEN or not LINE_TARGET:
         return
 
@@ -94,12 +271,21 @@ def _notify_new_props(new_props, sheet_url, condition, cache, walk_label=False):
         ptype_s   = f" ［{ptype}］" if ptype else ""   # 住所・金額の後ろに種目（土地/戸建）を表示
         walk_s    = ""
         if walk_label:
-            w = _walk_minutes(p)
-            walk_s = f" 🚉徒歩{w}分" if w is not None else " 🚉徒歩不明"
-        text      = f"・{addr}{price}{ptype_s}{walk_s}"
-        drive_url = p.get("driveUrl", "")
-        m         = re.search(r'/d/([^/?]+)', drive_url) if drive_url else None
-        file_id   = m.group(1) if m else None
+            # 🚉 の後ろに「駅名 徒歩◯分」。優先駅は駅名に ◎ を付ける。駅名が取れなければ徒歩のみ。
+            st    = _station_name(p)
+            w     = _walk_minutes(p)
+            parts = []
+            if st:
+                mark = "◎" if st in ADACHI_PRIORITY_STATIONS else ""
+                parts.append(f"{mark}{st}駅")
+            parts.append(f"徒歩{w}分" if w is not None else "徒歩不明")
+            walk_s = " 🚉" + " ".join(parts)
+        tsubo_s   = ""
+        if tsubo_label:
+            tp = _land_tsubo_for_notify(p)
+            tsubo_s = f" 坪@{tp:g}万" if tp is not None else " 坪@不明"
+        text      = f"・{addr}{price}{ptype_s}{walk_s}{tsubo_s}"
+        file_id   = _drive_file_id(p.get("driveUrl", ""))
         viewer_url = (
             f"{GAS_URL}?folderId={folder_id}&fileId={file_id}"
             if file_id and folder_id and GAS_URL else None
@@ -163,16 +349,21 @@ def _notify_new_props(new_props, sheet_url, condition, cache, walk_label=False):
         },
     }
     try:
-        requests.post(
-            "https://api.line.me/v2/bot/message/push",
-            headers={
-                "Authorization": f"Bearer {LINE_CHANNEL_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            json={"to": LINE_TARGET, "messages": [flex]},
-            timeout=10,
-        )
-        print("📱 LINE通知送信完了")
+        messages = [flex]
+        if LINE_SEND_IMAGES:
+            images = _drawing_image_messages(new_props)
+            if images:
+                # 一覧（Flex）と同じ並び順で図面が続く旨を添える
+                body_contents.insert(1, {
+                    "type": "text",
+                    "text": f"（図面{len(images)}枚をこの下に同じ順で送ります）",
+                    "size": "xs",
+                    "color": "#888888",
+                    "wrap": True,
+                })
+            messages += images
+        _push_messages(messages)
+        print(f"📱 LINE通知送信完了（図面画像 {len(messages) - 1}枚）")
     except Exception as e:
         print(f"⚠️  LINE通知エラー: {e}")
 
@@ -586,8 +777,23 @@ def _extract_from_text(p, text):
 
 # ── 1タブ分を全ページスクレイプ ───────────────────────────────
 async def extract_with_js(page):
-    """ページ全体テキストを物件番号で分割して抽出（table不要）"""
-    body_text = await page.evaluate("() => document.body.innerText")
+    """結果一覧の行テキストを物件番号で分割して抽出（table不要）
+
+    対象はページ全体ではなく表の行(.p-table-body-row)に限定する。
+    ページ全体の innerText を見ると、表の外にある12桁の数字まで物件として
+    拾ってしまう（2026-09-19: 全タブ・全エリアで 477000002754 を検出。
+    価格も住所も持たない空の行で、ダウンロード時は毎回「行なし」で失敗していた）。
+    ダウンロード側 download_from_list_row() が探すのも .p-table-body-row なので、
+    抽出とダウンロードで同じ行を見ることになり齟齬がなくなる。
+    複数タブ分の行がDOMに同居するため、表示中のタブの行だけに絞る。
+    セレクタが将来変わって0件になった場合は、従来どおりページ全体にフォールバックする。
+    """
+    rows_text = await page.evaluate(
+        """() => Array.from(document.querySelectorAll('.p-table-body-row'))
+                     .filter(r => r.offsetParent !== null)
+                     .map(r => r.innerText).join('\\n')"""
+    )
+    body_text = rows_text or await page.evaluate("() => document.body.innerText")
 
     # 12桁の物件番号を区切りとしてセクション分割
     sections = re.split(r'(?=\d{12})', body_text)
@@ -647,11 +853,53 @@ def _extract_detail_fields(text):
     if m:
         result["buildingArea"] = m.group(1)
 
+    # 土地面積（戸建の 価格÷土地面積 評価・㎡単価計算に使う。一覧に載らない足立区等は詳細が権威）。
+    # 登記/実測や私道分が併記されることがあるため、ラベル直後の最初の㎡値を採用。
+    for pat in [r'土地面積\D{0,30}?([\d,.]+)\s*(?:㎡|平米|m2|m²)',
+                r'敷地面積\D{0,30}?([\d,.]+)\s*(?:㎡|平米|m2|m²)',
+                r'地積\D{0,30}?([\d,.]+)\s*(?:㎡|平米|m2|m²)']:
+        m = re.search(pat, text)
+        if m:
+            result["landArea"] = m.group(1).replace(",", "")
+            break
+
+    # 路線名トークン（駅名と地の文の境界／路線名の除去に使う）。
+    _LINE_TOKENS = r'(?:ライナー|ライン|エクスプレス|本線|新線|線)'
+
     # 駅からの徒歩分（図面/詳細が権威。一覧に徒歩が載らない足立区等で使う）。
-    # 複数駅あれば最短を採用。「停歩(バス停から)」は 徒歩 を含まないのでヒットしない。
-    walks = re.findall(r'徒歩\s*(\d+)\s*分', text)
+    # 実書式は「○○駅より徒歩◯分」で、駅名と徒歩の間に「より/から」や改行が入る。
+    # まず「駅…徒歩◯分」だけを対象に最短を採用（複数駅は最短）。バス停より徒歩・施設の
+    # 徒歩◯分を拾わないための優先。取れなければ従来どおりページ内の徒歩◯分の最短（保険）。
+    station_walks = re.findall(r'駅\s*(?:より|から|まで)?\s*徒歩\s*(\d+)\s*分', text)
+    if station_walks:
+        walks = station_walks
+    else:
+        # 保険（駅由来が取れない時）。「バス停より徒歩」はバスアクセスで駅徒歩ではないため除外。
+        cleaned = re.sub(r'バス停\s*(?:より|から)?\s*徒歩\s*\d+\s*分', '', text)
+        walks = re.findall(r'徒歩\s*(\d+)\s*分', cleaned)
     if walks:
         result["walkMinutes"] = str(min(int(w) for w in walks))
+
+    # 駅名（一覧に路線・駅が載らない足立区等を詳細ページで拾う）。
+    # 「○○駅（より/から）（徒歩／バス）」の駅名を採用。駅名と徒歩の間の「より/から」「改行」を許容。
+    # 路線名が駅名にくっついた場合（例: 舎人ライナー西新井大師西）は末尾側の駅名だけ残す。
+    m = re.search(r'([^\s　\d]{2,12})\s*駅\s*(?:より|から|まで)?\s*(?:徒歩|バス)', text)
+    if m:
+        name = re.split(_LINE_TOKENS, m.group(1))[-1]
+        if name:
+            result["station"] = name + "駅"
+    else:
+        # フォールバック: 「駅」表記が無い書式でも拾う。
+        #   例: 「日暮里・舎人ライナー 西新井大師西 徒歩9分」→「西新井大師西駅」
+        # 施設（スーパー等）の徒歩を誤検出しないよう、直前に路線名がある場合に限る。
+        m = re.search(_LINE_TOKENS + r'[\s　･・]*([^\s　\d･・]{2,12}?)\s*(?:より|から|まで)?\s*(?:徒歩|バス)', text)
+        if m:
+            result["station"] = m.group(1) + "駅"
+        elif re.search(r'徒歩\s*\d+\s*分', text):
+            # まだ取れない書式。次回チューニング用に前後を可視化（改行は · で表示）。
+            ctx = re.search(r'.{0,24}徒歩\s*\d+\s*分', text, re.S)
+            snippet = re.sub(r'\s+', '·', ctx.group(0)) if ctx else ''
+            print(f"⚠ 駅名抽出できず（徒歩あり）: …{snippet}")
 
     return result
 
@@ -1128,6 +1376,7 @@ async def download_phase(page, context, all_properties, condition):
                     "sqmPrice":    cached.get("sqmPrice", "") or prop.get("sqmPrice", ""),
                     "tsuboPrice":  cached.get("tsuboPrice", "") or prop.get("tsuboPrice", ""),
                     "buildingArea": cached.get("buildingArea", ""),
+                    "landArea":    cached.get("landArea", "") or prop.get("landArea", ""),
                     "fetchedAt":   cached["fetchedAt"],
                     "folderUrl":   folder_url,
                     "address":      cached.get("address", "") or prop.get("address", ""),
@@ -1157,12 +1406,21 @@ async def download_phase(page, context, all_properties, condition):
                     "folderUrl": folder_url,
                 })
                 # 詳細ページで取得したフィールドで上書き（空の場合のみ）
-                for field in ["shogo", "kenpei", "yoseki", "sqmPrice", "tsuboPrice", "buildingArea"]:
+                # landArea は一覧に載らない足立区等で詳細から補完（戸建の 価格÷土地面積 評価に使う）。
+                for field in ["shogo", "kenpei", "yoseki", "sqmPrice", "tsuboPrice",
+                              "buildingArea", "landArea"]:
                     if detail.get(field) and not prop.get(field):
                         prop[field] = detail[field]
                 # 徒歩分は図面/詳細を優先（一覧に載らない足立区等で拾う）＝取れたら上書き
                 if detail.get("walkMinutes"):
                     prop["walkMinutes"] = detail["walkMinutes"]
+                # 駅名は一覧に無い場合のみ詳細で補完（既存の一覧値・シートQ列を壊さない）
+                if detail.get("station") and not prop.get("station"):
+                    prop["station"] = detail["station"]
+                # 保険ログ: 戸建/土地なのに土地面積が取れない＝坪単価フィルタが効かず通知される。
+                # 詳細ページの土地面積書式が想定外＝_extract_detail_fields の正規表現を要調整。
+                if prop.get("propertyType") in ("戸建", "土地") and not prop.get("landArea"):
+                    print(f"⚠ 土地面積が取れず（{prop.get('propertyType')} {reins_no}）＝坪単価フィルタ対象外")
                 # 戸建: ㎡単価が未取得なら 価格÷土地面積 で計算
                 if prop.get("propertyType") == "戸建" and prop.get("price") and prop.get("landArea") and not prop.get("sqmPrice"):
                     try:
@@ -1186,6 +1444,7 @@ async def download_phase(page, context, all_properties, condition):
                         "sqmPrice":    prop.get("sqmPrice", ""),
                         "tsuboPrice":  prop.get("tsuboPrice", ""),
                         "buildingArea": prop.get("buildingArea", ""),
+                        "landArea":    prop.get("landArea", ""),
                         "fetchedAt":    fetched_at,
                         "address":      prop.get("address", ""),
                         "price":        prop.get("price", ""),
@@ -1246,7 +1505,9 @@ def send_to_sheets(all_properties, condition):
         with open(out, "w", encoding="utf-8") as f:
             json.dump(all_properties, f, ensure_ascii=False, indent=2)
         print(f"💾 保存: {out}")
-        return
+        # 呼び出し側は (sheet_url, new_props) のタプルを前提にしているため、
+        # 素の return だと GAS_URL 未設定時（ローカル検証時）に TypeError で落ちる。
+        return None, []
 
     cache = load_cache()
     ss_url_key   = f"_spreadsheet_{condition}"
@@ -1497,9 +1758,42 @@ async def main():
         if dropped:
             print(f"🚉 徒歩{walk_max}分超のため通知除外: {dropped}件（シートには記録済み）")
 
+    # 優先駅フィルタ（足立区）: REINS_PRIORITY_STATIONS_ONLY=1 なら ADACHI_PRIORITY_STATIONS（◎）
+    # 以外の駅と確定した物件を LINE通知からのみ除外する（シート/PWA には全件記録）。徒歩フィルタとは
+    # 併用（両方を満たす物件だけ通知）。駅名不明（図面が画像で読めない等）は確認不可なので除外せず通知＝安全側。
+    if os.getenv("REINS_PRIORITY_STATIONS_ONLY", "").strip() == "1" and notify_props:
+        before = len(notify_props)
+        notify_props = [p for p in notify_props
+                        if not _station_name(p) or _station_name(p) in ADACHI_PRIORITY_STATIONS]
+        dropped = before - len(notify_props)
+        if dropped:
+            print(f"🚉 優先駅以外のため通知除外: {dropped}件（シートには記録済み）")
+
+    # 坪単価フィルタ（足立区）: REINS_TSUBO_MAX=220 なら坪単価が上限超と確定した土地・戸建を
+    # LINE通知からのみ除外する（シート/PWA には全件記録）。**戸建は 価格÷土地面積 で評価**
+    # （REINS表示の坪単価は使わない）。土地はREINS表示の坪単価。坪単価不明（図面が画像で読めず
+    # 土地面積も取れない等）は確認不可なので除外せず通知＝安全側。区分/アパート等は「土地の
+    # 坪単価」に当たらないため対象外（従来どおり通知）。徒歩・優先駅フィルタと併用。
+    _tm = os.getenv("REINS_TSUBO_MAX", "").strip()
+    try:
+        tsubo_max = float(_tm) if _tm else None
+    except ValueError:
+        tsubo_max = None
+    if tsubo_max is not None and notify_props:
+        before = len(notify_props)
+        notify_props = [p for p in notify_props
+                        if p.get("propertyType") not in ("土地", "戸建")
+                        or _land_tsubo_for_notify(p) is None
+                        or _land_tsubo_for_notify(p) <= tsubo_max]
+        dropped = before - len(notify_props)
+        if dropped:
+            print(f"💰 坪単価{tsubo_max:g}万円超のため通知除外: {dropped}件（シートには記録済み）")
+
     if notify_props and sheet_url:
         _notify_new_props(notify_props, sheet_url, CONDITION, cache,
-                          walk_label=(walk_max is not None))
+                          walk_label=(walk_max is not None),
+                          tsubo_label=(tsubo_max is not None))
+        send_web_push(len(notify_props), sheet_url)
     elif os.getenv("REINS_NOTIFY_ONLY_NEW", "").strip() == "1":
         # 新着のみ通知モード（足立区）: 新規0件（または全件が徒歩超過で除外）のときは通知しない。
         print("🔕 新着通知対象なし・新着のみ通知モードのため通知しません")

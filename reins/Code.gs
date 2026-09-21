@@ -90,6 +90,51 @@ function reinsMarkScrape_(p) {
   return { ok: true };
 }
 
+// ── Web Push 購読（アプリアイコンのバッジ表示用） ───────────────
+// PWA(reins.html) が subscribe 時に doPost({action:"pushSubscribe", endpoint, subscription})
+// で登録し、Mac の reins_scraper.py が doGet(?action=pushSubscriptions) で一覧を取得して
+// 新着検知時に pywebpush で直接プッシュを送る（GAS 側はプッシュ送信そのものは行わない）。
+const PUSH_SHEET = "PushSubs";
+function getPushSubsSheet_() {
+  const ss = SpreadsheetApp.openById(REINS_DEFAULT_SID);
+  let sh = ss.getSheetByName(PUSH_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(PUSH_SHEET);
+    sh.getRange("A1:C1").setValues([["endpoint", "subscriptionJson", "登録日時"]]);
+  }
+  return sh;
+}
+function pushSubscribe_(p) {
+  const endpoint = p.endpoint;
+  if (!endpoint) return { error: "endpoint required" };
+  const sh = getPushSubsSheet_();
+  const last = sh.getLastRow();
+  const endpoints = last >= 2 ? sh.getRange(2, 1, last - 1, 1).getValues().flat() : [];
+  const idx = endpoints.indexOf(endpoint);
+  const row = [endpoint, JSON.stringify(p.subscription || {}), new Date()];
+  if (idx >= 0) sh.getRange(idx + 2, 1, 1, 3).setValues([row]);
+  else sh.appendRow(row);
+  return { ok: true };
+}
+function pushUnsubscribe_(p) {
+  const endpoint = p.endpoint;
+  if (!endpoint) return { error: "endpoint required" };
+  const sh = getPushSubsSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return { ok: true };
+  const endpoints = sh.getRange(2, 1, last - 1, 1).getValues().flat();
+  const idx = endpoints.indexOf(endpoint);
+  if (idx >= 0) sh.deleteRow(idx + 2);
+  return { ok: true };
+}
+function pushSubscriptions_() {
+  const sh = getPushSubsSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const rows = sh.getRange(2, 1, last - 1, 2).getValues();
+  return rows.map(r => { try { return JSON.parse(r[1]); } catch (_) { return null; } }).filter(Boolean);
+}
+
 // ── 行データ配列を生成（22列） ────────────────────────────────
 function buildPropertyRows_(props) {
   return props.map(p => [
@@ -192,6 +237,10 @@ function doPost(e) {
     } else if (payload.action === "createDoc") {
       const url = createPropertyDoc(payload.properties, payload.condition);
       result = { status: "ok", docUrl: url };
+    } else if (payload.action === "pushSubscribe") {
+      result = pushSubscribe_(payload);
+    } else if (payload.action === "pushUnsubscribe") {
+      result = pushUnsubscribe_(payload);
     } else {
       appendProperty(payload);
       result = { status: "ok" };
@@ -618,6 +667,7 @@ function doGet(e) {
   if (p.action === "requestScrape") return jsonOut_(reinsRequestScrape_(p.sid));
   if (p.action === "scrapeStatus")  return jsonOut_(reinsScrapeStatus_(p.sid));
   if (p.action === "markScrape")    return jsonOut_(reinsMarkScrape_(p));
+  if (p.action === "pushSubscriptions") return jsonOut_(pushSubscriptions_());
 
   const folderId = p.folderId || "";
   const fileId   = p.fileId  || "";
