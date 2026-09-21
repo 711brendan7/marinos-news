@@ -18,7 +18,59 @@ function doGet(e) {
   if (action === 'list')          return makeResponse(listProperties());
   if (action === 'requestScrape') return makeResponse(requestScrape());
   if (action === 'scrapeStatus')  return makeResponse(scrapeStatus());
+  if (action === 'pushSubscriptions') return makeResponse(pushSubscriptions());
   return makeResponse({ error: 'Unknown action' });
+}
+
+// アプリアイコンのバッジ表示（Web Push）。PWA が購読を登録し、
+// Mac の scraper.py が pushSubscriptions で一覧を取って直接プッシュを送る。
+function doPost(e) {
+  let payload;
+  try { payload = JSON.parse(e.postData.contents); }
+  catch (err) { return makeResponse({ error: 'Bad JSON' }); }
+  if (payload.token !== SECRET_TOKEN) return makeResponse({ error: 'Unauthorized' });
+  if (payload.action === 'pushSubscribe')   return makeResponse(pushSubscribe(payload));
+  if (payload.action === 'pushUnsubscribe') return makeResponse(pushUnsubscribe(payload));
+  return makeResponse({ error: 'Unknown action' });
+}
+
+const PUSH_SHEET = 'PushSubs';
+function getPushSubsSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sh = ss.getSheetByName(PUSH_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(PUSH_SHEET);
+    sh.getRange('A1:C1').setValues([['endpoint', 'subscriptionJson', '登録日時']]);
+  }
+  return sh;
+}
+function pushSubscribe(p) {
+  if (!p.endpoint) return { error: 'endpoint required' };
+  const sh = getPushSubsSheet();
+  const last = sh.getLastRow();
+  const endpoints = last >= 2 ? sh.getRange(2, 1, last - 1, 1).getValues().flat() : [];
+  const idx = endpoints.indexOf(p.endpoint);
+  const row = [p.endpoint, JSON.stringify(p.subscription || {}), new Date()];
+  if (idx >= 0) sh.getRange(idx + 2, 1, 1, 3).setValues([row]);
+  else sh.appendRow(row);
+  return { ok: true };
+}
+function pushUnsubscribe(p) {
+  if (!p.endpoint) return { error: 'endpoint required' };
+  const sh = getPushSubsSheet();
+  const last = sh.getLastRow();
+  if (last < 2) return { ok: true };
+  const idx = sh.getRange(2, 1, last - 1, 1).getValues().flat().indexOf(p.endpoint);
+  if (idx >= 0) sh.deleteRow(idx + 2);
+  return { ok: true };
+}
+function pushSubscriptions() {
+  const sh = getPushSubsSheet();
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, 2).getValues()
+    .map(r => { try { return JSON.parse(r[1]); } catch (_) { return null; } })
+    .filter(Boolean);
 }
 
 // ── 手動スクレイプ・トリガー（フラグ方式） ──────────────────

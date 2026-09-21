@@ -55,7 +55,7 @@ VAPID_PRIVATE_KEY_PATH  = os.path.join(os.path.dirname(__file__), _VAPID_PRIVATE
 VAPID_SUBJECT            = os.getenv("VAPID_SUBJECT", "")
 
 
-def send_web_push(new_count, sheet_url):
+def send_web_push(new_count):
     """新着件数をアプリアイコンのバッジに反映するため、登録済みの全端末へ Web Push を送る。
     LINE通知とは独立（LINE_CHANNEL_TOKEN 等は不要）。GAS未設定/鍵未生成なら黙って何もしない。"""
     if webpush is None or new_count <= 0 or not GAS_URL:
@@ -75,7 +75,6 @@ def send_web_push(new_count, sheet_url):
         "title": "REINS仕入れ",
         "body": f"新着 {new_count}件",
         "count": new_count,
-        "url": sheet_url or "./reins.html",
     })
     sent, expired = 0, 0
     for sub in subs:
@@ -1793,7 +1792,7 @@ async def main():
         _notify_new_props(notify_props, sheet_url, CONDITION, cache,
                           walk_label=(walk_max is not None),
                           tsubo_label=(tsubo_max is not None))
-        send_web_push(len(notify_props), sheet_url)
+        send_web_push(len(notify_props))
     elif os.getenv("REINS_NOTIFY_ONLY_NEW", "").strip() == "1":
         # 新着のみ通知モード（足立区）: 新規0件（または全件が徒歩超過で除外）のときは通知しない。
         print("🔕 新着通知対象なし・新着のみ通知モードのため通知しません")

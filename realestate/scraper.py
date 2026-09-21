@@ -16,6 +16,7 @@ from urllib.parse import urljoin
 
 import gspread
 import httpx
+import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
@@ -27,6 +28,12 @@ try:
 except ImportError:
     anthropic = None
 
+try:
+    from pywebpush import webpush, WebPushException
+except ImportError:
+    webpush = None
+    WebPushException = Exception
+
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 SPREADSHEET_ID   = os.getenv("SPREADSHEET_ID", "")
@@ -34,6 +41,108 @@ INPUT_SHEET      = os.getenv("INPUT_SHEET", "会社リスト")
 OUTPUT_SHEET     = os.getenv("OUTPUT_SHEET", "物件情報")
 CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS", os.path.join(os.path.dirname(__file__), "credentials.json"))
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# LINE通知（reins/scraper/.env と同じキーを共有。未設定なら通知は送らない）
+# 宛先は本人（LINE_USER_ID）固定。物件ウォッチの新着は自分だけに届けたいので、
+# reins 側のようなグループ宛（LINE_TO）は意図的に見ない。
+LINE_CHANNEL_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
+LINE_USER_ID       = os.getenv("LINE_USER_ID", "")
+LINE_TARGET        = LINE_USER_ID
+
+
+def send_line_notify(message):
+    if not LINE_CHANNEL_TOKEN or not LINE_TARGET:
+        print("ℹ️  LINE_CHANNEL_ACCESS_TOKEN / LINE_USER_ID 未設定 → LINE通知はスキップ")
+        return
+    try:
+        r = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={
+                "Authorization": f"Bearer {LINE_CHANNEL_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "to": LINE_TARGET,
+                "messages": [{"type": "text", "text": message}],
+            },
+            timeout=30,
+        )
+        # 200以外を黙って捨てると「通知が来ない」原因が追えないので本文を出す
+        if r.status_code != 200:
+            print(f"⚠️  LINE push 失敗 {r.status_code}: {r.text[:300]}")
+        else:
+            print("📱 LINE通知送信完了")
+    except Exception as e:
+        print(f"⚠️  LINE通知エラー: {e}")
+
+
+# PWA(docs/watch/) アプリアイコンのバッジ表示用（Web Push）。
+# VAPID鍵は reins と共用（同じ Mac から送るので身元を分ける意味がない）。
+GAS_URL      = os.getenv("GAS_URL", "")
+SECRET_TOKEN = os.getenv("SECRET_TOKEN", "")
+VAPID_PRIVATE_KEY_PATH = os.getenv(
+    "VAPID_PRIVATE_KEY_FILE",
+    os.path.join(os.path.dirname(__file__), "..", "reins", "scraper", "vapid_private.pem"))
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "")
+
+
+def send_web_push(new_count):
+    """新着件数をアプリアイコンのバッジに反映するため、登録済みの全端末へ Web Push を送る。
+    LINE通知とは独立。GAS未設定/鍵未生成なら黙って何もしない。"""
+    if webpush is None or new_count <= 0 or not GAS_URL or not SECRET_TOKEN:
+        return
+    if not os.path.exists(VAPID_PRIVATE_KEY_PATH):
+        return
+    try:
+        res = requests.get(GAS_URL, params={"token": SECRET_TOKEN,
+                                            "action": "pushSubscriptions"}, timeout=15)
+        subs = res.json()
+    except Exception as e:
+        print(f"⚠️  Push購読者取得エラー: {e}")
+        return
+    if not isinstance(subs, list) or not subs:
+        return
+
+    payload = json.dumps({
+        "title": "物件ウォッチ",
+        "body": f"新着 {new_count}件",
+        "count": new_count,
+    })
+    sent, expired = 0, 0
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info=sub,
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY_PATH,
+                vapid_claims={"sub": VAPID_SUBJECT},
+                timeout=10,
+            )
+            sent += 1
+        except WebPushException as e:
+            code = getattr(e.response, "status_code", None)
+            if code in (404, 410):  # 購読が失効（アプリ削除・通知拒否など）→ GAS側の登録も消す
+                expired += 1
+                try:
+                    requests.post(GAS_URL, json={"token": SECRET_TOKEN,
+                                                 "action": "pushUnsubscribe",
+                                                 "endpoint": sub.get("endpoint", "")}, timeout=10)
+                except Exception:
+                    pass
+            else:
+                print(f"⚠️  Push送信エラー: {e}")
+    print(f"🔔 バッジPush送信完了（{sent}件" + (f"・失効{expired}件を解除" if expired else "") + "）")
+
+
+def format_new_property_message(props):
+    lines = [f"🏠 新着物件 {len(props)}件"]
+    for p in props[:20]:
+        price = p.get("price", "") or "価格不明"
+        title = p.get("title", "") or p.get("address", "") or "(タイトル不明)"
+        lines.append(f"\n■ {p.get('company_name', '')}\n{title}\n{price}\n{p.get('url', '')}")
+    if len(props) > 20:
+        lines.append(f"\n…他 {len(props) - 20} 件")
+    return "\n".join(lines)
 
 OUTPUT_HEADERS = ["取得日時", "会社名", "物件名・タイトル", "価格・賃料", "所在地", "面積・間取り", "物件URL", "会社URL", "価格変更"]
 CONTROL_SHEET = "制御"     # 手動トリガー・最終巡回日時
@@ -511,8 +620,17 @@ async def main():
 
     print(f"\n{'─'*40}")
     if all_new_props:
-        append_properties(gc, all_new_props)
-        print(f"✅ {len(all_new_props)} 件の新規物件を '{OUTPUT_SHEET}' シートに追記しました")
+        # 追記が失敗したら通知しない（シート未記録のまま通知すると、次回も同じ物件を
+        # 新着として検知して二重通知になる）。ここで落とさず巡回記録まで進める。
+        try:
+            append_properties(gc, all_new_props)
+        except Exception as e:
+            print(f"⚠️  シート追記に失敗（LINE通知も見送り・次回再検知）: {e}")
+        else:
+            print(f"✅ {len(all_new_props)} 件の新規物件を '{OUTPUT_SHEET}' シートに追記しました")
+            for i in range(0, len(all_new_props), 20):
+                send_line_notify(format_new_property_message(all_new_props[i:i + 20]))
+            send_web_push(len(all_new_props))
     else:
         print("📭 新規物件はありませんでした")
     if all_changed:
