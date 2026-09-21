@@ -296,7 +296,7 @@ async function loadProps() {
   }
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20000); // 20秒でタイムアウト
+  const timer = setTimeout(() => ctrl.abort(), 60000); // 60秒でタイムアウト（GASは混雑時に数十秒かかる）
   try {
     const qs  = new URLSearchParams({ token, action: 'list' }).toString();
     const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow', signal: ctrl.signal });

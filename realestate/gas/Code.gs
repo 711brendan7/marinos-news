@@ -125,10 +125,11 @@ function listProperties() {
   const props = rows
     .filter(r => String(r[6] || '').trim())  // 物件URL がある行のみ
     .map(r => {
-      const ts = toTimestamp(r[0]);
+      // 取得日時のパースは1行につき1回だけ（date と並び順で2回パースしない）
+      const d = parseAny(r[0]);
       return {
-        date:    fmtDate(r[0]),
-        _ts:     ts,
+        date:    d ? fmtDateObj_(d) : String(r[0] || ''),
+        _ts:     d ? d.getTime() : -1,
         company: String(r[1] || ''),
         title:   String(r[2] || ''),
         price:   String(r[3] || ''),
@@ -159,10 +160,17 @@ function toTimestamp(v) {
   const d = parseAny(v);
   return d ? d.getTime() : -1;
 }
-// 取得日時を "yyyy-MM-dd HH:mm:ss"（Asia/Tokyo）に正規化
+// 取得日時を "yyyy-MM-dd HH:mm:ss" に整形。
+// Utilities.formatDate は1回ごとにサービス呼び出しが走り、数百行ぶん回すと数十秒かかる。
+// appsscript.json の timeZone が Asia/Tokyo なので Date のゲッターで同じ結果が得られる。
+function fmtDateObj_(d) {
+  const p = n => (n < 10 ? '0' : '') + n;
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+         p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
 function fmtDate(v) {
   const d = parseAny(v);
-  return d ? Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss') : String(v || '');
+  return d ? fmtDateObj_(d) : String(v || '');
 }
 
 function makeResponse(data) {
