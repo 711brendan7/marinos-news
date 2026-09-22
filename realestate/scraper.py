@@ -233,8 +233,8 @@ def record_last_run(gc, new_count, changed_count, failed_count=0):
     # 取得できなかった件数も残す。「本当に新着ゼロ」と「取れていない」を区別するため。
     if failed_count:
         summary += f" ⚠️取得失敗{failed_count}件"
-    sh.update("A4:B5", [["最終巡回日時", now], ["最終巡回結果", summary]],
-              value_input_option="USER_ENTERED")
+    sh.update(values=[["最終巡回日時", now], ["最終巡回結果", summary]],
+              range_name="A4:B5", value_input_option="USER_ENTERED")
 
 
 def get_change_log_sheet(gc):
@@ -343,7 +343,14 @@ async def fetch_html_playwright(url, timeout=20000):
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
             page = await browser.new_page(user_agent=HTTP_HEADERS["User-Agent"])
-            await page.goto(url, timeout=timeout, wait_until="networkidle")
+            # networkidle だけを待つと、広告や計測タグが鳴り続けるサイト（smtrc.jp 等）で
+            # 必ずタイムアウトする。まず DOM の構築を待ち、その後 networkidle は
+            # 短く待って諦める（JS描画が要るサイトもここで間に合う）。
+            await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
             html = await page.content()
             await browser.close()
             return html

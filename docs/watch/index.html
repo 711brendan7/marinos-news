@@ -28,7 +28,8 @@
     .refresh-btn { padding: 6px 14px; background: #007aff; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .refresh-btn:active { opacity: 0.6; }
     #scrape-status { margin-top: 9px; padding: 9px 12px; background: #f0fff4; border: 1px solid #c3e6cb; border-radius: 9px; font-size: 13px; color: #1a7a3a; }
-    #last-run { margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #48484a; background: #eef2f7; border-radius: 8px; display: none; }
+    #last-run { margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #48484a; background: #eef2f7; border-radius: 8px; }
+    #last-run.warn { color: #c0392b; background: #fff3f2; border: 1px solid #ffd3ce; font-weight: 600; }
 
     .search-row { margin-top: 10px; }
     .search-row input { width: 100%; padding: 9px 14px; border: 1px solid #d1d1d6; border-radius: 10px; font-size: 16px; background: #f2f2f7; outline: none; -webkit-appearance: none; }
@@ -118,6 +119,7 @@ const LS_TOKEN = 'realestate_gas_token';
 const LS_SEEN  = 'realestate_seen_max';    // 前回までに見た最新の取得日時
 const LS_SEEN_INIT = 'realestate_seen_init'; // 初期化済みフラグ
 const LS_CACHE = 'realestate_cache';         // 前回取得した一覧。起動直後の即描画に使う
+const LS_LASTRUN = 'realestate_lastrun';     // 最終巡回の日時と結果。起動直後から出すため保存する
 
 let gasUrl = localStorage.getItem(LS_URL)   || '';
 let token  = localStorage.getItem(LS_TOKEN) || '';
@@ -189,6 +191,8 @@ function init() {
   if (gasUrl && token) {
     document.getElementById('setup-view').style.display = 'none';
     document.getElementById('main-view').style.display  = 'block';
+    showLastRunFromCache();
+    fetchLastRun();
     loadProps(renderFromCache());  // 前回のデータで即描画してから裏で最新を取る
     initPush();
   } else {
@@ -222,19 +226,32 @@ function resetConfig() {
 }
 
 // ── 最終巡回日時の表示 ──────────────────────────────────
+// 新着ゼロでも常に画面上部に出す。取得失敗を含む結果は警告色にする。
+function showLastRun(data) {
+  const el = document.getElementById('last-run');
+  if (!data || !data.lastRun) {
+    el.textContent = '🕒 最終巡回 —（未取得）';
+    el.classList.remove('warn');
+    return;
+  }
+  el.textContent = `🕒 最終巡回 ${data.lastRun}` + (data.lastResult ? `（${data.lastResult}）` : '');
+  el.classList.toggle('warn', /[⚠]|失敗/.test(data.lastResult || ''));
+}
+function showLastRunFromCache() {
+  try { showLastRun(JSON.parse(localStorage.getItem(LS_LASTRUN) || 'null')); }
+  catch (_) { showLastRun(null); }
+}
 async function fetchLastRun() {
   try {
     const qs = new URLSearchParams({ token, action: 'scrapeStatus' }).toString();
     const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
     const data = await res.json();
-    const el = document.getElementById('last-run');
-    if (data.lastRun) {
-      el.textContent = `🕒 最終巡回 ${data.lastRun}` + (data.lastResult ? `（${data.lastResult}）` : '');
-      el.style.display = 'block';
-    } else {
-      el.style.display = 'none';
-    }
-  } catch (_) { /* 無視 */ }
+    showLastRun(data);
+    try {
+      localStorage.setItem(LS_LASTRUN,
+        JSON.stringify({ lastRun: data.lastRun, lastResult: data.lastResult }));
+    } catch (_) { /* 容量超過時は諦める */ }
+  } catch (_) { /* 取れなければ直前の表示のまま残す */ }
 }
 
 // ── 手動巡回トリガー ────────────────────────────────────

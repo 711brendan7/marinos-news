@@ -28,7 +28,8 @@
     .refresh-btn { padding: 6px 14px; background: #1a73e8; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .refresh-btn:active { opacity: 0.6; }
     #scrape-status { margin-top: 9px; padding: 9px 12px; background: #f0fff4; border: 1px solid #c3e6cb; border-radius: 9px; font-size: 13px; color: #1a7a3a; }
-    #last-run { margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #48484a; background: #eef2f7; border-radius: 8px; display: none; }
+    #last-run { margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #48484a; background: #eef2f7; border-radius: 8px; }
+    #last-run.warn { color: #c0392b; background: #fff3f2; border: 1px solid #ffd3ce; font-weight: 600; }
 
     /* タブ（新しい順 / REINS順） */
     .tabs { display: flex; gap: 6px; margin-top: 11px; background: #eef0f4; padding: 3px; border-radius: 11px; }
@@ -144,6 +145,7 @@ const LS_PREV  = 'reins_prev';           // 前回表示時の {物件番号: {p
 const BUMP_MIN = 5;                       // 掲載順がこの数以上上昇したら「再掲(浮上)」扱い
 const LS_TAB   = 'reins_tab';
 const LS_CSV   = 'reins_csv_cache';      // 前回取得したCSV。起動直後の即描画に使う
+const LS_LASTRUN = 'reins_lastrun';      // 最終巡回の日時と結果。起動直後から出すため保存する
 const LS_FAVS  = 'reins_favs';           // お気に入り物件番号の配列
 // 既定：run_score_daily.sh と同じ reins デプロイURL（そのまま使えるよう初期値に）
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwg5gIdluJCKhxg5Ac37ojhD1RxblEidHziJUIo2vWPTMWdlzlxEkCeaE-CydbCHInz-g/exec';
@@ -172,6 +174,8 @@ function init() {
     document.getElementById('tab-' + activeTab).classList.add('active');
     document.getElementById('tab-' + (activeTab === 'new' ? 'reins' : 'new')).classList.remove('active');
     // 前回のデータで即描画してから、裏で最新を取りに行く
+    showLastRunFromCache();
+    fetchLastRun();
     loadProps(renderFromCache());
     initPush();
   } else {
@@ -314,18 +318,31 @@ async function pollScrapeStatus(tries) {
   } catch (_) { /* 一時的なエラーは無視して継続 */ }
   scrapePollTimer = setTimeout(() => pollScrapeStatus(tries + 1), 4000);
 }
+// 最終巡回は新着ゼロでも常に画面上部に出す。取得失敗を含む結果は警告色にする。
+function showLastRun(data) {
+  const el = document.getElementById('last-run');
+  if (!data || !data.lastRun) {
+    el.textContent = '🕒 最終巡回 —（未取得）';
+    el.classList.remove('warn');
+    return;
+  }
+  el.textContent = `🕒 最終巡回 ${data.lastRun}` + (data.lastResult ? `（${data.lastResult}）` : '');
+  el.classList.toggle('warn', /[⚠]|失敗/.test(data.lastResult || ''));
+}
+function showLastRunFromCache() {
+  try { showLastRun(JSON.parse(localStorage.getItem(LS_LASTRUN) || 'null')); }
+  catch (_) { showLastRun(null); }
+}
 async function fetchLastRun() {
   try {
     const res = await fetch(`${gasUrl}?${scrapeQs('scrapeStatus')}`, { redirect: 'follow' });
     const data = await res.json();
-    const el = document.getElementById('last-run');
-    if (data.lastRun) {
-      el.textContent = `🕒 最終巡回 ${data.lastRun}` + (data.lastResult ? `（${data.lastResult}）` : '');
-      el.style.display = 'block';
-    } else {
-      el.style.display = 'none';
-    }
-  } catch (_) { /* 無視 */ }
+    showLastRun(data);
+    try {
+      localStorage.setItem(LS_LASTRUN,
+        JSON.stringify({ lastRun: data.lastRun, lastResult: data.lastResult }));
+    } catch (_) { /* 容量超過時は諦める */ }
+  } catch (_) { /* 取れなければ直前の表示のまま残す */ }
 }
 
 function showError(msg, detail) {
