@@ -1,0 +1,15 @@
+{
+  "name": "IE分析アプリ",
+  "short_name": "IE分析",
+  "start_url": "ie.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f8fb",
+  "theme_color": "#111727",
+  "icons": [
+    { "src": "ie-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "ie-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "ie-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
