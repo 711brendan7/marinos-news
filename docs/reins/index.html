@@ -369,7 +369,12 @@ async function fetchLastRun() {
     }
     if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
   }
-  // 3回とも取れなければキャッシュの表示のまま残す
+  // 3回とも取れなかった。キャッシュの日時を出したままだと最新と区別がつかないので明示する。
+  const el = document.getElementById('last-run');
+  if (el && el.textContent && !el.textContent.includes('更新できず')) {
+    el.textContent += '（更新できず）';
+    el.classList.add('warn');
+  }
 }
 
 function showError(msg, detail) {

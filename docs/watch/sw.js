@@ -68,3 +68,21 @@ self.addEventListener('message', (event) => {
     })());
   }
 });
+
+// ページ本体は必ずネットワークから取り直す。iOSのホーム画面アプリは
+// 古いHTMLを掴んだままになることがあり、修正を入れても端末に届かない。
+// 取れなかったときだけ前回のページを返す（機内モード等のフォールバック）。
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith((async () => {
+    try {
+      const res = await fetch(event.request, { cache: 'no-store' });
+      const cache = await caches.open('watch-pages');
+      cache.put(event.request, res.clone());
+      return res;
+    } catch (_) {
+      const cached = await caches.match(event.request);
+      return cached || Response.error();
+    }
+  })());
+});
