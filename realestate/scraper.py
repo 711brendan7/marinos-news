@@ -345,13 +345,20 @@ async def fetch_html(url, timeout=20, count_failure=True):
             resp.raise_for_status()
             return resp.text
     except Exception as e:
+        # macOS同梱Pythonの LibreSSL 2.8.3 では smtrc.jp のTLSに対応できず
+        # ハンドシェイクに失敗する（curlやブラウザでは通る）。TLS由来の失敗だけ
+        # Playwright で引き直す。他の失敗まで回すと待ち時間が伸びるので限定する。
+        if "SSL" in str(e).upper():
+            html = await fetch_html_playwright(url, count_failure=False)
+            if html:
+                return html
         if count_failure:
             FETCH_FAILURES += 1
         print(f"    ⚠️  fetch失敗 {url}: {e}")
         return None
 
 
-async def fetch_html_playwright(url, timeout=20000):
+async def fetch_html_playwright(url, timeout=20000, count_failure=True):
     """JavaScriptが必要なサイト向け: PlaywrightでレンダリングしてからHTMLを取得する。"""
     global FETCH_FAILURES
     try:
@@ -371,7 +378,8 @@ async def fetch_html_playwright(url, timeout=20000):
             await browser.close()
             return html
     except Exception as e:
-        FETCH_FAILURES += 1
+        if count_failure:
+            FETCH_FAILURES += 1
         print(f"    ⚠️  Playwright取得失敗 {url}: {e}")
         return None
 
