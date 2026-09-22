@@ -322,7 +322,9 @@ def _price_num(s):
 FETCH_FAILURES = 0
 
 
-async def fetch_html(url, timeout=20):
+async def fetch_html(url, timeout=20, count_failure=True):
+    # count_failure=False は Playwright へのフォールバックがある呼び出し用。
+    # そこで数えると、実際には取得できた分まで「取得失敗」に計上されてしまう。
     global FETCH_FAILURES
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=HTTP_HEADERS) as client:
@@ -330,7 +332,8 @@ async def fetch_html(url, timeout=20):
             resp.raise_for_status()
             return resp.text
     except Exception as e:
-        FETCH_FAILURES += 1
+        if count_failure:
+            FETCH_FAILURES += 1
         print(f"    ⚠️  fetch失敗 {url}: {e}")
         return None
 
@@ -498,7 +501,7 @@ def extract_properties_from_page(company_name, page_url, page_text, links):
 
 async def fetch_with_fallback(url):
     """httpxで取得し、リンクが少なければPlaywrightにフォールバック。"""
-    html = await fetch_html(url)
+    html = await fetch_html(url, count_failure=False)
     if html:
         _, links = clean_html(html)
         if len(links) >= 3:
