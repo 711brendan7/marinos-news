@@ -31,6 +31,8 @@ from collections import defaultdict, Counter
 
 import requests
 
+# Code.gs の READ_TOKEN と一致させる（環境変数 REINS_READ_TOKEN で上書き可）
+READ_TOKEN = os.getenv("REINS_READ_TOKEN", "fqaToI0ZXSDRFGtkSnYu7y3X")
 GAS_URL = ("https://script.google.com/macros/s/"
            "AKfycbwg5gIdluJCKhxg5Ac37ojhD1RxblEidHziJUIo2vWPTMWdlzlxEkCeaE-CydbCHInz-g/exec")
 SID = "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE"
@@ -56,7 +58,8 @@ def post(payload, tries=4):
 
 
 def fetch_csv():
-    r = requests.get(GAS_URL, params={"csv": "1"}, timeout=60, allow_redirects=True)
+    r = requests.get(GAS_URL, params={"csv": "1", "token": READ_TOKEN},
+                     timeout=60, allow_redirects=True)
     r.raise_for_status()
     return list(csv.reader(r.text.splitlines()))
 

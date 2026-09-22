@@ -128,6 +128,9 @@
     <label>GAS デプロイ URL</label>
     <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/..." autocomplete="off" autocorrect="off" spellcheck="false">
     <div class="hint">reins/Code.gs をデプロイしたウェブアプリ URL。<code>?csv=1</code> で物件シートを配信できるものです。</div>
+    <label>アクセストークン</label>
+    <input type="password" id="cfg-token" placeholder="Code.gs の READ_TOKEN" autocomplete="off">
+    <div class="hint">URLを知られただけで物件データを読まれないための合言葉。Code.gs の <code>READ_TOKEN</code> と同じ値を入れます。</div>
     <label>スプレッドシートID（任意）</label>
     <input type="text" id="cfg-sid" placeholder="未入力なら既定のシートを使用">
     <div class="hint">別のシートを見たいときだけ入力。通常は空でOK。</div>
@@ -139,6 +142,7 @@
 // ── 設定 ───────────────────────────────────────────────
 const LS_URL   = 'reins_gas_url';
 const LS_SID   = 'reins_gas_sid';
+const LS_TOKEN = 'reins_gas_token';   // 物件データ読み出し用（Code.gs の READ_TOKEN）
 const LS_SEEN  = 'reins_seen_max';       // 前回までに見た最新の取得日時(ms)
 const LS_SEEN_INIT = 'reins_seen_init';
 const LS_PREV  = 'reins_prev';           // 前回表示時の {物件番号: {p:価格, o:掲載順}} スナップショット
@@ -157,6 +161,7 @@ const LS_PUSH_SUB = 'reins_push_subscribed';
 
 let gasUrl = localStorage.getItem(LS_URL) || DEFAULT_URL;
 let sid    = localStorage.getItem(LS_SID) || '';
+let token  = localStorage.getItem(LS_TOKEN) || '';
 let allProps = [];
 let filterType = '';
 let areaFilter = localStorage.getItem('reins_area') || '';   // エリア（市区町村）絞り込み
@@ -168,7 +173,7 @@ let favs = new Set(JSON.parse(localStorage.getItem(LS_FAVS) || '[]'));
 let showFavsOnly = false;
 
 function init() {
-  if (gasUrl) {
+  if (gasUrl && token) {
     document.getElementById('setup-view').style.display = 'none';
     document.getElementById('main-view').style.display  = 'block';
     document.getElementById('tab-' + activeTab).classList.add('active');
@@ -181,20 +186,23 @@ function init() {
   } else {
     document.getElementById('setup-view').style.display = 'block';
     document.getElementById('main-view').style.display  = 'none';
-    document.getElementById('cfg-url').value = DEFAULT_URL;
+    document.getElementById('cfg-url').value = gasUrl || DEFAULT_URL;
+    document.getElementById('cfg-token').value = token;
   }
 }
 function saveConfig() {
   const url = document.getElementById('cfg-url').value.trim();
   const s   = document.getElementById('cfg-sid').value.trim();
+  const tok = document.getElementById('cfg-token').value.trim();
   if (!url) { alert('GAS デプロイ URL を入力してください'); return; }
   localStorage.setItem(LS_URL, url);
+  localStorage.setItem(LS_TOKEN, tok);
   if (s) localStorage.setItem(LS_SID, s); else localStorage.removeItem(LS_SID);
-  gasUrl = url; sid = s; init();
+  gasUrl = url; sid = s; token = tok; init();
 }
 function resetConfig() {
-  localStorage.removeItem(LS_URL); localStorage.removeItem(LS_SID);
-  gasUrl = ''; sid = '';
+  localStorage.removeItem(LS_URL); localStorage.removeItem(LS_SID); localStorage.removeItem(LS_TOKEN);
+  gasUrl = ''; sid = ''; token = '';
   document.getElementById('errbox').style.display = 'none';
   init();
 }
@@ -281,6 +289,7 @@ function setScrapeStatus(msg) {
 }
 function scrapeQs(action) {
   const qs = new URLSearchParams({ action });
+  if (token) qs.set('token', token);
   if (sid) qs.set('sid', sid);
   return qs.toString();
 }
@@ -411,19 +420,38 @@ async function loadProps(keepView) {
     return;
   }
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25000);
+  // GAS の応答は同じ内容でも数秒〜数十秒とばらつき、混雑時は一時的に 404 を返す。
+  // 遅い応答を待ち続けるより引き直した方が速いので、1回25秒で見切って3回試す。
+  let timer = null;
   try {
     const qs = new URLSearchParams({ csv: '1' });
+    if (token) qs.set('token', token);
     if (sid) qs.set('sid', sid);
     qs.set('merge', '1');     // 三浦に加えて足立区など独立シートも結合（スコアラーの素の?csv=1は非結合）
     qs.set('t', Date.now());  // キャッシュ回避（古いCSVを掴んで新規物件が出ない対策）
-    const res = await fetch(`${gasUrl}?${qs.toString()}`,
-      { redirect: 'follow', cache: 'no-store', signal: ctrl.signal });
+    let res;
+    for (let attempt = 1; ; attempt++) {
+      const ctrl = new AbortController();
+      timer = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        res = await fetch(`${gasUrl}?${qs.toString()}`,
+          { redirect: 'follow', cache: 'no-store', signal: ctrl.signal });
+        clearTimeout(timer);
+        if (res.status !== 404 || attempt >= 3) break;
+      } catch (e) {
+        clearTimeout(timer);
+        if (attempt >= 3) throw e;
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
     lastDiag = `URL: ${gasUrl}?csv=1\nHTTP: ${res.status}`;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
     lastDiag += `\n応答先頭: ${text.slice(0, 120)}`;
+    if (text.trim() === 'Unauthorized') {
+      showError('アクセストークンが一致していません。', '「接続設定をやり直す」から Code.gs の READ_TOKEN と同じ値を入力してください。');
+      return;
+    }
     if (/^\s*</.test(text) || text.indexOf('物件番号') < 0) {
       showError('物件CSVを取得できませんでした。', 'GAS が HTML を返しています（認証切れ / デプロイ未反映の可能性）。URL が reins 用か確認してください。');
       return;
@@ -455,7 +483,7 @@ async function loadProps(keepView) {
       setTimeout(() => { u.style.display = 'none'; u.textContent = '更新中…'; }, 4000);
       return;
     }
-    if (e.name === 'AbortError') showError('応答がありません（25秒でタイムアウト）。', 'GAS URL とネットワークを確認してください。');
+    if (e.name === 'AbortError') showError('応答がありません（3回試して届きませんでした）。', 'GAS が混雑している可能性があります。少し待って「更新」を押してください。');
     else showError('読み込みに失敗しました。', String(e && e.message || e));
   } finally {
     clearTimeout(timer);

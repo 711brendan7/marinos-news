@@ -32,6 +32,15 @@ const PROP_NUM_COLS = { E: "#,##0", I: "#,##0.00", J: "#,##0.00", K: "#,##0.0", 
 const REINS_DEFAULT_SID = "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE";
 const CONTROL_SHEET      = "制御";
 const SCRAPE_DONE_TOKEN  = "r3ins-trig-8f2a";  // markScrapeDone 用（Mac watcher と一致させる）
+// 物件データ読み出し用のトークン。URLを知られただけで全物件CSVを取得されないようにする。
+// PWA・スクレイパー・スコアラーの各クライアントと一致させること。
+const READ_TOKEN = "fqaToI0ZXSDRFGtkSnYu7y3X";
+// 段階移行用。全クライアントの更新が終わるまで false にしておくと、
+// トークンなしのリクエストも従来どおり通る（必須化は true にしてから）。
+const REQUIRE_READ_TOKEN = true;
+function readTokenOk_(p) {
+  return !REQUIRE_READ_TOKEN || p.token === READ_TOKEN;
+}
 // 制御シート: B1=リクエスト時刻(ms) B2=状態 B3=処理済み時刻(ms,Mac) B4=最終巡回 B5=結果
 
 function jsonOut_(obj) {
@@ -627,6 +636,7 @@ function doGet(e) {
   // ?csv=1[&sid=<スプレッドシートID>] で全種別シートを結合したCSVを返す。
   // 既存の図面ビューア（folderId 経路）には一切影響しない追加機能。
   if (p.csv) {
+    if (!readTokenOk_(p)) return ContentService.createTextOutput("Unauthorized");
     // PWA が ?csv=1&merge=1 のときだけ、三浦に加えて読む独立スプレッドシート（足立区など）。
     // 素の ?csv=1（スコアラーが使用）は三浦のみ＝足立区をスコアラー通知に混ぜない。
     const MERGE_SIDS = ["1ojob_Y8MyAnZ7OV0ySbcsC1FvNkHOqiIJLsD-FqEEzU"];  // 足立区スプレッドシート（.env REINS_SPREADSHEET_URL_ADACHI と一致させる）
@@ -670,9 +680,13 @@ function doGet(e) {
   }
 
   // ── 手動巡回トリガー（スマホPWA ⇄ Mac常駐watcher）──
+  if (p.action === "requestScrape" || p.action === "scrapeStatus" ||
+      p.action === "pushSubscriptions") {
+    if (!readTokenOk_(p)) return jsonOut_({ error: "Unauthorized" });
+  }
   if (p.action === "requestScrape") return jsonOut_(reinsRequestScrape_(p.sid));
   if (p.action === "scrapeStatus")  return jsonOut_(reinsScrapeStatus_(p.sid));
-  if (p.action === "markScrape")    return jsonOut_(reinsMarkScrape_(p));
+  if (p.action === "markScrape")    return jsonOut_(reinsMarkScrape_(p));  // 専用トークンで別途検証
   if (p.action === "pushSubscriptions") return jsonOut_(pushSubscriptions_());
 
   const folderId = p.folderId || "";

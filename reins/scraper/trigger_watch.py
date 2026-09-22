@@ -25,20 +25,21 @@ DEFAULT_GAS = ("https://script.google.com/macros/s/"
                "AKfycbwg5gIdluJCKhxg5Ac37ojhD1RxblEidHziJUIo2vWPTMWdlzlxEkCeaE-CydbCHInz-g/exec")
 
 
-def load_gas_url():
+def load_env(key, default=""):
     env = os.path.join(HERE, ".env")
     if os.path.exists(env):
         for line in open(env, encoding="utf-8"):
             line = line.strip()
-            if line.startswith("GAS_URL="):
+            if line.startswith(key + "="):
                 v = line.split("=", 1)[1].strip().strip('"').strip("'")
                 if v:
                     return v
-    return DEFAULT_GAS
+    return default
 
 
-GAS_URL = load_gas_url()
+GAS_URL = load_env("GAS_URL", DEFAULT_GAS)
 DONE_TOKEN = "r3ins-trig-8f2a"          # Code.gs の SCRAPE_DONE_TOKEN と一致させる
+READ_TOKEN = load_env("REINS_READ_TOKEN")  # Code.gs の READ_TOKEN と一致させる
 PIPELINE = os.path.join(HERE, "run_pipeline.sh")
 LOCK = "/tmp/reins-trigger.lock"
 
@@ -51,7 +52,8 @@ def _int(v):
 
 
 def status():
-    r = requests.get(GAS_URL, params={"action": "scrapeStatus"}, timeout=30)
+    r = requests.get(GAS_URL, params={"action": "scrapeStatus",
+                                      "token": READ_TOKEN}, timeout=30)
     return r.json()
 
 

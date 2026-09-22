@@ -334,6 +334,22 @@ def _price_num(s):
 # 巡回結果から区別するために数える（ネットワーク不通の検知用）。
 FETCH_FAILURES = 0
 
+# 巡回対象のエリア。検索条件つきのURLでも、サイト側が「おすすめ」「新着」として
+# 全国の物件を同じページに載せることがあり（smtrc.jp）、そのまま取り込むと
+# 名古屋・福岡などの無関係な物件がLINE通知に混ざる。
+TARGET_AREAS = [a.strip() for a in
+                os.getenv("REALESTATE_AREAS", "三浦市,横須賀市,逗子市,葉山町").split(",")
+                if a.strip()]
+
+
+def in_target_area(prop):
+    """対象エリアの物件か。市区町村が読み取れないときは True（取りこぼさない側に倒す）。"""
+    text = f"{prop.get('address', '')} {prop.get('title', '')}"
+    if any(a in text for a in TARGET_AREAS):
+        return True
+    # 市区町村が読み取れて、それが対象外なら除外する
+    return not re.search(r"[^\s都道府県]{2,8}?[市区町村]", text)
+
 
 async def fetch_html(url, timeout=20, count_failure=True):
     # count_failure=False は Playwright へのフォールバックがある呼び出し用。
@@ -678,8 +694,11 @@ async def main():
     for company_name, url in companies:
         try:
             new, changed = await scrape_company(company_name, url, existing)
-            all_new_props.extend(new)
-            all_changed.extend(changed)
+            kept = [p for p in new if in_target_area(p)]
+            if len(kept) != len(new):
+                print(f"    🗺  対象エリア外を除外: {len(new) - len(kept)}件")
+            all_new_props.extend(kept)
+            all_changed.extend([c for c in changed if in_target_area(c)])
         except Exception as e:
             print(f"    ⚠️  {company_name} でエラー（スキップ）: {e}")
         await asyncio.sleep(2)

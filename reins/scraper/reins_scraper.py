@@ -74,6 +74,8 @@ def wait_for_network(max_wait=180, host="script.google.com"):
 
 # 制御シートに巡回完了を書き込むためのトークン（reins/Code.gs の SCRAPE_DONE_TOKEN と一致）
 SCRAPE_DONE_TOKEN = "r3ins-trig-8f2a"
+# 物件データ読み出し用トークン（reins/Code.gs の READ_TOKEN と一致させる）
+READ_TOKEN = os.getenv("REINS_READ_TOKEN", "")
 
 
 def record_last_run(result_text):
@@ -99,7 +101,8 @@ def send_web_push(new_count):
     if not os.path.exists(VAPID_PRIVATE_KEY_PATH):
         return
     try:
-        res = requests.get(f"{GAS_URL}?action=pushSubscriptions", timeout=15)
+        res = requests.get(GAS_URL, params={"action": "pushSubscriptions",
+                                            "token": READ_TOKEN}, timeout=15)
         subs = res.json()
     except Exception as e:
         print(f"⚠️  Push購読者取得エラー: {e}")
