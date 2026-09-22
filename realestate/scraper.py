@@ -343,12 +343,14 @@ TARGET_AREAS = [a.strip() for a in
 
 
 def in_target_area(prop):
-    """対象エリアの物件か。市区町村が読み取れないときは True（取りこぼさない側に倒す）。"""
+    """対象エリアの物件か。判定できないときは True（取りこぼさない側に倒す）。"""
     text = f"{prop.get('address', '')} {prop.get('title', '')}"
     if any(a in text for a in TARGET_AREAS):
         return True
-    # 市区町村が読み取れて、それが対象外なら除外する
-    return not re.search(r"[^\s都道府県]{2,8}?[市区町村]", text)
+    # 「市」「区」が読み取れて対象外なら除外。「町」は判定に使わない。
+    # 地元業者は「神奈川県南下浦町金田」のように市名を省く（三浦市南下浦町）ため、
+    # 町で判定すると対象物件まで捨ててしまう。
+    return not re.search(r"[^\s都道府県]{2,8}?[市区]", text)
 
 
 async def fetch_html(url, timeout=20, count_failure=True):
