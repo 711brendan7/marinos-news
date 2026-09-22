@@ -103,7 +103,7 @@ function scrapeStatus() {
     requested: requested,
     processed: processed,
     pending: requested > processed,
-    lastRun: fmtDate(sh.getRange('B4').getValue()),
+    lastRun: fmtRunDate_(sh.getRange('B4').getValue()),
     lastResult: String(sh.getRange('B5').getValue() || ''),
   };
 }
@@ -171,6 +171,15 @@ function fmtDateObj_(d) {
 function fmtDate(v) {
   const d = parseAny(v);
   return d ? fmtDateObj_(d) : String(v || '');
+}
+// 最終巡回日時の表示用（REINS仕入れ側と形式を揃える）。
+// 物件の取得日時(date)はNEW判定の文字列比較に使っているので、そちらの形式は変えない。
+function fmtRunDate_(v) {
+  const d = parseAny(v);
+  if (!d) return String(v || '');
+  const p = n => (n < 10 ? '0' : '') + n;
+  return d.getFullYear() + '/' + p(d.getMonth() + 1) + '/' + p(d.getDate()) +
+         ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
 function makeResponse(data) {

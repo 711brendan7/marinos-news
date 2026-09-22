@@ -67,9 +67,15 @@ function reinsScrapeStatus_(sid) {
     requested:  requested,
     processed:  processed,
     pending:    requested > processed,
-    lastRun:    String(sh.getRange("B4").getValue() || ""),
+    lastRun:    fmtRunDate_(sh.getRange("B4").getValue()),
     lastResult: String(sh.getRange("B5").getValue() || ""),
   };
+}
+// B4 は "9/22 13:45" のような文字列で書くとシート側が日付と解釈して Date 型で
+// 保存されるため、String() すると生の Date 文字列になってしまう。表示用に整形する。
+function fmtRunDate_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, "Asia/Tokyo", "yyyy/MM/dd HH:mm");
+  return String(v || "");
 }
 // Mac watcher が巡回開始/完了時に呼ぶ（token必須）
 function reinsMarkScrape_(p) {
@@ -81,7 +87,7 @@ function reinsMarkScrape_(p) {
   }
   // phase=done: 処理済みマーク＋結果を記録
   const requested = Number(sh.getRange("B1").getValue()) || 0;
-  const now = Utilities.formatDate(new Date(), "Asia/Tokyo", "M/d HH:mm");
+  const now = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy/MM/dd HH:mm");
   const result = String(p.result || "");
   sh.getRange("B3").setValue(requested);
   sh.getRange("B4").setValue(now);

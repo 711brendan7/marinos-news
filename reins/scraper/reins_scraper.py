@@ -55,6 +55,42 @@ VAPID_PRIVATE_KEY_PATH  = os.path.join(os.path.dirname(__file__), _VAPID_PRIVATE
 VAPID_SUBJECT            = os.getenv("VAPID_SUBJECT", "")
 
 
+def wait_for_network(max_wait=180, host="script.google.com"):
+    """名前解決できるまで待つ。復帰しなければ False。"""
+    import socket
+    import time as _time
+    for i in range(0, max_wait, 10):
+        try:
+            socket.getaddrinfo(host, 443)
+            if i:
+                print(f"🌐 ネットワーク復帰を確認（{i}秒待機）")
+            return True
+        except socket.gaierror:
+            if not i:
+                print(f"🌐 ネットワーク未接続。最大{max_wait}秒待ちます…")
+            _time.sleep(10)
+    return False
+
+
+# 制御シートに巡回完了を書き込むためのトークン（reins/Code.gs の SCRAPE_DONE_TOKEN と一致）
+SCRAPE_DONE_TOKEN = "r3ins-trig-8f2a"
+
+
+def record_last_run(result_text):
+    """最終巡回日時と結果を制御シートに記録（新着ゼロでも巡回した事実を残す）。
+    従来は trigger_watch.py（PWAの「今すぐ巡回」経由）でしか記録しておらず、
+    launchd の定期巡回では最終巡回日時が更新されないままだった。"""
+    if not GAS_URL:
+        return
+    try:
+        requests.get(GAS_URL, params={
+            "action": "markScrape", "token": SCRAPE_DONE_TOKEN,
+            "phase": "done", "result": result_text}, timeout=20)
+        print(f"🕒 最終巡回を記録: {result_text}")
+    except Exception as e:
+        print(f"⚠️  最終巡回日時の記録に失敗: {e}")
+
+
 def send_web_push(new_count):
     """新着件数をアプリアイコンのバッジに反映するため、登録済みの全端末へ Web Push を送る。
     LINE通知とは独立（LINE_CHANNEL_TOKEN 等は不要）。GAS未設定/鍵未生成なら黙って何もしない。"""
@@ -1632,6 +1668,11 @@ async def main():
         print("❌ .env に REINS_USER_ID と REINS_PASSWORD を設定してください")
         sys.exit(1)
 
+    # スリープ復帰直後など、ネットワーク確立前に launchd が起動することがある
+    if not wait_for_network():
+        print("❌ ネットワークに接続できないため巡回を中止します")
+        sys.exit(1)
+
     all_properties = []
     tab_type_map = {"売土地": "土地", "売地": "土地", "売一戸建": "戸建",
                     "売マンション": "区分", "売外全": "アパート", "売外一": "収益物件（区分）"}
@@ -1799,6 +1840,9 @@ async def main():
     else:
         sheet_url = sheet_url or cache.get(f"_spreadsheet_{CONDITION}", "")
         send_line_notify(f"✅ REINS確認完了（新着なし）\n📊 シート: {sheet_url}")
+
+    # 新着が無くても「いつ巡回したか」を残す（PWAの「最終巡回」表示用）
+    record_last_run(f"{CONDITION} 新規{len(new_props)}件")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from typing import Optional
 from urllib.parse import urljoin
@@ -204,7 +205,23 @@ def ensure_output_headers(gc):
         sheet.update_cell(1, len(OUTPUT_HEADERS), OUTPUT_HEADERS[-1])
 
 
-def record_last_run(gc, new_count, changed_count):
+def wait_for_network(max_wait=180, host="sheets.googleapis.com"):
+    """名前解決できるまで待つ。復帰しなければ False。"""
+    import socket
+    for i in range(0, max_wait, 10):
+        try:
+            socket.getaddrinfo(host, 443)
+            if i:
+                print(f"🌐 ネットワーク復帰を確認（{i}秒待機）")
+            return True
+        except socket.gaierror:
+            if not i:
+                print(f"🌐 ネットワーク未接続。最大{max_wait}秒待ちます…")
+            time.sleep(10)
+    return False
+
+
+def record_last_run(gc, new_count, changed_count, failed_count=0):
     """最終巡回日時と結果を制御シートに記録（新着ゼロでも巡回した事実を残す）。"""
     ss = gc.open_by_key(SPREADSHEET_ID)
     try:
@@ -213,6 +230,9 @@ def record_last_run(gc, new_count, changed_count):
         sh = ss.add_worksheet(title=CONTROL_SHEET, rows=10, cols=2)
     now = datetime.now().strftime("%Y/%m/%d %H:%M")
     summary = f"新規{new_count}件 / 価格変更{changed_count}件"
+    # 取得できなかった件数も残す。「本当に新着ゼロ」と「取れていない」を区別するため。
+    if failed_count:
+        summary += f" ⚠️取得失敗{failed_count}件"
     sh.update("A4:B5", [["最終巡回日時", now], ["最終巡回結果", summary]],
               value_input_option="USER_ENTERED")
 
@@ -297,19 +317,27 @@ def _price_num(s):
 
 # ── Web スクレイピング ─────────────────────────────────────────
 
+# 取得に失敗した回数。「本当に新着ゼロ」と「そもそも取れていない」を
+# 巡回結果から区別するために数える（ネットワーク不通の検知用）。
+FETCH_FAILURES = 0
+
+
 async def fetch_html(url, timeout=20):
+    global FETCH_FAILURES
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=HTTP_HEADERS) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             return resp.text
     except Exception as e:
+        FETCH_FAILURES += 1
         print(f"    ⚠️  fetch失敗 {url}: {e}")
         return None
 
 
 async def fetch_html_playwright(url, timeout=20000):
     """JavaScriptが必要なサイト向け: PlaywrightでレンダリングしてからHTMLを取得する。"""
+    global FETCH_FAILURES
     try:
         from playwright.async_api import async_playwright
         async with async_playwright() as pw:
@@ -320,6 +348,7 @@ async def fetch_html_playwright(url, timeout=20000):
             await browser.close()
             return html
     except Exception as e:
+        FETCH_FAILURES += 1
         print(f"    ⚠️  Playwright取得失敗 {url}: {e}")
         return None
 
@@ -595,6 +624,12 @@ async def main():
     print("🏠 不動産会社ホームページ巡回スクレイパー 開始")
     print(f"   スプレッドシートID: {SPREADSHEET_ID}")
 
+    # スリープ復帰直後など、ネットワーク確立前に launchd が起動することがある。
+    # そのまま進むと全サイトの取得に失敗して「新規0件」と誤記録するので、先に待つ。
+    if not wait_for_network():
+        print("❌ ネットワークに接続できないため巡回を中止します（新規0件として記録しない）")
+        sys.exit(1)
+
     gc = get_sheets_client()
     ensure_output_headers(gc)
 
@@ -640,7 +675,7 @@ async def main():
             print(f"    {c.get('company_name','')} {c.get('address','')[:16]} {c['old_price']}→{c['price']}")
 
     try:
-        record_last_run(gc, len(all_new_props), len(all_changed))
+        record_last_run(gc, len(all_new_props), len(all_changed), FETCH_FAILURES)
     except Exception as e:
         print(f"⚠️  最終巡回日時の記録に失敗: {e}")
 
