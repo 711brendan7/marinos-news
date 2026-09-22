@@ -19,13 +19,13 @@
     body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Helvetica Neue', sans-serif; background: #f2f2f7; color: #1c1c1e; min-height: 100vh; }
 
     header { background: #fff; padding: 14px 18px 10px; border-bottom: 1px solid #e5e5ea; position: sticky; top: 0; z-index: 10; }
-    .head-row { display: flex; align-items: baseline; gap: 10px; }
-    h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
-    .count { font-size: 13px; color: #8e8e93; }
-    .scrape-btn { margin-left: auto; padding: 6px 12px; background: #34c759; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .head-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap; }
+    h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; white-space: nowrap; flex-shrink: 0; }
+    .count { font-size: 13px; color: #8e8e93; white-space: nowrap; overflow: hidden; }
+    .scrape-btn { margin-left: auto; padding: 6px 10px; flex-shrink: 0; background: #34c759; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .scrape-btn:active { opacity: 0.6; }
     .scrape-btn:disabled { opacity: 0.5; }
-    .refresh-btn { padding: 6px 14px; background: #007aff; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .refresh-btn { padding: 6px 12px; white-space: nowrap; flex-shrink: 0; background: #007aff; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .refresh-btn:active { opacity: 0.6; }
     #scrape-status { margin-top: 9px; padding: 9px 12px; background: #f0fff4; border: 1px solid #c3e6cb; border-radius: 9px; font-size: 13px; color: #1a7a3a; }
     #last-run { margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #48484a; background: #eef2f7; border-radius: 8px; }
