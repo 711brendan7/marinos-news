@@ -291,8 +291,21 @@ def apply_price_changes(gc, changes):
     ss = gc.open_by_key(SPREADSHEET_ID)
     sheet = ss.worksheet(OUTPUT_SHEET)
     now = datetime.now().strftime("%Y/%m/%d %H:%M")
+    # c["row"] は巡回開始時点の行番号。その後 append_properties が
+    # insert_rows(row=2) で新規をヘッダー直後に差し込むため、新規N件ぶん
+    # 全体がズレる。古い行番号で書くと無関係な物件を上書きしてしまうので、
+    # 書き込む直前にURLで引き直す。
+    data = sheet.get_all_values()
+    row_by_url = {}
+    for i, r in enumerate(data[1:], start=2):
+        u = r[6].strip() if len(r) > 6 else ""
+        if u and u not in row_by_url:
+            row_by_url[u] = i
     for c in changes:
-        row = c["row"]
+        row = row_by_url.get(str(c.get("url", "")).strip())
+        if not row:
+            print(f"    ⚠️  価格変更の対象行が見つからずスキップ: {c.get('url', '')}")
+            continue
         arrow = "↓値下げ" if _price_num(c["price"]) < _price_num(c["old_price"]) else "↑値上げ"
         sheet.update_cell(row, PRICE_COL, c["price"])
         sheet.update_cell(row, CHANGE_COL,
