@@ -116,25 +116,53 @@ def _label_key(label: str):
     return None
 
 
+_NON_PRICE_ROWS = ["手数料", "管理費", "修繕積立"]
+_SOLD_KEYWORDS = ["既に成約されました", "成約済みです"]
+
+
+def _is_sold(soup) -> bool:
+    """成約済みページか。価格が消え、本文の別の「〜万円」を拾ってしまうのを防ぐ。"""
+    t = soup.get_text(" ", strip=True)
+    return any(k in t for k in _SOLD_KEYWORDS)
+
+
 def parse_detail(html: str, url: str, hints: dict = None) -> dict:
     """詳細ページHTMLから物件情報を抽出。hints で discovery 側の補完値を渡せる。"""
     hints = hints or {}
     soup = BeautifulSoup(html, "html.parser")
 
     fields = {}
+    price_label_seen = False  # 価格欄はあるが値が「ご成約」「商談中」等で価格でないケースの検知用
     # テーブルの (ラベル, 値) ペアを収集（同一 tr 内で隣接セルをペア化）
     # 値がその key として妥当なもののみ採用（ヘッダー行のゴミを排除）
-    for tr in soup.find_all("tr"):
+    trs = soup.find_all("tr")
+    for n, tr in enumerate(trs):
         cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
         cells = [c for c in cells if c]
         for i in range(0, len(cells) - 1, 2):
             key = _label_key(cells[i])
             if key and key not in fields and _valid_value(key, cells[i + 1]):
                 fields[key] = cells[i + 1]
+        # 見出し行（全セル th）の直下に値の行が並ぶ縦並びの表（加藤不動産の概要表など）
+        heads = tr.find_all(["th", "td"])
+        if heads and all(c.name == "th" for c in heads) and n + 1 < len(trs):
+            vals = trs[n + 1].find_all(["th", "td"])
+            if len(vals) == len(heads) and all(c.name == "td" for c in vals):
+                for h, v in zip(heads, vals):
+                    key = _label_key(h.get_text(" ", strip=True))
+                    val = v.get_text(" ", strip=True)
+                    if key == "price":
+                        price_label_seen = True
+                    if key and key not in fields and _valid_value(key, val):
+                        fields[key] = val
 
     # 価格
     price = norm_price(fields.get("price", "")) or norm_price(hints.get("price_hint", ""))
-    if not price:
+    if not price and not price_label_seen and not _is_sold(soup):
+        # 本文からの拾い上げ。仲介手数料（「3.00% ＋ 0.6万円」）等を価格と誤認しないよう除く
+        for tr in trs:
+            if any(k in tr.get_text() for k in _NON_PRICE_ROWS):
+                tr.decompose()
         price = norm_price(soup.get_text(" ", strip=True))
 
     # 賃貸除外

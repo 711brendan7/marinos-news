@@ -7,7 +7,7 @@
 """
 import unittest
 
-from parsers import is_rental, norm_price, norm_area, extract_layout, extract_address
+from parsers import is_rental, norm_price, norm_area, extract_layout, extract_address, parse_detail
 
 
 class TestIsRental(unittest.TestCase):
@@ -82,6 +82,27 @@ class TestExtractAddress(unittest.TestCase):
     def test_avoids_kukakuzu_false_positive(self):
         # 「区画図」を市区町村と誤検出しない
         self.assertEqual(extract_address("区画図はこちら"), "")
+
+
+class TestParseDetailPrice(unittest.TestCase):
+    """加藤不動産の縦並び概要表（見出し行の下に値の行）と、手数料の誤読防止。"""
+    OVERVIEW = ("<table><tr><th>所在地</th><th>土地面積</th><th>価格<br>坪単価</th></tr>"
+                "<tr><td>三浦市南下浦町上宮田</td><td>186.46m<sup>2</sup></td><td>{price}</td></tr></table>")
+    FEE = "<table><tr><th>仲介手数料</th><td>3.00% ＋ 0.6万円</td></tr></table>"
+
+    def test_column_table_price(self):
+        html = self.OVERVIEW.format(price="2,180万円 38.6万円") + self.FEE
+        d = parse_detail(html, "u")
+        self.assertEqual(d["price"], "2,180万円")
+        self.assertEqual(d["address"], "三浦市南下浦町上宮田")
+
+    def test_sold_page_has_no_price(self):
+        html = "<p>この物件は既に成約されました。</p>" + self.OVERVIEW.format(price="ご成約") + self.FEE
+        self.assertEqual(parse_detail(html, "u")["price"], "")
+
+    def test_fee_is_not_taken_as_price(self):
+        html = "<h1>三浦市南下浦町上宮田</h1>" + self.FEE
+        self.assertEqual(parse_detail(html, "u")["price"], "")
 
 
 if __name__ == "__main__":

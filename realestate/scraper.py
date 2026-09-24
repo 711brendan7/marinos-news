@@ -598,6 +598,10 @@ async def scrape_company_parser(company_name, homepage_url, existing, discover):
         else:
             old = existing[url]["price"]
             new_price = prop["price"]
+            # 1/10 未満への急変は誤読（手数料「0.6万円」等を価格と取り違え）とみなして記録しない
+            if new_price and old and _price_num(new_price) * 10 < _price_num(old):
+                print(f"    ⚠️  価格の急変を誤読とみなし無視: {old}→{new_price} {url}")
+                continue
             if new_price and old and new_price != old:
                 changed_props.append({**prop, "old_price": old, "row": existing[url]["row"]})
                 existing[url]["price"] = new_price  # 同一実行内での二重検知を防ぐ

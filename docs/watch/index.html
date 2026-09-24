@@ -315,10 +315,11 @@ async function pollScrapeStatus(tries) {
     const res = await fetch(`${gasUrl}?${qs}`, { redirect: 'follow' });
     const data = await res.json();
     if (data.status) setScrapeStatus(data.status);
-    // 完了（pending=false かつ 状態が ✅）なら一覧を更新して終了
-    if (!data.pending && /✅/.test(data.status || '')) {
+    // 処理済み（pending=false）なら終了。✅ なら一覧を更新、⚠️（失敗）なら状態を出したまま再押下可に
+    if (!data.pending && /[✅⚠]/.test(data.status || '')) {
       document.getElementById('scrape-btn').disabled = false;
-      await loadProps(allProps.length > 0);
+      fetchLastRun();
+      if (/✅/.test(data.status)) await loadProps(allProps.length > 0);
       return;
     }
   } catch (_) { /* 一時的なエラーは無視して継続 */ }

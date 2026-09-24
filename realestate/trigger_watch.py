@@ -75,11 +75,19 @@ def main():
             capture_output=True, text=True,
         )
         out = result.stdout
+        now = datetime.now().strftime("%H:%M")
+        if result.returncode != 0:
+            # 失敗を「完了 新規0件」と見せない。原因を追えるよう出力の末尾を残す。
+            print(f"--- 手動巡回失敗 {datetime.now():%Y/%m/%d %H:%M} (exit {result.returncode})")
+            print((out + result.stderr)[-3000:])
+            reason = "ネットワーク未接続" if "ネットワークに接続できない" in out else "エラー"
+            sh.update_acell("B3", str(requested))
+            sh.update_acell("B2", f"⚠️ 巡回失敗（{reason}・{now}）もう一度お試しください")
+            return
         mnew = re.search(r"✅ (\d+) 件の新規物件を", out)
         mchg = re.search(r"💰 (\d+) 件の価格変更を", out)
         n = mnew.group(1) if mnew else "0"
         c = mchg.group(1) if mchg else "0"
-        now = datetime.now().strftime("%H:%M")
         msg = f"✅ 完了 新規{n}件"
         if c != "0":
             msg += f" / 価格変更{c}件"
