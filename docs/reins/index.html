@@ -131,9 +131,6 @@
     <label>アクセストークン</label>
     <input type="password" id="cfg-token" placeholder="Code.gs の READ_TOKEN" autocomplete="off">
     <div class="hint">URLを知られただけで物件データを読まれないための合言葉。Code.gs の <code>READ_TOKEN</code> と同じ値を入れます。</div>
-    <label>スプレッドシートID（任意）</label>
-    <input type="text" id="cfg-sid" placeholder="未入力なら既定のシートを使用">
-    <div class="hint">別のシートを見たいときだけ入力。通常は空でOK。</div>
     <button onclick="saveConfig()">保存して開始</button>
   </div>
 </div>
@@ -160,7 +157,11 @@ const VAPID_PUBLIC_KEY = 'BPfDxGXMXtAtmRLyV2sj71t2yWzPRQm2EiNudWqBheNR4PIACWpIGG
 const LS_PUSH_SUB = 'reins_push_subscribed';
 
 let gasUrl = localStorage.getItem(LS_URL) || DEFAULT_URL;
-let sid    = localStorage.getItem(LS_SID) || '';
+// シートIDは送らない。GAS の URL に sid=<長いID> を付けると Google の入口が
+// 400 を返し（sid をセッションIDとして扱うらしい）、一覧も最終巡回も取れずに
+// 端末の古い表示が残り続けていた。既定シート（三浦）＋merge=1 で足立区も
+// 結合されるので不要。以前保存した値も消しておく。
+try { localStorage.removeItem(LS_SID); } catch (_) {}
 let token  = localStorage.getItem(LS_TOKEN) || '';
 let allProps = [];
 let filterType = '';
@@ -192,17 +193,15 @@ function init() {
 }
 function saveConfig() {
   const url = document.getElementById('cfg-url').value.trim();
-  const s   = document.getElementById('cfg-sid').value.trim();
   const tok = document.getElementById('cfg-token').value.trim();
   if (!url) { alert('GAS デプロイ URL を入力してください'); return; }
   localStorage.setItem(LS_URL, url);
   localStorage.setItem(LS_TOKEN, tok);
-  if (s) localStorage.setItem(LS_SID, s); else localStorage.removeItem(LS_SID);
-  gasUrl = url; sid = s; token = tok; init();
+  gasUrl = url; token = tok; init();
 }
 function resetConfig() {
   localStorage.removeItem(LS_URL); localStorage.removeItem(LS_SID); localStorage.removeItem(LS_TOKEN);
-  gasUrl = ''; sid = ''; token = '';
+  gasUrl = ''; token = '';
   document.getElementById('errbox').style.display = 'none';
   init();
 }
@@ -290,7 +289,6 @@ function setScrapeStatus(msg) {
 function scrapeQs(action) {
   const qs = new URLSearchParams({ action });
   if (token) qs.set('token', token);
-  if (sid) qs.set('sid', sid);
   return qs.toString();
 }
 async function requestScrape() {
@@ -449,8 +447,7 @@ async function loadProps(keepView) {
   try {
     const qs = new URLSearchParams({ csv: '1' });
     if (token) qs.set('token', token);
-    if (sid) qs.set('sid', sid);
-    qs.set('merge', '1');     // 三浦に加えて足立区など独立シートも結合（スコアラーの素の?csv=1は非結合）
+      qs.set('merge', '1');     // 三浦に加えて足立区など独立シートも結合（スコアラーの素の?csv=1は非結合）
     qs.set('t', Date.now());  // キャッシュ回避（古いCSVを掴んで新規物件が出ない対策）
     let res;
     for (let attempt = 1; ; attempt++) {
