@@ -530,6 +530,21 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return escapeHtml(s); }
 
+// ホーム画面アプリは前回のページをそのまま復帰させるため、init() が走らず
+// 一覧が古いまま残る（通知をタップして開いても新着が出ない）。前面に戻るたびに
+// 最新を取り直し、バッジも消す。短時間の切り替えで GAS を叩きすぎないよう 30 秒は空ける。
+let lastResumeLoad = Date.now();
+function refreshOnResume() {
+  if (document.visibilityState !== 'visible' || !gasUrl || !token) return;
+  if (Date.now() - lastResumeLoad < 30000) return;
+  lastResumeLoad = Date.now();
+  fetchLastRun();
+  loadProps(true);
+  initPush();
+}
+document.addEventListener('visibilitychange', refreshOnResume);
+window.addEventListener('pageshow', (e) => { if (e.persisted) refreshOnResume(); });
+
 init();
 </script>
 </body>

@@ -338,6 +338,54 @@ async def discover_rehouse(homepage_url, fetch):
     return out
 
 
+async def discover_smtrc(homepage_url, fetch):
+    """三井住友トラスト不動産: キーワード検索結果のカード（block_list）から直接抽出。
+    以前は AI 抽出に任せていたが、物件URLを取りこぼす回が多く、URL無しの行は
+    重複判定もできないため同じ物件が毎回「新着」としてLINEに流れていた。
+    URL は既存行と一致させるため一覧のhrefそのまま（&pageId=D010 付き）を使う。"""
+    base = re.sub(r"&page=\d+", "", homepage_url)
+    out, seen = [], set()
+    for page in range(1, 11):
+        url = base + (f"&page={page}" if page > 1 else "")
+        html = await fetch(url)
+        if not html:
+            break
+        soup = BeautifulSoup(html, "html.parser")
+        cards = soup.find_all("div", class_="block_list")
+        added = 0
+        for card in cards:
+            a = card.find("a", href=re.compile(r"/detail/CompareDetails\?propertyCode="))
+            if not a:
+                continue
+            purl = urljoin(url, a["href"])
+            if purl in seen:
+                continue
+            seen.add(purl)
+            spec = {}
+            for unit in card.find_all("div", class_="spec_unit"):
+                ut, ud = unit.find("div", class_="ut"), unit.find("div", class_="ud")
+                if ut and ud:
+                    spec[ut.get_text(strip=True)] = re.sub(r"\s+", " ", ud.get_text(" ", strip=True))
+            icon = card.find("div", class_="bukken_icon")
+            ptype = icon.get_text(strip=True) if icon else ""
+            name = a.get_text(strip=True)
+            # 土地・戸建は物件名が所在地そのもの。マンションは「所在地」欄がある。
+            address = spec.get("所在地") or name
+            area = norm_area(spec.get("専有面積") or spec.get("面積") or spec.get("土地面積") or "")
+            out.append({
+                "url": purl,
+                "title": " ".join(x for x in [ptype, name] if x),
+                "price": norm_price(spec.get("価格", "")),
+                "address": address,
+                "area_layout": " / ".join(x for x in [area, spec.get("間取り", "")] if x),
+            })
+            added += 1
+        # 1ページ30件。満杯でなければ最終ページ（同じページの再表示なら added=0 で止まる）
+        if added < 30:
+            break
+    return out
+
+
 # 会社名 → discovery 関数
 PARSERS = {
     "加藤不動産": discover_katou,
@@ -345,4 +393,5 @@ PARSERS = {
     "マルフジ住宅": discover_marufuji,
     "東急リバブル": discover_livable,
     "三井のリハウス": discover_rehouse,
+    "三井住友トラスト": discover_smtrc,
 }

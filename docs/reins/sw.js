@@ -2,7 +2,7 @@
 // 役割は「push通知を受けてアプリアイコンにバッジを立てる」ことだけ（オフラインキャッシュ等は行わない）。
 // スコープを /reins/ 配下に閉じてあるので、同じリポジトリの他アプリ（物件ウォッチ等）の
 // 登録を奪わない＝アプリごとに独立したバッジになる。
-const SW_VERSION = 'reins-sw-1';
+const SW_VERSION = 'reins-sw-2';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
@@ -34,8 +34,8 @@ self.addEventListener('push', (event) => {
     const tasks = [
       self.registration.showNotification(title, {
         body,
-        icon: 'reins-icon-192.png',
-        badge: 'reins-icon-192.png',
+        icon: 'icon-192.png',
+        badge: 'icon-192.png',
         tag: 'reins-new',
         renotify: true,
         data: { url: data.url || './' },

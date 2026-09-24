@@ -2,7 +2,7 @@
 // 役割は「push通知を受けてアプリアイコンにバッジを立てる」ことだけ（オフラインキャッシュ等は行わない）。
 // スコープを /watch/ 配下に閉じてあるので、同じリポジトリの他アプリ（REINS仕入れ等）の
 // 登録を奪わない＝アプリごとに独立したバッジになる。
-const SW_VERSION = 'watch-sw-1';
+const SW_VERSION = 'watch-sw-2';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));

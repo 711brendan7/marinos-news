@@ -140,7 +140,9 @@ def format_new_property_message(props):
     for p in props[:20]:
         price = p.get("price", "") or "価格不明"
         title = p.get("title", "") or p.get("address", "") or "(タイトル不明)"
-        lines.append(f"\n■ {p.get('company_name', '')}\n{title}\n{price}\n{p.get('url', '')}")
+        # 物件ページURLが取れなかったときも、掲載元の一覧ページに飛べるようにする
+        link = p.get("url", "") or (f"（一覧）{p['source_url']}" if p.get("source_url") else "")
+        lines.append(f"\n■ {p.get('company_name', '')}\n{title}\n{price}\n{link}")
     if len(props) > 20:
         lines.append(f"\n…他 {len(props) - 20} 件")
     return "\n".join(lines)
@@ -255,9 +257,16 @@ def get_existing_properties(gc):
     result = {}
     for i, row in enumerate(data[1:], start=2):  # 2行目以降（1-indexed行番号）
         url = row[6].strip() if len(row) > 6 else ""
-        if not url:
-            continue
         price = row[3].strip() if len(row) > 3 else ""
+        if not url:
+            # URLを取れなかった行（AI抽出）は scrape_company の dedup_key と同じ
+            # 「タイトル__所在地」で登録する。登録しないと同じ物件が毎回新着扱いになり
+            # リンク無しのLINE通知が巡回のたびに繰り返される。
+            title = row[2].strip() if len(row) > 2 else ""
+            address = row[4].strip() if len(row) > 4 else ""
+            if title or address:
+                result.setdefault(f"{title}__{address}", {"row": i, "price": price})
+            continue
         result[url] = {"row": i, "price": price}
     return result
 
