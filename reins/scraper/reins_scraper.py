@@ -73,7 +73,7 @@ def wait_for_network(max_wait=180, host="script.google.com"):
 
 
 # 制御シートに巡回完了を書き込むためのトークン（reins/Code.gs の SCRAPE_DONE_TOKEN と一致）
-SCRAPE_DONE_TOKEN = "r3ins-trig-8f2a"
+SCRAPE_DONE_TOKEN = os.getenv("REINS_SCRAPE_DONE_TOKEN", "")
 # 物件データ読み出し用トークン（reins/Code.gs の READ_TOKEN と一致させる）
 READ_TOKEN = os.getenv("REINS_READ_TOKEN", "")
 

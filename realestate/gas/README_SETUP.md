@@ -14,7 +14,7 @@ todo アプリと同じ GAS バックエンド方式。スプレッドシート�
 1. https://script.google.com/ で「新しいプロジェクト」を作成
 2. `realestate/gas/Code.gs` の内容を丸ごと貼り付け
    - `SPREADSHEET_ID` と `SHEET_NAME` は設定済み
-   - `SECRET_TOKEN` = `WQZpZzGK4gsxUwha59j-xTcC`（ビューアで入力するトークン）
+   - `SECRET_TOKEN` は `Secrets.gs`（git 管理外）に定義（ビューアで入力するトークン）
 3. 「デプロイ」→「新しいデプロイ」→ 種類「ウェブアプリ」
    - 実行するユーザー: **自分**
    - アクセスできるユーザー: **全員**
@@ -28,7 +28,7 @@ todo アプリと同じ GAS バックエンド方式。スプレッドシート�
 1. iPhone の Safari で https://711brendan7.github.io/marinos-news/realestate.html を開く
 2. セットアップ画面で以下を入力
    - GAS デプロイ URL: 手順1で控えた `.../exec` URL
-   - SECRET_TOKEN: `WQZpZzGK4gsxUwha59j-xTcC`
+   - SECRET_TOKEN: `Secrets.gs` と realestate/.env の値
 3. 「保存して開始」→ 物件カードが表示される
 4. 共有ボタン →「ホーム画面に追加」でアプリ化
 
@@ -41,5 +41,5 @@ todo アプリと同じ GAS バックエンド方式。スプレッドシート�
 
 ## トークンを変えたいとき
 
-`Code.gs` の `SECRET_TOKEN` を書き換えて再デプロイ → ビューアのセットアップを再入力
+`Secrets.gs` の `SECRET_TOKEN` と realestate/.env を書き換えて再デプロイ → ビューアのセットアップを再入力
 （ビューアの再セットアップは localStorage クリア or ブラウザのサイトデータ削除）

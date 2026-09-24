@@ -38,7 +38,7 @@ def load_env(key, default=""):
 
 
 GAS_URL = load_env("GAS_URL", DEFAULT_GAS)
-DONE_TOKEN = "r3ins-trig-8f2a"          # Code.gs の SCRAPE_DONE_TOKEN と一致させる
+DONE_TOKEN = load_env("REINS_SCRAPE_DONE_TOKEN")  # Secrets.gs の SCRAPE_DONE_TOKEN と一致させる
 READ_TOKEN = load_env("REINS_READ_TOKEN")  # Code.gs の READ_TOKEN と一致させる
 PIPELINE = os.path.join(HERE, "run_pipeline.sh")
 LOCK = "/tmp/reins-trigger.lock"

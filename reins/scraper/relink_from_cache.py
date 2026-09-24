@@ -31,8 +31,14 @@ from collections import defaultdict, Counter
 
 import requests
 
-# Code.gs の READ_TOKEN と一致させる（環境変数 REINS_READ_TOKEN で上書き可）
-READ_TOKEN = os.getenv("REINS_READ_TOKEN", "fqaToI0ZXSDRFGtkSnYu7y3X")
+# reins/Secrets.gs の READ_TOKEN と一致させる（環境変数 or .env の REINS_READ_TOKEN）
+READ_TOKEN = os.getenv("REINS_READ_TOKEN", "")
+if not READ_TOKEN:  # 同じフォルダの .env から読む（トークンは公開リポジトリに置かない）
+    _env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(_env):
+        for _line in open(_env, encoding="utf-8"):
+            if _line.startswith("REINS_READ_TOKEN="):
+                READ_TOKEN = _line.split("=", 1)[1].strip().strip("\"'")
 GAS_URL = ("https://script.google.com/macros/s/"
            "AKfycbwg5gIdluJCKhxg5Ac37ojhD1RxblEidHziJUIo2vWPTMWdlzlxEkCeaE-CydbCHInz-g/exec")
 SID = "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE"

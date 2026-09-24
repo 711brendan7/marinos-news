@@ -42,3 +42,6 @@ busshin/reprice_results.csv
 **/*.log
 *.tmp
 .DS_Store
+
+# GAS の秘密値（clasp で GAS にだけ送り、公開リポジトリには載せない）
+**/Secrets.gs

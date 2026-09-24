@@ -31,10 +31,9 @@ const PROP_NUM_COLS = { E: "#,##0", I: "#,##0.00", J: "#,##0.00", K: "#,##0.0", 
 // スマホPWAの「今すぐ巡回」→ 制御シートにフラグを書く → Mac常駐watcherが検知して実行。
 const REINS_DEFAULT_SID = "1zah79pR7wlv_jGjCIhBWgCQEDoBmIXHHoT58SqTCrcE";
 const CONTROL_SHEET      = "制御";
-const SCRAPE_DONE_TOKEN  = "r3ins-trig-8f2a";  // markScrapeDone 用（Mac watcher と一致させる）
-// 物件データ読み出し用のトークン。URLを知られただけで全物件CSVを取得されないようにする。
-// PWA・スクレイパー・スコアラーの各クライアントと一致させること。
-const READ_TOKEN = "fqaToI0ZXSDRFGtkSnYu7y3X";
+// SCRAPE_DONE_TOKEN（markScrape 用）と READ_TOKEN は Secrets.gs（git 管理外）で定義する。
+// 物件データ読み出し用のトークン（READ_TOKEN）は URL を知られただけで全物件CSVを
+// 取得されないためのもの。公開リポジトリに載せないよう Secrets.gs に置いている。
 // 段階移行用。全クライアントの更新が終わるまで false にしておくと、
 // トークンなしのリクエストも従来どおり通る（必須化は true にしてから）。
 const REQUIRE_READ_TOKEN = true;

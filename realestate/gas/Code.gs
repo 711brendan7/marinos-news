@@ -4,7 +4,7 @@
 
 const SPREADSHEET_ID = '1luaTrRO6D-AcqPu4u9JM1vrOVOdtatldOZEK7SfP3nQ';
 const SHEET_NAME     = '物件情報';
-const SECRET_TOKEN   = 'WQZpZzGK4gsxUwha59j-xTcC';
+// SECRET_TOKEN は Secrets.gs（git 管理外）で定義する。
 
 const HEADERS = ['取得日時', '会社名', '物件名・タイトル', '価格・賃料', '所在地', '面積・間取り', '物件URL', '会社URL'];
 
