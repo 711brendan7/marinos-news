@@ -1,5 +1,4 @@
 const SHEET_NAME = 'TODO';
-const SECRET_TOKEN = 'QzFA2VTLy0Bhkv3cc99DuZ1v';
 
 function doGet(e) {
   const p = e.parameter;

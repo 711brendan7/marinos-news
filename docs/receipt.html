@@ -101,11 +101,10 @@
 </div>
 
 <script>
+  // このURLは公開されても問題ない作り: 守りはサーバー(GAS)側の「長いPIN＋失敗時の待ち時間」。
+  // トークンは廃止した。保存先フォルダの一覧はGASから取得する（ここにフォルダIDは持たない）。
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbwfdNLvQS0aajkqqU_qcO5NXIXjeR4XIsKnMTrS7hrmoZ2khiXe2Wl6l81zX462BcFiGQ/exec';
-  const TOKEN   = 'Ulzdc5gG18YLMASwWNGJvg';
-  const DEFAULT_FOLDERS = [
-    { id: '1H6XpCOQC1TOmjrqhvgdn63So8XxSOuC5', name: 'MICARE', isCurrent: true }
-  ];
+  const DEFAULT_FOLDERS = [];
 
   let currentFile = null;
   let currentBase64 = null;
@@ -123,12 +122,12 @@
   function clearPin() { userPin = ''; localStorage.removeItem('userPin'); }
   ensurePin();
 
-  // GAS呼び出し共通（token＋pinを自動付与）
+  // GAS呼び出し共通（pinを自動付与）
   async function callGas(payload) {
     const res = await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(Object.assign({ token: TOKEN, pin: userPin }, payload))
+      body: JSON.stringify(Object.assign({ pin: userPin }, payload))
     });
     return res.json();
   }
