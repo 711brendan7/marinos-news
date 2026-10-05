@@ -131,10 +131,15 @@
   function clearPin() { userPin = ''; localStorage.removeItem('userPin'); }
   ensurePin();
 
+  // GASは一度限りのURLへリダイレクトするため、毎回異なる非機密クエリを付けてキャッシュを再利用させない
+  let gasReqSeq = 0;
+  function gasRequestUrl() { return GAS_URL + '?nonce=' + Date.now().toString(36) + '-' + (++gasReqSeq); }
+
   // GAS呼び出し共通（pinを自動付与）
   async function callGas(payload) {
-    const res = await fetch(GAS_URL, {
+    const res = await fetch(gasRequestUrl(), {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(Object.assign({ pin: userPin }, payload))
     });
@@ -170,9 +175,9 @@
         setTimeout(() => { statusEl.textContent = ''; }, 3000);
       }
     } catch (e) {
-      if (cached) {
-        statusEl.textContent = '前回のフォルダ一覧を使用中';
-      }
+      statusEl.textContent = cached
+        ? '前回のフォルダ一覧を使用中'
+        : '保存先を取得できませんでした。通信を確認して開き直してください';
     }
   }
 
@@ -351,8 +356,9 @@
     const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
     try {
-      const res = await fetch(GAS_URL, {
+      const res = await fetch(gasRequestUrl(), {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(Object.assign({ pin: userPin }, payload)),
         signal: ctrl ? ctrl.signal : undefined
