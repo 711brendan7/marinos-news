@@ -48,20 +48,27 @@
   .batch-amount { border: none; border-bottom: 1px solid #eee; font-size: 14px; outline: none; background: transparent;
     width: 74px; flex-shrink: 0; text-align: right; }
   .batch-state { font-size: 15px; width: 22px; text-align: center; flex-shrink: 0; }
+  .batch-row { flex-wrap: wrap; }
+  .batch-ocr { flex-basis: 100%; font-size: 11px; color: #8e8e93; }
+  .ocr-notice { font-size: 12px; color: #8e8e93; margin: -22px 0 20px; }
+  #ocr-note { margin-top: 8px; font-size: 12px; color: #8e8e93; }
   #filename-preview { margin-top: 10px; font-size: 12px; color: #8e8e93; word-break: break-all; }
   #status { margin-top: 16px; padding: 14px; border-radius: 12px; font-size: 14px; display: none; }
   .status-processing { background: #fff3cd; color: #856404; }
   .status-success { background: #d4edda; color: #155724; }
   .status-error { background: #f8d7da; color: #721c24; }
+  .status-unconfirmed { background: #ffe8cc; color: #7a4100; }
   #upload-btn { display: none; margin-top: 12px; }
   #batch-upload-btn { display: none; margin-top: 12px; }
+  #pending-btn { display: none; margin-top: 12px; }
   #folder-status { font-size: 11px; color: #8e8e93; margin-top: 4px; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>📄 領収書スキャン</h1>
-  <p class="subtitle">保存先を選ぶ → 撮影 → 日付・金額を入力 → 保存</p>
+  <p class="subtitle">保存先を選ぶ → 撮影 → 日付・金額を確認 → 確認して保存</p>
+  <p class="ocr-notice">自動読み取りが使えるときは、画像をAnthropicへ送信し、候補を画像と確認してください（手入力だけでも保存できます）</p>
 
   <div id="folder-box">
     <div class="field-row">
@@ -82,13 +89,14 @@
   <div id="edit-box">
     <div class="field-row">
       <span class="field-label">日付</span>
-      <input type="date" id="input-date" class="field-input" onchange="updatePreview()">
+      <input type="date" id="input-date" class="field-input" oninput="markInputDirty(this)" onchange="markInputDirty(this);updatePreview()">
     </div>
     <div class="field-row">
       <span class="field-label">金額</span>
-      <input type="number" id="input-amount" class="field-input" placeholder="手動入力" inputmode="numeric" onchange="updatePreview()">
+      <input type="number" id="input-amount" class="field-input" placeholder="手動入力" inputmode="numeric" oninput="markInputDirty(this)" onchange="markInputDirty(this);updatePreview()">
     </div>
   </div>
+  <div id="ocr-note"></div>
 
   <div id="batch-box"></div>
 
@@ -96,8 +104,9 @@
   <div id="folder-status"></div>
 
   <div id="status"></div>
-  <button id="upload-btn" class="btn btn-primary" onclick="doUpload()">☁️ Google Drive に保存</button>
-  <button id="batch-upload-btn" class="btn btn-primary" onclick="doBatchUpload()">☁️ まとめて保存</button>
+  <button id="upload-btn" class="btn btn-primary" onclick="doUpload()">☁️ 確認して保存</button>
+  <button id="batch-upload-btn" class="btn btn-primary" onclick="doBatchUpload()">☁️ 確認してまとめて保存</button>
+  <button id="pending-btn" class="btn btn-secondary" onclick="recheckPendingManually()">🔁 前回の未確認を確認（画像は送りません）</button>
 </div>
 
 <script>
@@ -245,24 +254,27 @@
   let knownFolders = DEFAULT_FOLDERS;
   let lastGoodFolderId = '';
 
-  loadFolders();
-
   function pad(n) { return String(n).padStart(2, '0'); }
 
+  // 保存名の元（日付_金額[_連番]_receipt.jpg）。サーバーが末尾に識別IDを付けて保存する
+  function buildBaseFilename(dateVal, amount, seq) {
+    return dateVal.replace(/-/g, '') + (amount ? '_' + amount : '') + (seq ? '_' + pad(seq) : '') + '_receipt.jpg';
+  }
+
   function updatePreview() {
+    const preview = document.getElementById('filename-preview');
+    if (currentJob && currentJob.meta) {
+      preview.textContent = '📄 ' + currentJob.meta.filename + '（識別ID付きで保存。最初の送信内容で固定中）';
+      return;
+    }
     const dateVal = document.getElementById('input-date').value;
     const amount  = document.getElementById('input-amount').value;
     if (!dateVal) return;
-    const name = dateVal.replace(/-/g, '') + (amount ? '_' + amount : '') + '_receipt.jpg';
-    document.getElementById('filename-preview').textContent = '📄 ' + name;
+    preview.textContent = '📄 ' + buildBaseFilename(dateVal, amount) + '（保存時に識別IDが付きます）';
   }
 
   // ---- 共通ヘルパー ----
-  function todayStr() {
-    const n = new Date();
-    return n.getFullYear() + '-' + pad(n.getMonth()+1) + '-' + pad(n.getDate());
-  }
-
+  // Driveへ保存する原本のbase64（変換しない）。OCR用の縮小JPEGは prepareOcrImage が別に作る
   function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -272,23 +284,238 @@
     });
   }
 
-  function uploadOne(base64, mime, filename, folderId) {
-    return callGas({ image: base64, mimeType: mime || 'image/jpeg', filename: filename, folderId: folderId });
+  // ---- 保存の確実化（識別IDによる冪等化と保存状態の照合）----
+  // 写真ごとに暗号学的乱数の識別ID(requestId)を1回だけ作り、再試行でも同じIDを送る。
+  // GASは保存名にこのIDを含め、作成前に試行を記録するので、同じIDの再送で二重保存しない。
+  // 画像を送る前に必ずPIN付きの読み取り専用の確認(checkUpload)を行い、新しい保存方式のサーバーが
+  // 「このIDの保存も作成の試みも無い」(not_found) と答えたときだけ画像を送る。旧サーバー・照合できない応答・
+  // 確認できないときは画像を送らない（公開はGASを先に更新してからこのページ。逆順でも二重保存にならない）。
+  // 保存先・ファイル名は最初の送信時に固定し、結果が未確認のまま入力を変えても別の場所・別名には保存しない。
+  // 端末に残すのは未確認分の識別ID・保存先・ファイル名だけ（画像は保存しない）。これを記録できないときは送らない。
+  const UPLOAD_TIMEOUT_MS = 120000;
+  const CHECK_TIMEOUT_MS = 30000;
+  const PENDING_KEY = 'pendingUploads';
+  const UPLOAD_PROTOCOL = 2;   // Code.gs の UPLOAD_PROTOCOL と同じ値
+  const REQUEST_ID_RE = /^[0-9a-f]{20}$/;
+  const ROW_ICONS = { idle: '📄', sending: '⏫', saved: '✅', failed: '⚠️', unconfirmed: '❓' };
+
+  let currentJob = null;
+  let selectionGen = 0;  // 写真を選び直すたびに増やす。古い送信の結果で今の画面を書き換えないための目印
+  let busy = false;      // 保存処理中（連打・同時実行の防止）
+
+  // 16進20桁（80bit）の暗号学的乱数。安全な乱数が無い端末では Math.random で代用せず止める
+  function genRequestId() {
+    if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+      throw new Error('この端末では安全な乱数が使えないため保存できません');
+    }
+    const bytes = crypto.getRandomValues(new Uint8Array(10));
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // 1枚の写真の送信状態。state: idle / sending / saved / failed / unconfirmed
+  // meta（保存先・ファイル名）は最初の送信時に固定し、確実に未保存と分かった失敗のときだけ解除する
+  function newJob(file) {
+    return {
+      requestId: genRequestId(), file: file, meta: null, state: 'idle', everUncertain: false, result: null,
+      // OCR候補の状態（保存のstateとは別）。dirty＝利用者が触った項目（入力して消した場合も守る）、frozen＝保存開始後は候補を反映しない
+      ocr: { state: 'idle', dirty: { date: false, amount: false }, frozen: false, show: null, dateId: '', amountId: '' }
+    };
+  }
+
+  // 読めない（壊れている等）ときは null。未確認のIDを黙って上書き・削除しないため、そのときは記録も削除もしない
+  function loadPending() {
+    try {
+      const v = JSON.parse(localStorage.getItem(PENDING_KEY) || '{}');
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+    } catch (e) { return null; }
+  }
+  function savePending(map) {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(map)); return true; } catch (e) { return false; }
+  }
+  // 送信の前に記録する。期限・件数で古いIDを捨てることはしない。記録できなければ false（送らずに止める）
+  function rememberPending(job) {
+    const map = loadPending();
+    if (!map) return false;
+    const prev = map[job.requestId];
+    map[job.requestId] = { requestId: job.requestId, folderId: job.meta.folderId, filename: job.meta.filename, ts: (prev && prev.ts) || Date.now() };
+    return savePending(map);
+  }
+  function forgetPending(requestId) {
+    const map = loadPending();
+    if (map && map[requestId]) { delete map[requestId]; savePending(map); }
+  }
+  const pendingAtStartup = loadPending();
+
+  // 保存系のGAS呼び出し。通信・HTTP・JSONのどこで失敗したかを区別して返す（例外は投げない）
+  async function postGas(payload, timeoutMs) {
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+    try {
+      const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(Object.assign({ pin: userPin }, payload)),
+        signal: ctrl ? ctrl.signal : undefined
+      });
+      if (!res || !res.ok) return { transport: 'http', reason: 'HTTP ' + (res ? res.status : '?') };
+      try {
+        return { transport: 'ok', data: await res.json() };
+      } catch (e) {
+        return { transport: 'json', reason: '応答を読み取れません' };
+      }
+    } catch (e) {
+      return { transport: 'network', reason: '通信エラー' + (e && e.message ? ': ' + e.message : '') };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // 応答を saved / failed / unauthorized / not_found / unconfirmed に分ける。
+  // 送った識別IDと一致し、新しい保存方式の版で、形が正しいときだけ確定扱い。それ以外（旧サーバーの応答を含む）は未確認
+  function classifyResponse(resp, requestId) {
+    if (!resp || resp.transport !== 'ok') return { state: 'unconfirmed', reason: (resp && resp.reason) || '応答なし' };
+    const d = resp.data;
+    if (isUnauthorized(d)) return { state: 'unauthorized', reason: 'PINが違います' };
+    if (!d || typeof d !== 'object' || d.requestId !== requestId || d.protocol !== UPLOAD_PROTOCOL) {
+      return { state: 'unconfirmed', reason: '応答を照合できません（サーバーが未更新の可能性）' };
+    }
+    if (d.success === true && d.status === 'saved' && typeof d.name === 'string' && d.name.indexOf(requestId) !== -1) {
+      return { state: 'saved', name: d.name, fileId: typeof d.fileId === 'string' ? d.fileId : '' };
+    }
+    if (d.success === false && d.status === 'rejected') return { state: 'failed', reason: String(d.error || '保存できませんでした') };
+    if (d.success === false && d.status === 'not_found') return { state: 'not_found', reason: '保存を確認できません' };
+    return { state: 'unconfirmed', reason: String(d.error || '保存状態が不明') };
+  }
+
+  // 読み取り専用の保存状態確認（画像は送らない）
+  async function checkJob(job) {
+    const resp = await postGas({ action: 'checkUpload', requestId: job.requestId, folderId: job.meta.folderId, filename: job.meta.filename }, CHECK_TIMEOUT_MS);
+    return classifyResponse(resp, job.requestId);
+  }
+
+  // 1枚を送る。初回も再試行も、まず確認だけ行い、not_found と明確に分かったときだけ画像を送る
+  async function runJob(job, base64) {
+    if (!rememberPending(job)) {
+      applyResult(job, { state: 'failed', reason: 'この端末に識別IDを記録できないため、送信を止めました（記録が無いと、返事が届かなかったときに照合できません）。端末の空き容量やプライベートブラウズを確認してください' });
+      return;
+    }
+    job.state = 'sending';
+    const pre = await checkJob(job);
+    if (pre.state !== 'not_found') {
+      // saved＝画像を送らない / unauthorized・failed＝そのまま / 確認できない（旧サーバー・照合不可・通信不可など）＝送らずに止める
+      applyResult(job, pre.state === 'unconfirmed'
+        ? { state: 'failed', reason: '保存状態を確認できないため、送信を止めました（今回は画像を送っていません。' + pre.reason + '）' }
+        : pre);
+      return;
+    }
+    const m = job.meta;
+    const resp = await postGas({ action: 'upload', requestId: job.requestId, image: base64, mimeType: m.mimeType, filename: m.filename, folderId: m.folderId }, UPLOAD_TIMEOUT_MS);
+    let r = classifyResponse(resp, job.requestId);
+    if (r.state === 'unconfirmed' || r.state === 'not_found') {
+      const c = await checkJob(job);
+      if (c.state === 'saved') r = c;
+      else if (c.state === 'not_found') r = { state: 'unconfirmed', reason: r.reason + '／照合ではまだ見つかりません' };
+    }
+    applyResult(job, r);
+  }
+
+  function applyResult(job, r) {
+    if (r.state === 'saved') {
+      job.state = 'saved';
+      job.result = r;
+      forgetPending(job.requestId);
+    } else if ((r.state === 'failed' || r.state === 'unauthorized') && !job.everUncertain) {
+      // 保存前の検査で拒否された・画像を送る前に止めた＝この写真はまだ保存されていない。入力を直して送り直せるよう固定を解除
+      job.state = 'failed';
+      job.result = r;
+      job.meta = null;
+      forgetPending(job.requestId);
+    } else {
+      // 以前の送信が保存済みかもしれないので「失敗」と断言しない
+      job.state = 'unconfirmed';
+      job.everUncertain = true;
+      job.result = { state: 'unconfirmed', reason: r.reason || '保存状態が不明', unauthorized: r.state === 'unauthorized' };
+    }
+  }
+
+  // 前回「未確認」のまま閉じた保存を照合する（画像は端末に残していないので再送はしない）。
+  // 見つからないIDも期限・件数で捨てずに未確認として残し、「前回の未確認を確認」で確認だけやり直せる
+  async function recheckPending(manual) {
+    const map = manual ? loadPending() : pendingAtStartup;
+    const gen = selectionGen;
+    const pendingBtn = document.getElementById('pending-btn');
+    if (!map) {
+      showStatus('unconfirmed', 'この端末に残した未確認の記録を読み取れませんでした。Driveの保存先を確認してください');
+      return;
+    }
+    const list = Object.values(map).filter(p => p && REQUEST_ID_RE.test(p.requestId) && typeof p.filename === 'string');
+    if (!list.length) {
+      pendingBtn.style.display = 'none';
+      if (manual) showStatus('success', '未確認の保存はありません');
+      return;
+    }
+    if (!userPin) return;
+    let saved = 0, unknown = 0;
+    for (const p of list) {
+      const r = await checkJob({ requestId: p.requestId, meta: { folderId: p.folderId || '', filename: p.filename } });
+      if (r.state === 'unauthorized') {
+        pendingBtn.style.display = 'block';
+        if (manual && gen === selectionGen) showStatus('error', 'PINが違います');
+        return;
+      }
+      if (r.state === 'saved') { saved++; forgetPending(p.requestId); }
+      else unknown++;
+    }
+    pendingBtn.style.display = unknown ? 'block' : 'none';
+    if (gen !== selectionGen) return;  // 確認中に次の作業を始めていたら画面は触らない
+    if (unknown === 0) {
+      showStatus('success', '前回確認できなかった ' + saved + '件は、Driveに保存済みでした');
+    } else {
+      showStatus('unconfirmed', (saved ? saved + '件は保存済みを確認。' : '') + '前回の ' + unknown +
+        '件は保存を確認できませんでした（未確認）。<br>Driveへの反映が遅れていることがあります。' +
+        '下のボタンで確認だけやり直せます（画像は送りません）。同じ写真を選び直して保存すると、二重に保存されることがあります');
+    }
+  }
+
+  let rechecking = false;
+  async function recheckPendingManually() {
+    if (rechecking) return;
+    rechecking = true;
+    const btn = document.getElementById('pending-btn');
+    btn.disabled = true;
+    showStatus('processing', '前回の未確認を確認中…');
+    try {
+      await recheckPending(true);
+    } finally {
+      rechecking = false;
+      btn.disabled = false;
+    }
   }
 
   // 入力の振り分け：1枚→単枚フロー、複数→まとめフロー
   function handleSelection(files) {
     const list = Array.from(files || []);
     if (list.length === 0) return;
+    selectionGen++;
     document.getElementById('folder-box').style.display = 'block';
-    if (list.length === 1) handleFile(list[0]);
-    else handleBatch(list);
+    if (list.length === 1) return handleFile(list[0]);
+    return handleBatch(list);
+  }
+
+  function setSingleInputsLocked(locked) {
+    document.getElementById('input-date').disabled = locked;
+    document.getElementById('input-amount').disabled = locked;
   }
 
   // ---- 単枚フロー（日付・金額を確認して保存）----
   async function handleFile(file) {
     if (!file) return;
+    const gen = selectionGen;
+    let job;
+    try { job = newJob(file); } catch (err) { showStatus('error', esc(err.message)); return; }
+    currentJob = job;
     currentFile = file;
+    currentBase64 = null;
 
     document.getElementById('batch-box').style.display = 'none';
     document.getElementById('batch-upload-btn').style.display = 'none';
@@ -298,24 +525,235 @@
     document.getElementById('edit-box').style.display = 'none';
     document.getElementById('filename-preview').textContent = '';
 
-    // 日付は今日を初期値、金額は空欄。どちらも手入力で確定
-    document.getElementById('input-date').value = todayStr();
+    // 日付・金額は空欄。読み取り候補か手入力で埋める（今日や0で埋めない）
+    setSingleInputsLocked(false);
+    document.getElementById('input-date').value = '';
     document.getElementById('input-amount').value = '';
+    document.getElementById('ocr-note').textContent = '';
     updatePreview();
     document.getElementById('edit-box').style.display = 'block';
-    document.getElementById('upload-btn').style.display = 'block';
-    showStatus('processing', '✏️ 日付・金額を入力して「保存」をタップ');
+    const btn = document.getElementById('upload-btn');
+    btn.textContent = '☁️ 確認して保存';
+    btn.disabled = busy;
+    btn.style.display = 'block';
+    showStatus('processing', '✏️ 日付・金額を確認して「確認して保存」をタップ');
 
+    const sel = newOcrSel();
+    Object.assign(job.ocr, {
+      dateId: 'input-date', amountId: 'input-amount',
+      show: t => { if (sel.gen === selectionGen && currentJob === job) document.getElementById('ocr-note').textContent = t; }
+    });
+    let loaded = false;
     try {
-      currentBase64 = await fileToBase64(file);
+      const base64 = await fileToBase64(file);
+      if (gen === selectionGen && currentJob === job) currentBase64 = base64;
+      loaded = true;
     } catch (err) {
-      showStatus('error', '画像の読み込みに失敗: ' + err.message);
+      if (gen === selectionGen) showStatus('error', '画像の読み込みに失敗: ' + esc(err && err.message));
+    }
+    if (loaded && gen === selectionGen && currentJob === job) await runOcr([job], sel);
+  }
+
+  // ---- OCR候補（画像をAnthropicへ送って日付・金額の候補を得る。候補は自動保存しない）----
+  // 設定確認(getOcrStatus)が正しい形で available===true のときだけ、縮小JPEGにした画像を readReceipt へ送る。
+  // 旧GAS・版不正・通信失敗・変換失敗では画像を送らず手入力。自動再試行はしない（写真のIDは保存と同じものを使い続ける）。
+  // 表示は各行の注記だけ（保存のstate・#statusとは混ぜない）。429・上限・無効・認証などは以後のOCRを止める。
+  const OCR_PROTOCOL = 1;          // Code.gs の OCR_PROTOCOL と同じ値
+  const OCR_TIMEOUT_MS = 60000;
+  const OCR_MAX_EDGE = 1568;
+  const OCR_JPEG_QUALITY = 0.85;
+  const OCR_MAX_BASE64 = 6990000;  // Code.gs の上限（デコード後5MB）より少し小さく
+  const OCR_MAX_TOTAL = 10000000;  // Code.gs の OCR_MAX_TOTAL と同じ値
+  const OCR_STOP_CODES = /^(auth|server|network|http|busy|record_failed|record_unreadable|error)$/;
+  const OCR_TEXT = {
+    idle: '', queued: '自動読み取りの準備中…', reading: '画像を読み取り中…（Anthropicへ送信）',
+    candidate: '候補を入力しました。画像と見比べて確認してください（空欄は手入力）',
+    candidate_kept: '候補を入力しました。手入力した項目は変えていません。画像と見比べて確認してください',
+    skipped: '読み取り結果は反映しませんでした（手入力を優先）',
+    manual: '手入力で保存します（読み取り結果は反映しません）',
+    unclear: '読み取れませんでした（不鮮明など）。手入力してください',
+    convfail: '画像を変換できないため自動読み取りしません。手入力してください',
+    disabled: '自動読み取りは使えません。手入力してください',
+    limit: '自動読み取りの回数上限です。手入力してください',
+    ratelimit: '混み合っているため自動読み取りを止めました。手入力してください',
+    error: '自動読み取りできませんでした。手入力してください',
+    stopped: '自動読み取りを止めたため、手入力してください'
+  };
+
+  function newOcrSel() { return { gen: selectionGen, stopped: false, statusPromise: null }; }
+
+  function setOcrState(job, state) {
+    job.ocr.state = state;
+    if (job.ocr.show) job.ocr.show(OCR_TEXT[state] || '');
+  }
+
+  function freezeOcr(job) {
+    job.ocr.frozen = true;
+    if (job.ocr.state === 'queued' || job.ocr.state === 'reading') setOcrState(job, 'manual');
+  }
+
+  // 入力欄を触ったら（値を消しても）その項目へは候補を入れない
+  function markInputDirty(el) {
+    const id = String((el && el.id) || '');
+    let m;
+    if (id === 'input-date' || id === 'input-amount') {
+      if (currentJob) currentJob.ocr.dirty[id === 'input-date' ? 'date' : 'amount'] = true;
+    } else if ((m = /^b(date|amount)-(\d+)$/.exec(id)) && batchItems[+m[2]]) {
+      batchItems[+m[2]].job.ocr.dirty[m[1]] = true;
+    }
+  }
+
+  function isRealDateStr(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(typeof s === 'string' ? s : '');
+    if (!m) return false;
+    const y = +m[1], mo = +m[2], da = +m[3];
+    if (y < 2000 || y > new Date().getFullYear() + 1) return false;
+    const dt = new Date(Date.UTC(y, mo - 1, da));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === da;
+  }
+
+  // 設定確認の応答。ocrProtocol・requestId・action・形がすべて正しく available===true のときだけ true
+  function ocrStatusOk(resp, rid) {
+    if (!resp || resp.transport !== 'ok') return false;
+    const d = resp.data;
+    return !!d && typeof d === 'object' && d.success === true && d.ocrProtocol === OCR_PROTOCOL &&
+      d.requestId === rid && d.action === 'getOcrStatus' && d.available === true;
+  }
+
+  // 選択ごとに1回だけ確認し、Promiseを全行で共有する
+  function checkOcrAvailable(sel) {
+    if (!sel.statusPromise) {
+      sel.statusPromise = (async () => {
+        try {
+          const rid = genRequestId();
+          const resp = await postGas({ action: 'getOcrStatus', requestId: rid }, CHECK_TIMEOUT_MS);
+          return ocrStatusOk(resp, rid);
+        } catch (e) { return false; }
+      })();
+    }
+    return sel.statusPromise;
+  }
+
+  // OCR用: 元画像を長辺1568程度のJPEGに縮小する。デコードできない形式（HEIC等）・JPEG以外の出力・大きすぎる結果は例外
+  function prepareOcrImage(file) {
+    return new Promise((resolve, reject) => {
+      if (typeof Image !== 'function') { reject(new Error('unsupported')); return; }
+      const url = URL.createObjectURL(file);
+      const release = () => { if (typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(url); };
+      const timer = setTimeout(() => { release(); reject(new Error('timeout')); }, 20000);
+      const img = new Image();
+      img.onload = () => {
+        clearTimeout(timer);
+        release();
+        try {
+          const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+          if (!(w > 0 && h > 0)) throw new Error('size');
+          const scale = Math.min(1, OCR_MAX_EDGE / Math.max(w, h));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
+          const g = canvas.getContext('2d');
+          if (!g) throw new Error('canvas');
+          g.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(canvas.toDataURL('image/jpeg', OCR_JPEG_QUALITY)));
+          if (!m || m[1].length > OCR_MAX_BASE64) throw new Error('jpeg');
+          resolve({ base64: m[1], mimeType: 'image/jpeg' });
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => { clearTimeout(timer); release(); reject(new Error('decode')); };
+      img.src = url;
+    });
+  }
+
+  // 候補の応答を検査する（返答の自由文は使わない）。不正なら null
+  function validOcrCandidate(d) {
+    if (d.success !== true || d.status !== 'candidate' || typeof d.reconfirmed !== 'boolean') return null;
+    const c = d.candidate;
+    if (!c || typeof c !== 'object' || c.currency !== 'JPY') return null;
+    if (!(c.date === null || isRealDateStr(c.date))) return null;
+    if (!(c.totalAmount === null || (Number.isSafeInteger(c.totalAmount) && c.totalAmount >= 0 && c.totalAmount <= OCR_MAX_TOTAL))) return null;
+    if (c.date === null && c.totalAmount === null) return null;
+    return { date: c.date, totalAmount: c.totalAmount };
+  }
+
+  // 応答 → { cand } か { state, stop }（stop=以後のOCRを止める）
+  function classifyOcr(resp, rid) {
+    const bad = { state: 'error', stop: true };
+    if (!resp || resp.transport !== 'ok') return bad;
+    const d = resp.data;
+    if (!d || typeof d !== 'object' || d.ocrProtocol !== OCR_PROTOCOL || d.requestId !== rid) return bad;
+    if (d.success === true) {
+      const cand = validOcrCandidate(d);
+      return cand ? { cand: cand } : bad;
+    }
+    if (d.success !== false || d.candidate !== null || typeof d.code !== 'string' || !/^[a-z_]{1,40}$/.test(d.code)) return bad;
+    if (d.status === 'disabled') return { state: 'disabled', stop: true };
+    if (d.status === 'limit') return { state: 'limit', stop: true };
+    if (d.status === 'fallback') {
+      if (d.code === 'rate_limit') return { state: 'ratelimit', stop: true };
+      if (OCR_STOP_CODES.test(d.code)) return bad;
+      return { state: 'unclear', stop: false };
+    }
+    if (d.status === 'rejected') return { state: 'unclear', stop: false };
+    return bad;
+  }
+
+  // 候補を入力欄へ。利用者が触った項目・値のある項目には入れない
+  function applyOcrCandidate(job, cand) {
+    const o = job.ocr;
+    const dEl = document.getElementById(o.dateId), aEl = document.getElementById(o.amountId);
+    let applied = 0, kept = 0;
+    if (cand.date !== null) {
+      if (!o.dirty.date && dEl.value === '') { dEl.value = cand.date; applied++; } else kept++;
+    }
+    if (cand.totalAmount !== null) {
+      if (!o.dirty.amount && aEl.value === '') { aEl.value = String(cand.totalAmount); applied++; } else kept++;
+    }
+    if (job === currentJob) updatePreview();
+    setOcrState(job, applied ? (kept ? 'candidate_kept' : 'candidate') : 'skipped');
+  }
+
+  async function readOcrOne(job, sel) {
+    setOcrState(job, 'reading');
+    let img;
+    try {
+      img = await prepareOcrImage(job.file);
+    } catch (e) {
+      if (sel.gen === selectionGen && !job.ocr.frozen) setOcrState(job, 'convfail');
+      return;
+    }
+    // 変換中に選び直し・保存開始・停止があれば送らない
+    if (sel.gen !== selectionGen || sel.stopped || job.ocr.frozen || job.meta) return;
+    const resp = await postGas({ action: 'readReceipt', requestId: job.requestId, image: img.base64, mimeType: img.mimeType }, OCR_TIMEOUT_MS);
+    const out = classifyOcr(resp, job.requestId);
+    if (out.stop) sel.stopped = true;
+    // 遅れて届いた結果は、選び直し・保存開始（meta固定）後には反映しない
+    if (sel.gen !== selectionGen || job.ocr.frozen || job.meta) return;
+    if (out.cand) applyOcrCandidate(job, out.cand); else setOcrState(job, out.state);
+  }
+
+  // 行ごとに逐次。使えない・止まった後の行は手入力
+  async function runOcr(jobs, sel) {
+    jobs.forEach(j => setOcrState(j, 'queued'));
+    const available = await checkOcrAvailable(sel);
+    for (const job of jobs) {
+      if (sel.gen !== selectionGen) return;
+      if (job.ocr.frozen || job.meta) continue;
+      if (!available) { setOcrState(job, 'disabled'); continue; }
+      if (sel.stopped) { setOcrState(job, 'stopped'); continue; }
+      await readOcrOne(job, sel);
     }
   }
 
   // ---- まとめフロー（複数枚を一覧表示 → 一括保存）----
   let batchItems = [];
   async function handleBatch(files) {
+    let items;
+    try { items = files.map(file => ({ file: file, job: newJob(file) })); }
+    catch (err) { showStatus('error', esc(err.message)); return; }
+    currentJob = null;
+    currentFile = null;
+    currentBase64 = null;
     document.getElementById('preview').style.display = 'none';
     document.getElementById('edit-box').style.display = 'none';
     document.getElementById('upload-btn').style.display = 'none';
@@ -324,95 +762,179 @@
     const box = document.getElementById('batch-box');
     box.style.display = 'block';
     box.innerHTML = '';
-    batchItems = [];
+    batchItems = items;
 
     files.forEach((file, i) => {
       const row = document.createElement('div');
       row.className = 'batch-row';
       row.innerHTML =
         '<img class="batch-thumb" src="' + URL.createObjectURL(file) + '">' +
-        '<input type="date" class="batch-date" id="bdate-' + i + '" value="' + todayStr() + '">' +
-        '<input type="number" inputmode="numeric" class="batch-amount" id="bamount-' + i + '" placeholder="金額">' +
-        '<span class="batch-state" id="bstate-' + i + '">📄</span>';
+        '<input type="date" class="batch-date" id="bdate-' + i + '" oninput="markInputDirty(this)" onchange="markInputDirty(this)">' +
+        '<input type="number" inputmode="numeric" class="batch-amount" id="bamount-' + i + '" placeholder="金額" oninput="markInputDirty(this)" onchange="markInputDirty(this)">' +
+        '<span class="batch-state" id="bstate-' + i + '">📄</span>' +
+        '<span class="batch-ocr" id="bocr-' + i + '"></span>';
       box.appendChild(row);
-      batchItems.push({ file: file, done: false });
     });
 
     const btn = document.getElementById('batch-upload-btn');
-    btn.textContent = '☁️ ' + files.length + '件をまとめて保存';
+    btn.textContent = '☁️ ' + files.length + '件を確認してまとめて保存';
     btn.style.display = 'block';
-    btn.disabled = false;
-    showStatus('processing', '✏️ 日付・金額を入力して「まとめて保存」をタップ');
+    btn.disabled = busy;
+    showStatus('processing', '✏️ 日付・金額を確認して「確認してまとめて保存」をタップ');
+
+    const sel = newOcrSel();
+    items.forEach((it, i) => {
+      Object.assign(it.job.ocr, {
+        dateId: 'bdate-' + i, amountId: 'bamount-' + i,
+        show: t => { if (sel.gen === selectionGen && batchItems === items) document.getElementById('bocr-' + i).textContent = t; }
+      });
+    });
+    await runOcr(items.map(it => it.job), sel);
+  }
+
+  function renderBatchRow(i, job) {
+    const r = job.result;
+    const pin = r && (r.state === 'unauthorized' || r.unauthorized);
+    document.getElementById('bstate-' + i).textContent = pin && job.state === 'failed' ? '🔒' : ROW_ICONS[job.state];
+    // 送信内容を固定した行（保存済み・未確認）は入力を変えられないようにする
+    document.getElementById('bdate-' + i).disabled = !!job.meta;
+    document.getElementById('bamount-' + i).disabled = !!job.meta;
   }
 
   async function doBatchUpload() {
-    const folderId = document.getElementById('input-folder').value;
-    if (folderId === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
-    localStorage.setItem('lastFolderId', folderId);
-
+    if (busy) return;   // 保存処理中の連打は無視（ボタンも無効化済み）
+    const items = batchItems;
+    const gen = selectionGen;
     const btn = document.getElementById('batch-upload-btn');
-    btn.disabled = true;
-    let ok = 0, fail = 0;
-
-    for (let i = 0; i < batchItems.length; i++) {
-      const item = batchItems[i];
-      if (item.done) continue;
-      const stateEl = document.getElementById('bstate-' + i);
-      stateEl.textContent = '⏫';
-      showStatus('processing', '保存中… ' + (i + 1) + ' / ' + batchItems.length);
-      try {
-        const dateVal = document.getElementById('bdate-' + i).value || todayStr();
-        const amountVal = document.getElementById('bamount-' + i).value;
-        // 同日でも重複しないよう連番を付与
-        const filename = dateVal.replace(/-/g, '') + (amountVal ? '_' + amountVal : '') + '_' + pad(i + 1) + '_receipt.jpg';
-        const base64 = await fileToBase64(item.file);
-        const data = await uploadOne(base64, item.file.type, filename, folderId);
-        if (isUnauthorized(data)) { stateEl.textContent = '🔒'; fail++; showStatus('error', 'PINが違います'); break; }
-        if (data.success) { stateEl.textContent = '✅'; item.done = true; ok++; }
-        else { stateEl.textContent = '⚠️'; fail++; }
-      } catch (e) {
-        stateEl.textContent = '⚠️'; fail++;
-      }
+    const folderId = document.getElementById('input-folder').value;
+    // 押した時点の日付・金額を写しておく（処理中に別の写真へ選び直しても、新しい入力欄の値を古い行に使わない）
+    const snap = items.map((it, i) => ({
+      date: document.getElementById('bdate-' + i).value,
+      amount: document.getElementById('bamount-' + i).value
+    }));
+    // 未送信の行の日付が空なら、今日などで埋めずに止める（何も送らない）
+    const noDate = items.findIndex((it, i) => it.job.state !== 'saved' && !it.job.meta && !snap[i].date);
+    if (noDate >= 0) { showStatus('error', (noDate + 1) + '行目の日付が未入力です。日付を入力してから保存してください（画像は送っていません）'); return; }
+    // 保存先は「まだ送っていない行」にだけ使う。送信済み（未確認）の行は最初の保存先のまま
+    if (items.some(it => it.job.state !== 'saved' && !it.job.meta)) {
+      if (folderId === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
+      localStorage.setItem('lastFolderId', folderId);
     }
 
-    btn.disabled = false;
-    if (fail === 0) {
-      showStatus('success', '✓ ' + ok + '件すべて保存しました');
+    items.forEach(it => freezeOcr(it.job));   // 保存開始後はOCR候補で入力・保存名を変えない
+    busy = true;
+    btn.disabled = true;
+    document.getElementById('upload-btn').disabled = true;
+    try {
+      for (let i = 0; i < items.length; i++) {
+        // 別の写真に選び直されたら、残りの行は送らずに止める（送信中だった行の結果だけ残る）
+        if (gen !== selectionGen) break;
+        const job = items[i].job;
+        if (job.state === 'saved') continue;   // 保存済みの行は送り直さない
+        if (!job.meta) {
+          // 同日でも見分けやすいよう連番を付与（二重保存の防止はサーバーが付ける識別IDで行う）
+          job.meta = { folderId: folderId, filename: buildBaseFilename(snap[i].date, snap[i].amount, i + 1), mimeType: items[i].file.type || 'image/jpeg' };
+        }
+        job.state = 'sending';
+        if (gen === selectionGen) {
+          renderBatchRow(i, job);
+          showStatus('processing', '保存中… ' + (i + 1) + ' / ' + items.length);
+        }
+        let base64 = null;
+        try {
+          base64 = await fileToBase64(items[i].file);
+        } catch (e) {
+          applyResult(job, { state: 'failed', reason: '画像の読み込みに失敗' });
+        }
+        if (base64 !== null) {
+          try {
+            await runJob(job, base64);
+          } catch (e) {
+            applyResult(job, { state: 'unconfirmed', reason: e && e.message });
+          }
+        }
+        if (gen === selectionGen) renderBatchRow(i, job);
+        if (job.result && (job.result.state === 'unauthorized' || job.result.unauthorized)) break;
+      }
+    } finally {
+      busy = false;
+      btn.disabled = false;
+      document.getElementById('upload-btn').disabled = false;
+    }
+    if (gen !== selectionGen) return;   // 別の写真に切り替え済みなら画面は触らない
+
+    const count = s => items.filter(it => it.job.state === s).length;
+    const saved = count('saved'), failed = count('failed'), unconfirmed = count('unconfirmed');
+    const rest = items.length - saved - failed - unconfirmed;
+    if (saved === items.length) {
+      showStatus('success', '✓ ' + saved + '件すべて保存しました');
       btn.style.display = 'none';
+      return;
+    }
+    const pinStop = items.some(it => it.job.result && (it.job.result.state === 'unauthorized' || it.job.result.unauthorized));
+    const parts = [saved + '件保存'];
+    if (failed) parts.push(failed + '件失敗(⚠️)');
+    if (unconfirmed) parts.push(unconfirmed + '件未確認(❓)');
+    if (rest) parts.push(rest + '件未処理');
+    showStatus(unconfirmed ? 'unconfirmed' : 'error', (pinStop ? 'PINが違います。' : '') + parts.join(' / ') +
+      '<br>もう一度「まとめて保存」を押すと、保存済みの行は送らず、❓の行は同じ識別IDで照合し、未保存と確認できた行だけ送り直します');
+  }
+
+  function renderSingleResult(job) {
+    const btn = document.getElementById('upload-btn');
+    const r = job.result || {};
+    if (job.state === 'saved') {
+      showStatus('success', '✓ 保存完了！<br><b>' + esc(r.name || '') + '</b>');
+      btn.style.display = 'none';
+      document.getElementById('edit-box').style.display = 'none';
+    } else if (job.state === 'failed') {
+      setSingleInputsLocked(false);
+      btn.textContent = '☁️ 確認して保存';
+      updatePreview();
+      showStatus('error', r.state === 'unauthorized' ? 'PINが違います' : 'エラー: ' + esc(r.reason || ''));
     } else {
-      showStatus('error', ok + '件保存 / ' + fail + '件失敗（⚠️の行をもう一度「まとめて保存」で再試行できます）');
+      btn.textContent = '🔁 保存状態を確認して再試行';
+      showStatus('unconfirmed', '⚠️ 保存できたか確認できませんでした（' + esc(r.reason || '') + '）。<br>' +
+        'Driveに保存済みの可能性があります。もう一度押すと同じ識別IDで照合し、未保存と確認できたときだけ送り直します（保存先・ファイル名は最初の送信のまま）');
     }
   }
 
-  function doUpload() {
-    if (!currentBase64) { showStatus('error', '画像の読み込みが完了していません'); return; }
-    const dateVal = document.getElementById('input-date').value;
-    if (!dateVal) { showStatus('error', '日付を入力してください'); return; }
-    const amount   = document.getElementById('input-amount').value;
-    const folderId = document.getElementById('input-folder').value;
-    if (folderId === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
-    const filename = dateVal.replace(/-/g, '') + (amount ? '_' + amount : '') + '_receipt.jpg';
+  async function doUpload() {
+    if (busy) return;   // 保存処理中の連打は無視（ボタンも無効化済み）
+    const job = currentJob;
+    if (!job || !currentBase64) { showStatus('error', '画像の読み込みが完了していません'); return; }
+    if (job.state === 'saved') { showStatus('success', '✓ この写真は保存済みです'); return; }
+    if (!job.meta) {
+      const dateVal = document.getElementById('input-date').value;
+      if (!dateVal) { showStatus('error', '日付を入力してください'); return; }
+      const amount   = document.getElementById('input-amount').value;
+      const folderId = document.getElementById('input-folder').value;
+      if (folderId === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
+      job.meta = { folderId: folderId, filename: buildBaseFilename(dateVal, amount), mimeType: job.file.type || 'image/jpeg' };
+      localStorage.setItem('lastFolderId', folderId);
+    }
 
-    localStorage.setItem('lastFolderId', folderId);
-    showStatus('processing', 'アップロード中...');
-    document.getElementById('upload-btn').disabled = true;
-
-    callGas({ image: currentBase64, mimeType: currentFile.type || 'image/jpeg', filename: filename, folderId: folderId })
-    .then(data => {
-      document.getElementById('upload-btn').disabled = false;
-      if (isUnauthorized(data)) { showStatus('error', 'PINが違います'); return; }
-      if (data.success) {
-        showStatus('success', '✓ 保存完了！<br><b>' + data.name + '</b>');
-        document.getElementById('upload-btn').style.display = 'none';
-        document.getElementById('edit-box').style.display = 'none';
-      } else {
-        showStatus('error', 'エラー: ' + data.error);
-      }
-    })
-    .catch(err => {
-      document.getElementById('upload-btn').disabled = false;
-      showStatus('error', '通信エラー: ' + err.message);
-    });
+    const base64 = currentBase64;
+    const gen = selectionGen;
+    const btn = document.getElementById('upload-btn');
+    freezeOcr(job);   // 保存開始後はOCR候補で入力・保存名を変えない
+    busy = true;
+    btn.disabled = true;
+    document.getElementById('batch-upload-btn').disabled = true;
+    setSingleInputsLocked(true);
+    updatePreview();
+    showStatus('processing', job.everUncertain ? '保存状態を確認中...' : 'アップロード中...');
+    try {
+      await runJob(job, base64);
+    } catch (err) {
+      applyResult(job, { state: 'unconfirmed', reason: err && err.message });
+    } finally {
+      busy = false;
+      btn.disabled = false;
+      document.getElementById('batch-upload-btn').disabled = false;
+    }
+    if (gen !== selectionGen || currentJob !== job) return;   // 別の写真に切り替え済みなら画面は触らない
+    renderSingleResult(job);
   }
 
   function showStatus(type, msg) {
@@ -424,6 +946,9 @@
 
   document.getElementById('cameraInput').addEventListener('change', e => handleSelection(e.target.files));
   document.getElementById('galleryInput').addEventListener('change', e => handleSelection(e.target.files));
+
+  // 起動時: フォルダ一覧を取得し、そのあと前回「未確認」のまま閉じた保存があれば照合する
+  const startupPromise = loadFolders().then(() => recheckPending(false)).catch(() => {});
 </script>
 </body>
 </html>
