@@ -62,13 +62,29 @@
   #batch-upload-btn { display: none; margin-top: 12px; }
   #pending-btn { display: none; margin-top: 12px; }
   #folder-status { font-size: 11px; color: #8e8e93; margin-top: 4px; }
+  #mode-box { margin-bottom: 18px; background: white; border-radius: 12px; padding: 10px 14px; text-align: left; }
+  .mode-choice { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 15px; color: #1c1c1e; cursor: pointer; }
+  #ai-panel { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f0f0; }
+  #ai-explain { font-size: 12px; color: #8e8e93; margin-bottom: 8px; }
+  #ai-read-btn { display: none; padding: 12px; font-size: 15px; margin-bottom: 4px; }
+  #ai-note { font-size: 12px; color: #8e8e93; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>📄 領収書スキャン</h1>
   <p class="subtitle">保存先を選ぶ → 撮影 → 日付・金額を確認 → 確認して保存</p>
-  <p class="ocr-notice">自動読み取りが使えるときは、画像をAnthropicへ送信し、候補を画像と確認してください（手入力だけでも保存できます）</p>
+  <p class="ocr-notice">標準は手入力です。写真を選んだだけ・入力方法を切り替えただけでは、画像は送信しません</p>
+
+  <div id="mode-box">
+    <label class="mode-choice"><input type="radio" name="input-mode" id="mode-manual" value="manual" checked autocomplete="off" onchange="setInputMode('manual')">手入力（標準）</label>
+    <label class="mode-choice"><input type="radio" name="input-mode" id="mode-ai" value="ai" autocomplete="off" onchange="setInputMode('ai')">AIで候補入力</label>
+    <div id="ai-panel">
+      <p id="ai-explain">下のボタンを押したときだけ、写真（縮小したJPEG）をAnthropicへ送信して日付・金額の候補を読み取ります。候補は画像と見比べて確認してください。手入力・保存はいつでもできます。</p>
+      <button id="ai-read-btn" class="btn btn-secondary" type="button" onclick="startAiRead()">AIで読み取る（画像を送信）</button>
+      <div id="ai-note"></div>
+    </div>
+  </div>
 
   <div id="folder-box">
     <div class="field-row">
@@ -78,8 +94,8 @@
     </div>
   </div>
 
-  <button class="btn btn-primary" onclick="document.getElementById('cameraInput').click()">📷 カメラで撮影</button>
-  <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()">🖼️ 写真を選ぶ（複数OK）</button>
+  <button id="camera-btn" class="btn btn-primary" onclick="document.getElementById('cameraInput').click()">📷 カメラで撮影</button>
+  <button id="gallery-btn" class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()">🖼️ 写真を選ぶ（複数OK）</button>
 
   <input type="file" id="cameraInput"  accept="image/*" capture="environment">
   <input type="file" id="galleryInput" accept="image/*" multiple>
@@ -308,6 +324,13 @@
   let selectionGen = 0;  // 写真を選び直すたびに増やす。古い送信の結果で今の画面を書き換えないための目印
   let busy = false;      // 保存処理中（連打・同時実行の防止）
 
+  // 保存中は次の撮影・写真選択を受け付けない（選ぶと現在の写真の結果・再試行・未送信の行が画面から消えるため）。
+  // 終了後はまた選べる。保存中にピッカーのchangeが届いた場合は handleSelection 側でも無視する
+  function setPickersDisabled(disabled) {
+    document.getElementById('camera-btn').disabled = disabled;
+    document.getElementById('gallery-btn').disabled = disabled;
+  }
+
   // 16進20桁（80bit）の暗号学的乱数。安全な乱数が無い端末では Math.random で代用せず止める
   function genRequestId() {
     if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
@@ -323,7 +346,8 @@
     return {
       requestId: genRequestId(), file: file, meta: null, state: 'idle', everUncertain: false, result: null,
       // OCR候補の状態（保存のstateとは別）。dirty＝利用者が触った項目（入力して消した場合も守る）、frozen＝保存開始後は候補を反映しない
-      ocr: { state: 'idle', dirty: { date: false, amount: false }, frozen: false, show: null, dateId: '', amountId: '' }
+      // attempted＝この写真の画像をAIへ送った（または送る直前）。以後この写真へは送らない
+      ocr: { state: 'idle', dirty: { date: false, amount: false }, frozen: false, attempted: false, show: null, dateId: '', amountId: '' }
     };
   }
 
@@ -502,7 +526,13 @@
   function handleSelection(files) {
     const list = Array.from(files || []);
     if (list.length === 0) return;
+    if (busy) {
+      // 保存中は現在の写真・入力・未送信の行をそのまま保つ（世代も進めない）。終わってから選び直してもらう
+      showStatus('processing', '保存中のため、選んだ写真はまだ読み込みません。保存が終わってからもう一度選んでください');
+      return;
+    }
     selectionGen++;
+    cancelAiRun();   // 選び直したら、前の写真のAI読み取りの結果は反映しない（未送信の行も送らない）
     document.getElementById('folder-box').style.display = 'block';
     if (list.length === 1) return handleFile(list[0]);
     return handleBatch(list);
@@ -544,25 +574,29 @@
     btn.style.display = 'block';
     showStatus('processing', '✏️ 日付・金額を確認して「確認して保存」をタップ');
 
-    const sel = newOcrSel();
+    // 写真を選んだだけではAIへ送らない。AIで読み取るのは、AIモードで明示ボタンを押したときだけ（startAiRead）
     Object.assign(job.ocr, {
       dateId: 'input-date', amountId: 'input-amount',
-      show: t => { if (sel.gen === selectionGen && currentJob === job) document.getElementById('ocr-note').textContent = t; }
+      show: t => { if (gen === selectionGen && currentJob === job) document.getElementById('ocr-note').textContent = t; }
     });
-    let loaded = false;
+    setAiNote('');
+    updateAiButton();
     try {
       const base64 = await fileToBase64(file);
       if (gen === selectionGen && currentJob === job) currentBase64 = base64;
-      loaded = true;
     } catch (err) {
       if (gen === selectionGen) showStatus('error', '画像の読み込みに失敗: ' + esc(err && err.message));
     }
-    if (loaded && gen === selectionGen && currentJob === job) await runOcr([job], sel);
   }
 
-  // ---- OCR候補（画像をAnthropicへ送って日付・金額の候補を得る。候補は自動保存しない）----
+  // ---- AI候補入力（画像をAnthropicへ送って日付・金額の候補を得る。候補は自動保存しない）----
+  // 標準は手入力。写真の選択・入力方法の切り替えでは getOcrStatus も readReceipt も呼ばない。
+  // AIモードで「AIで読み取る（画像を送信）」を押したときだけ（startAiRead）、現在の単枚／まとめを対象に始める。
   // 設定確認(getOcrStatus)が正しい形で available===true のときだけ、縮小JPEGにした画像を readReceipt へ送る。
   // 旧GAS・版不正・通信失敗・変換失敗では画像を送らず手入力。自動再試行はしない（写真のIDは保存と同じものを使い続ける）。
+  // 同じ写真へは1回しか送らない（job.ocr.attempted）。AIモードはlocalStorage等へ保存せず、毎回手入力から始める。
+  // 手入力へ戻した・写真を選び直したときは、その実行をcancelledにして、届いた結果は捨て、未送信の行は送らない。
+  // 再びAIモードにしても、止めた実行は復活しない（新しい実行は明示ボタンでだけ始まる）。
   // 表示は各行の注記だけ（保存のstate・#statusとは混ぜない）。429・上限・無効・認証などは以後のOCRを止める。
   const OCR_PROTOCOL = 1;          // Code.gs の OCR_PROTOCOL と同じ値
   const OCR_TIMEOUT_MS = 60000;
@@ -572,21 +606,90 @@
   const OCR_MAX_TOTAL = 10000000;  // Code.gs の OCR_MAX_TOTAL と同じ値
   const OCR_STOP_CODES = /^(auth|server|network|http|busy|record_failed|record_unreadable|error)$/;
   const OCR_TEXT = {
-    idle: '', queued: '自動読み取りの準備中…', reading: '画像を読み取り中…（Anthropicへ送信）',
+    idle: '', queued: 'AI読み取りの準備中…', reading: '画像を読み取り中…（Anthropicへ送信）',
     candidate: '候補を入力しました。画像と見比べて確認してください（空欄は手入力）',
     candidate_kept: '候補を入力しました。手入力した項目は変えていません。画像と見比べて確認してください',
     skipped: '読み取り結果は反映しませんでした（手入力を優先）',
     manual: '手入力で保存します（読み取り結果は反映しません）',
     unclear: '読み取れませんでした（不鮮明など）。手入力してください',
-    convfail: '画像を変換できないため自動読み取りしません。手入力してください',
-    disabled: '自動読み取りは使えません。手入力してください',
-    limit: '自動読み取りの回数上限です。手入力してください',
-    ratelimit: '混み合っているため自動読み取りを止めました。手入力してください',
-    error: '自動読み取りできませんでした。手入力してください',
-    stopped: '自動読み取りを止めたため、手入力してください'
+    convfail: '画像を変換できないためAI読み取りしません。手入力してください',
+    disabled: 'AI読み取りは使えません。手入力してください',
+    limit: 'AI読み取りの回数上限です。手入力してください',
+    ratelimit: '混み合っているためAI読み取りを止めました。手入力してください',
+    error: 'AI読み取りできませんでした。手入力してください',
+    stopped: 'AI読み取りを止めたため、手入力してください',
+    discarded: '手入力へ戻したため、AIの読み取り結果は反映しませんでした',
+    cancelled: 'AI読み取りを止めました（この写真は送信していません）'
   };
 
-  function newOcrSel() { return { gen: selectionGen, stopped: false, statusPromise: null }; }
+  // 1回のAI読み取り（ボタン1回分）。cancelled＝手入力へ戻した・写真を選び直した。以後その実行の結果は捨てる
+  function newOcrSel() { return { gen: selectionGen, stopped: false, cancelled: false, statusPromise: null, jobs: [] }; }
+
+  let aiMode = false;    // 保存しない。読み込みのたびに手入力から始める
+  let aiRun = null;      // 実行中のAI読み取り（無ければ null）
+  let aiBusy = false;    // 実行中（止めた実行の応答待ちも含む）。この間はAIボタンだけ無効。手入力・保存は止めない
+
+  function setAiNote(t) { document.getElementById('ai-note').textContent = t; }
+
+  function updateAiButton() {
+    const hasPhoto = !!currentJob || batchItems.length > 0;
+    const btn = document.getElementById('ai-read-btn');
+    btn.style.display = aiMode && hasPhoto ? 'block' : 'none';
+    btn.disabled = aiBusy;
+  }
+
+  function syncModeUi() {
+    document.getElementById('mode-manual').checked = !aiMode;
+    document.getElementById('mode-ai').checked = aiMode;
+    document.getElementById('ai-panel').style.display = aiMode ? 'block' : 'none';
+    if (!aiMode) setAiNote('');
+    updateAiButton();
+  }
+
+  // 入力方法の切り替え。ここでは何も送らない。手入力へ戻したら、実行中のAI読み取りを止めて結果を捨てる
+  function setInputMode(mode) {
+    const next = mode === 'ai';
+    if (next !== aiMode) {
+      aiMode = next;
+      if (!aiMode) cancelAiRun();
+    }
+    syncModeUi();
+  }
+
+  function cancelAiRun() {
+    const run = aiRun;
+    if (!run || run.cancelled) return;
+    run.cancelled = true;
+    // 送信済みの行の応答は捨てる／まだ送っていない行は送らない
+    run.jobs.forEach(j => {
+      if (j.ocr.state === 'queued' || j.ocr.state === 'reading') setOcrState(j, j.ocr.attempted ? 'discarded' : 'cancelled');
+    });
+  }
+
+  // 「AIで読み取る（画像を送信）」。AIモードのときだけ、現在の単枚／まとめを対象に、押すたびに最大1回の実行を始める
+  async function startAiRead() {
+    if (!aiMode || aiBusy) return;   // 実行中の連打・並行実行は無視
+    if (busy) { setAiNote('保存中のため、保存が終わってからもう一度押してください'); return; }
+    const jobs = currentJob ? [currentJob] : batchItems.map(it => it.job);
+    if (!jobs.length) { setAiNote('先に写真を選んでください'); return; }
+    if (currentJob && !currentBase64) { setAiNote('画像の読み込みが終わってから、もう一度押してください'); return; }
+    // 保存を始めた・保存済み・すでにAIへ送った写真には送らない（同じ写真への再送なし）
+    const targets = jobs.filter(j => !j.ocr.frozen && !j.meta && j.state !== 'saved' && !j.ocr.attempted);
+    if (!targets.length) { setAiNote('読み取れる写真がありません（保存を始めた・すでに読み取りを試した写真には送りません）。手入力してください'); return; }
+    const sel = newOcrSel();
+    sel.jobs = targets;
+    aiRun = sel;
+    aiBusy = true;
+    setAiNote('');
+    updateAiButton();
+    try {
+      await runOcr(targets, sel);
+    } finally {
+      aiBusy = false;
+      if (aiRun === sel) aiRun = null;
+      updateAiButton();
+    }
+  }
 
   function setOcrState(job, state) {
     job.ocr.state = state;
@@ -725,16 +828,17 @@
     try {
       img = await prepareOcrImage(job.file);
     } catch (e) {
-      if (sel.gen === selectionGen && !job.ocr.frozen) setOcrState(job, 'convfail');
+      if (sel.gen === selectionGen && !sel.cancelled && !job.ocr.frozen) setOcrState(job, 'convfail');
       return;
     }
-    // 変換中に選び直し・保存開始・停止があれば送らない
-    if (sel.gen !== selectionGen || sel.stopped || job.ocr.frozen || job.meta) return;
+    // 変換中に選び直し・手入力へ戻した・保存開始・停止があれば送らない
+    if (sel.gen !== selectionGen || sel.cancelled || sel.stopped || job.ocr.frozen || job.meta || job.ocr.attempted) return;
+    job.ocr.attempted = true;   // 送る直前に印を付ける。以後この写真へは重ねて送らない
     const resp = await postGas({ action: 'readReceipt', requestId: job.requestId, image: img.base64, mimeType: img.mimeType }, OCR_TIMEOUT_MS);
     const out = classifyOcr(resp, job.requestId);
     if (out.stop) sel.stopped = true;
-    // 遅れて届いた結果は、選び直し・保存開始（meta固定）後には反映しない
-    if (sel.gen !== selectionGen || job.ocr.frozen || job.meta) return;
+    // 遅れて届いた結果は、選び直し・手入力へ戻した・保存開始（meta固定）後には反映しない
+    if (sel.gen !== selectionGen || sel.cancelled || job.ocr.frozen || job.meta) return;
     if (out.cand) applyOcrCandidate(job, out.cand); else setOcrState(job, out.state);
   }
 
@@ -743,7 +847,7 @@
     jobs.forEach(j => setOcrState(j, 'queued'));
     const available = await checkOcrAvailable(sel);
     for (const job of jobs) {
-      if (sel.gen !== selectionGen) return;
+      if (sel.gen !== selectionGen || sel.cancelled) return;
       if (job.ocr.frozen || job.meta) continue;
       if (!available) { setOcrState(job, 'disabled'); continue; }
       if (sel.stopped) { setOcrState(job, 'stopped'); continue; }
@@ -788,14 +892,16 @@
     btn.disabled = busy;
     showStatus('processing', '✏️ 日付・金額を確認して「確認してまとめて保存」をタップ');
 
-    const sel = newOcrSel();
+    // 写真を選んだだけではAIへ送らない（単枚と同じ）
+    const gen = selectionGen;
     items.forEach((it, i) => {
       Object.assign(it.job.ocr, {
         dateId: 'bdate-' + i, amountId: 'bamount-' + i,
-        show: t => { if (sel.gen === selectionGen && batchItems === items) document.getElementById('bocr-' + i).textContent = t; }
+        show: t => { if (gen === selectionGen && batchItems === items) document.getElementById('bocr-' + i).textContent = t; }
       });
     });
-    await runOcr(items.map(it => it.job), sel);
+    setAiNote('');
+    updateAiButton();
   }
 
   function renderBatchRow(i, job) {
@@ -831,6 +937,7 @@
     busy = true;
     btn.disabled = true;
     document.getElementById('upload-btn').disabled = true;
+    setPickersDisabled(true);
     try {
       for (let i = 0; i < items.length; i++) {
         // 別の写真に選び直されたら、残りの行は送らずに止める（送信中だった行の結果だけ残る）
@@ -866,6 +973,7 @@
       busy = false;
       btn.disabled = false;
       document.getElementById('upload-btn').disabled = false;
+      setPickersDisabled(false);
     }
     if (gen !== selectionGen) return;   // 別の写真に切り替え済みなら画面は触らない
 
@@ -927,6 +1035,7 @@
     busy = true;
     btn.disabled = true;
     document.getElementById('batch-upload-btn').disabled = true;
+    setPickersDisabled(true);
     setSingleInputsLocked(true);
     updatePreview();
     showStatus('processing', job.everUncertain ? '保存状態を確認中...' : 'アップロード中...');
@@ -938,6 +1047,7 @@
       busy = false;
       btn.disabled = false;
       document.getElementById('batch-upload-btn').disabled = false;
+      setPickersDisabled(false);
     }
     if (gen !== selectionGen || currentJob !== job) return;   // 別の写真に切り替え済みなら画面は触らない
     renderSingleResult(job);
@@ -950,8 +1060,19 @@
     el.style.display = 'block';
   }
 
-  document.getElementById('cameraInput').addEventListener('change', e => handleSelection(e.target.files));
-  document.getElementById('galleryInput').addEventListener('change', e => handleSelection(e.target.files));
+  // 選んだファイルを通常の配列にコピーしてから input を空に戻す（先に戻すと生きたFileListも空になる）。
+  // 空に戻さないと、保存中に無視した写真を終了後に同じファイルで選び直しても change が出ない
+  function onPickerChange(e) {
+    const input = e.target;
+    const files = Array.from(input.files || []);
+    input.value = '';
+    return handleSelection(files);
+  }
+  document.getElementById('cameraInput').addEventListener('change', onPickerChange);
+  document.getElementById('galleryInput').addEventListener('change', onPickerChange);
+
+  // 入力方法は毎回「手入力（標準）」から。ブラウザが再読込でラジオの選択を復元しても、ここで手入力へ戻す
+  syncModeUi();
 
   // 起動時: フォルダ一覧を取得し、そのあと前回「未確認」のまま閉じた保存があれば照合する
   const startupPromise = loadFolders().then(() => recheckPending(false)).catch(() => {});
