@@ -276,6 +276,11 @@
   let lastGoodFolderId = '';
 
   function pad(n) { return String(n).padStart(2, '0'); }
+  // 端末のローカル日付（YYYY-MM-DD）。UTC（toISOString）は使わない。新しい写真・行を作るときだけ呼ぶ
+  function localToday() {
+    const d = new Date();
+    return String(d.getFullYear()).padStart(4, '0') + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
 
   // 保存名の元（日付_金額[_連番]_receipt.jpg）。サーバーが末尾に識別IDを付けて保存する
   function buildBaseFilename(dateVal, amount, seq) {
@@ -348,7 +353,8 @@
       requestId: genRequestId(), file: file, meta: null, state: 'idle', everUncertain: false, result: null,
       // OCR候補の状態（保存のstateとは別）。dirty＝利用者が触った項目（入力して消した場合も守る）、frozen＝保存開始後は候補を反映しない
       // attempted＝この写真の画像をAIへ送った（または送る直前）。以後この写真へは送らない
-      ocr: { state: 'idle', dirty: { date: false, amount: false }, frozen: false, attempted: false, show: null, dateId: '', amountId: '' }
+      // defaultDate＝この写真の日付欄へ自動で入れた「今日」（未入力の目印）。AI候補に置き換わったら空にする
+      ocr: { state: 'idle', dirty: { date: false, amount: false }, frozen: false, attempted: false, show: null, dateId: '', amountId: '', defaultDate: '' }
     };
   }
 
@@ -608,9 +614,10 @@
     document.getElementById('edit-box').style.display = 'none';
     document.getElementById('filename-preview').textContent = '';
 
-    // 日付・金額は空欄。読み取り候補か手入力で埋める（今日や0で埋めない）
+    // 日付は新しい写真の選択時だけ端末のローカル今日で初期化（編集可・dirtyではない）。金額は空欄（0で埋めない）
     setSingleInputsLocked(false);
-    document.getElementById('input-date').value = '';
+    job.ocr.defaultDate = localToday();
+    document.getElementById('input-date').value = job.ocr.defaultDate;
     document.getElementById('input-amount').value = '';
     document.getElementById('ocr-note').textContent = '';
     updatePreview();
@@ -854,13 +861,13 @@
     return bad;
   }
 
-  // 候補を入力欄へ。利用者が触った項目・値のある項目には入れない
+  // 候補を入力欄へ。利用者が触った項目・値のある項目には入れない（この写真の自動「今日」だけは置き換え可）
   function applyOcrCandidate(job, cand) {
     const o = job.ocr;
     const dEl = document.getElementById(o.dateId), aEl = document.getElementById(o.amountId);
     let applied = 0, kept = 0;
     if (cand.date !== null) {
-      if (!o.dirty.date && dEl.value === '') { dEl.value = cand.date; applied++; } else kept++;
+      if (!o.dirty.date && (dEl.value === '' || (o.defaultDate !== '' && dEl.value === o.defaultDate))) { dEl.value = cand.date; o.defaultDate = ''; applied++; } else kept++;
     }
     if (cand.totalAmount !== null) {
       if (!o.dirty.amount && aEl.value === '') { aEl.value = String(cand.totalAmount); applied++; } else kept++;
@@ -941,7 +948,10 @@
 
     // 写真を選んだだけではAIへ送らない（単枚と同じ）
     const gen = selectionGen;
+    const today = localToday();   // 新しい行の日付だけ今日で初期化（行ごとに編集可・dirtyではない）
     items.forEach((it, i) => {
+      it.job.ocr.defaultDate = today;
+      document.getElementById('bdate-' + i).value = today;
       Object.assign(it.job.ocr, {
         dateId: 'bdate-' + i, amountId: 'bamount-' + i,
         show: t => { if (gen === selectionGen && batchItems === items) document.getElementById('bocr-' + i).textContent = t; }
