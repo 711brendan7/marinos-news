@@ -311,6 +311,7 @@
   // 画像を送る前に必ずPIN付きの読み取り専用の確認(checkUpload)を行い、新しい保存方式のサーバーが
   // 「このIDの保存も作成の試みも無い」(not_found) と答えたときだけ画像を送る。旧サーバー・照合できない応答・
   // 確認できないときは画像を送らない（公開はGASを先に更新してからこのページ。逆順でも二重保存にならない）。
+  // 確認が通信失敗のときだけ、同じ確認を自動で最大1回やり直す（checkJob）。画像・OCRの自動再送はしない。
   // 保存先・ファイル名は最初の送信時に固定し、結果が未確認のまま入力を変えても別の場所・別名には保存しない。
   // 端末に残すのは未確認分の識別ID・保存先・ファイル名だけ（画像は保存しない）。これを記録できないときは送らない。
   const UPLOAD_TIMEOUT_MS = 120000;
@@ -417,10 +418,56 @@
     return { state: 'unconfirmed', reason: String(d.error || '保存状態が不明') };
   }
 
-  // 読み取り専用の保存状態確認（画像は送らない）
+  // 読み取り専用の保存状態確認（画像は送らない）。
+  // 通信そのものが失敗した（transport:'network'）ときだけ、同じ確認をもう1回だけ自動でやり直す（画像・OCRは対象外）。
+  // HTTPエラー・JSON不正・ID/版が合わない応答・PIN違い・rejected / not_found / saved は、やり直さず結果をそのまま使う。
+  // 確認全体（やり直しを含む）の上限は CHECK_TIMEOUT_MS。経過時間は最初に入った時点から数え、やり直しでは戻さない。
+  // 2回目には残り時間だけを渡し、残りが少ないとき・期限後は送らない。返事が来ない最中の要求は、やり直さず期限まで待つ。
+  // タイマーが先に切れたら、fetchが中断を無視しても（AbortControllerが無くても）未確認で返し、その要求の後続の確認もしない。
+  // 注意: ブラウザは画面が裏にある間タイマーを遅らせることがあり、OSの実時間で30秒ちょうどは保証できない（実用上の上限）。
+  const CHECK_RETRY_MIN_MS = 2000;
+  function monotonicNow() {
+    return typeof performance !== 'undefined' && performance && typeof performance.now === 'function' ? performance.now() : Date.now();
+  }
   async function checkJob(job) {
-    const resp = await postGas({ action: 'checkUpload', requestId: job.requestId, folderId: job.meta.folderId, filename: job.meta.filename }, CHECK_TIMEOUT_MS);
-    return classifyResponse(resp, job.requestId);
+    const requestId = job.requestId;
+    const payload = { action: 'checkUpload', requestId: requestId, folderId: job.meta.folderId, filename: job.meta.filename };
+    const startedAt = monotonicNow();
+    let elapsed = 0;   // 時計が戻っても減らさない
+    let expired = false;
+    let timer = null;
+    const timedOut = () => ({ state: 'unconfirmed', reason: '確認が' + Math.round(CHECK_TIMEOUT_MS / 1000) + '秒以内に終わりませんでした' });
+    const deadline = new Promise(resolve => {
+      timer = setTimeout(() => {
+        expired = true;
+        resolve(timedOut());
+      }, CHECK_TIMEOUT_MS);
+    });
+    const attempts = (async () => {
+      let resp = null;
+      let retried = false;
+      for (let n = 0; n < 2; n++) {
+        elapsed = Math.max(elapsed, monotonicNow() - startedAt);
+        const left = CHECK_TIMEOUT_MS - elapsed;
+        if (expired || left <= 0 || (n > 0 && left < CHECK_RETRY_MIN_MS)) break;
+        retried = n > 0;
+        resp = await postGas(Object.assign({}, payload), Math.max(1, Math.floor(left)));
+        // タイマーが遅れても（時計が飛んでも）、期限後に届いた応答は not_found / saved を含めて使わない
+        elapsed = Math.max(elapsed, monotonicNow() - startedAt);
+        if (expired || elapsed >= CHECK_TIMEOUT_MS) return timedOut();
+        if (!resp || resp.transport !== 'network') break;
+      }
+      if (!resp) return timedOut();
+      if (retried && resp && resp.transport === 'network') {
+        resp = Object.assign({}, resp, { reason: resp.reason + '（自動で1回やり直しましたが、つながりませんでした）' });
+      }
+      return classifyResponse(resp, requestId);
+    })();
+    try {
+      return await Promise.race([attempts, deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // 1枚を送る。初回も再試行も、まず確認だけ行い、not_found と明確に分かったときだけ画像を送る
