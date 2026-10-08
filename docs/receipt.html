@@ -68,6 +68,18 @@
   #ai-explain { font-size: 12px; color: #8e8e93; margin-bottom: 8px; }
   #ai-read-btn { display: none; padding: 12px; font-size: 15px; margin-bottom: 4px; }
   #ai-note { font-size: 12px; color: #8e8e93; }
+  #queue-box { display: none; margin-top: 18px; background: white; border-radius: 12px; padding: 12px 14px; text-align: left; }
+  #queue-title { font-size: 15px; color: #1c1c1e; margin-bottom: 4px; }
+  #queue-note, #queue-summary { font-size: 12px; color: #8e8e93; margin-bottom: 6px; }
+  #queue-list { list-style: none; }
+  .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #f0f0f0; }
+  .queue-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: #eee; }
+  .queue-icon { font-size: 15px; width: 22px; text-align: center; flex-shrink: 0; }
+  .queue-text { flex: 1; min-width: 0; }
+  .queue-label { font-size: 13px; color: #1c1c1e; word-break: break-all; }
+  .queue-state { font-size: 13px; color: #3a3a3c; }
+  .queue-retry { flex-shrink: 0; padding: 10px 12px; font-size: 13px; font-weight: 600; color: #007aff;
+    background: #eef4ff; border: none; border-radius: 8px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -123,6 +135,13 @@
   <button id="upload-btn" class="btn btn-primary" onclick="doUpload()">☁️ 確認して保存</button>
   <button id="batch-upload-btn" class="btn btn-primary" onclick="doBatchUpload()">☁️ 確認してまとめて保存</button>
   <button id="pending-btn" class="btn btn-secondary" onclick="recheckPendingManually()">🔁 前回の未確認を確認（画像は送りません）</button>
+
+  <section id="queue-box" aria-labelledby="queue-title">
+    <h2 id="queue-title">送信の状況</h2>
+    <p id="queue-note">送信中も次の写真を撮影・選択できます。送信はこの画面を開いている間だけ進みます（画面を閉じたり、別のアプリに切り替えたりすると止まることがあります）。</p>
+    <p id="queue-summary" role="status"></p>
+    <ul id="queue-list"></ul>
+  </section>
 </div>
 
 <script>
@@ -311,31 +330,30 @@
   }
 
   // ---- 保存の確実化（識別IDによる冪等化と保存状態の照合）----
-  // 写真ごとに暗号学的乱数の識別ID(requestId)を1回だけ作り、再試行でも同じIDを送る。
-  // GASは保存名にこのIDを含め、作成前に試行を記録するので、同じIDの再送で二重保存しない。
-  // 画像を送る前に必ずPIN付きの読み取り専用の確認(checkUpload)を行い、新しい保存方式のサーバーが
-  // 「このIDの保存も作成の試みも無い」(not_found) と答えたときだけ画像を送る。旧サーバー・照合できない応答・
-  // 確認できないときは画像を送らない（公開はGASを先に更新してからこのページ。逆順でも二重保存にならない）。
-  // 確認が通信失敗のときだけ、同じ確認を自動で最大1回やり直す（checkJob）。画像・OCRの自動再送はしない。
-  // 保存先・ファイル名は最初の送信時に固定し、結果が未確認のまま入力を変えても別の場所・別名には保存しない。
-  // 端末に残すのは未確認分の識別ID・保存先・ファイル名だけ（画像は保存しない）。これを記録できないときは送らない。
+  // 写真ごとに暗号学的乱数の識別ID(requestId)を1回だけ作り、再試行でも同じIDを送る（再試行のために新しいIDは作らない）。
+  // GASは同じIDの保存をスクリプトロックの中で1件ずつ処理し、作成前に試行を記録するので、同じIDの再送で二重保存しない。
+  // この画面で作り、まだ一度も画像を送っていない写真（新しいID）は、読み取り専用の確認(checkUpload)を挟まずに送る。
+  //   新しいIDはサーバーにも端末にも記録が無いので、確認しても not_found にしかならない。確認を挟むと、確認の通信が
+  //   止まっただけで保存全体が止まる（「確認が30秒以内に終わりませんでした」）。送る前に、端末へ未確認の記録を残し、
+  //   「この写真は送信を試みた」印(uploadAttempted)を付ける。記録できないときは送らない。
+  // 一度でも送った写真・結果が分からなかった写真・端末に記録が残っていたIDは「新しい」とみなさない。
+  //   その再試行は必ず先に確認し、新しい保存方式のサーバーが not_found と答えたときだけ、同じIDで画像を送る。
+  //   旧サーバー・照合できない応答・確認できないときは画像を送らない。確認が通信失敗のときだけ自動で最大1回やり直す（checkJob）。
+  // 画像・OCRの自動再送はしない。保存先・ファイル名は送信を始めた時点で固定し、結果が未確認のまま入力を変えても別の場所・別名には保存しない。
+  // 端末に残すのは未確認分の識別ID・保存先・ファイル名だけ（画像は保存しない）。
+  // 公開の順番: このページは保存の版(UPLOAD_PROTOCOL=2)に対応したGASと組み合わせる（GASを先に更新する）。
+  //   旧GASへ新しい写真を送ると1回だけ保存され得るが、応答を照合できないので「未確認」のままにし、自動では送り直さない。
   const UPLOAD_TIMEOUT_MS = 120000;
   const CHECK_TIMEOUT_MS = 30000;
+  const FILE_READ_TIMEOUT_MS = 60000;
   const PENDING_KEY = 'pendingUploads';
   const UPLOAD_PROTOCOL = 2;   // Code.gs の UPLOAD_PROTOCOL と同じ値
   const REQUEST_ID_RE = /^[0-9a-f]{20}$/;
-  const ROW_ICONS = { idle: '📄', sending: '⏫', saved: '✅', failed: '⚠️', unconfirmed: '❓' };
+  const ROW_ICONS = { idle: '📄', waiting: '⏳', sending: '⏫', saved: '✅', failed: '⚠️', unconfirmed: '❓' };
 
   let currentJob = null;
-  let selectionGen = 0;  // 写真を選び直すたびに増やす。古い送信の結果で今の画面を書き換えないための目印
-  let busy = false;      // 保存処理中（連打・同時実行の防止）
-
-  // 保存中は次の撮影・写真選択を受け付けない（選ぶと現在の写真の結果・再試行・未送信の行が画面から消えるため）。
-  // 終了後はまた選べる。保存中にピッカーのchangeが届いた場合は handleSelection 側でも無視する
-  function setPickersDisabled(disabled) {
-    document.getElementById('camera-btn').disabled = disabled;
-    document.getElementById('gallery-btn').disabled = disabled;
-  }
+  let selectionGen = 0;  // 写真を選び直すたびに増やす。古いAI読み取りの結果で今の画面を書き換えないための目印
+  let busy = false;      // 送信の順番待ちを処理中（表示・確認用。写真の選択・入力は止めない）
 
   // 16進20桁（80bit）の暗号学的乱数。安全な乱数が無い端末では Math.random で代用せず止める
   function genRequestId() {
@@ -346,11 +364,15 @@
     return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // 1枚の写真の送信状態。state: idle / sending / saved / failed / unconfirmed
-  // meta（保存先・ファイル名）は最初の送信時に固定し、確実に未保存と分かった失敗のときだけ解除する
+  // 1枚の写真の送信状態。state: idle / waiting / sending / saved / failed / unconfirmed
+  // meta（保存先・ファイル名）は送信を始めた時点で固定し、確実に未保存と分かった失敗のときだけ解除する
+  // uid＝この画面の中での写真の番号（一覧の表示用）。uploadAttempted＝この識別IDで画像の送信を試みた（送る直前に付ける）。
+  // snapshot＝送信を始めたときの日付・金額・保存先・ファイル名（変更しない）。base64＝送る画像（単枚は押した時点のデータ）
+  let jobSeq = 0;
   function newJob(file) {
     return {
-      requestId: genRequestId(), file: file, meta: null, state: 'idle', everUncertain: false, result: null,
+      uid: ++jobSeq, requestId: genRequestId(), file: file, meta: null, state: 'idle', everUncertain: false, result: null,
+      uploadAttempted: false, snapshot: null, base64: null, done: null, settle: null, view: null,
       // OCR候補の状態（保存のstateとは別）。dirty＝利用者が触った項目（入力して消した場合も守る）、frozen＝保存開始後は候補を反映しない
       // attempted＝この写真の画像をAIへ送った（または送る直前）。以後この写真へは送らない
       // defaultDate＝この写真の日付欄へ自動で入れた「今日」（未入力の目印）。AI候補に置き換わったら空にする
@@ -382,28 +404,41 @@
   }
   const pendingAtStartup = loadPending();
 
-  // 保存系のGAS呼び出し。通信・HTTP・JSONのどこで失敗したかを区別して返す（例外は投げない）
+  // 保存系のGAS呼び出し。通信・HTTP・JSON・期限切れのどこで失敗したかを区別して返す（例外は投げない）。
+  // 期限はアプリ側のタイマーで守る: fetchが中断(abort)を無視しても、AbortControllerが無くても timeoutMs で 'timeout' を返す。
+  // 期限後に届いた応答は捨てる（呼び出し側の状態は書き換えない）
   async function postGas(payload, timeoutMs) {
     const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
-    try {
-      const res = await fetch(gasRequestUrl(), {
-        method: 'POST',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(Object.assign({ pin: userPin }, payload)),
-        signal: ctrl ? ctrl.signal : undefined
-      });
-      if (!res || !res.ok) return { transport: 'http', reason: 'HTTP ' + (res ? res.status : '?') };
+    let timer = null;
+    const deadline = new Promise(resolve => {
+      timer = setTimeout(() => {
+        if (ctrl) { try { ctrl.abort(); } catch (e) { /* 中断できなくても期限で返す */ } }
+        resolve({ transport: 'timeout', reason: '通信が' + Math.ceil(timeoutMs / 1000) + '秒以内に終わりませんでした' });
+      }, timeoutMs);
+    });
+    const request = (async () => {
       try {
-        return { transport: 'ok', data: await res.json() };
+        const res = await fetch(gasRequestUrl(), {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(Object.assign({ pin: userPin }, payload)),
+          signal: ctrl ? ctrl.signal : undefined
+        });
+        if (!res || !res.ok) return { transport: 'http', reason: 'HTTP ' + (res ? res.status : '?') };
+        try {
+          return { transport: 'ok', data: await res.json() };
+        } catch (e) {
+          return { transport: 'json', reason: '応答を読み取れません' };
+        }
       } catch (e) {
-        return { transport: 'json', reason: '応答を読み取れません' };
+        return { transport: 'network', reason: '通信エラー' + (e && e.message ? ': ' + e.message : '') };
       }
-    } catch (e) {
-      return { transport: 'network', reason: '通信エラー' + (e && e.message ? ': ' + e.message : '') };
+    })();
+    try {
+      return await Promise.race([request, deadline]);
     } finally {
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
     }
   }
 
@@ -476,22 +511,28 @@
     }
   }
 
-  // 1枚を送る。初回も再試行も、まず確認だけ行い、not_found と明確に分かったときだけ画像を送る
+  // 1枚を送る。新しい写真（この画面で作ったIDで、まだ一度も送っておらず、端末にもそのIDの記録が無い）は確認を省いてすぐ送る。
+  // それ以外（再試行・結果が分からなかった写真）は、まず確認だけ行い、not_found と明確に分かったときだけ同じIDで画像を送る
   async function runJob(job, base64) {
+    const before = loadPending();
+    const fresh = !job.uploadAttempted && !job.everUncertain && !!before && !before[job.requestId];
     if (!rememberPending(job)) {
       applyResult(job, { state: 'failed', reason: 'この端末に識別IDを記録できないため、送信を止めました（記録が無いと、返事が届かなかったときに照合できません）。端末の空き容量やプライベートブラウズを確認してください' });
       return;
     }
     job.state = 'sending';
-    const pre = await checkJob(job);
-    if (pre.state !== 'not_found') {
-      // saved＝画像を送らない / unauthorized・failed＝そのまま / 確認できない（旧サーバー・照合不可・通信不可など）＝送らずに止める
-      applyResult(job, pre.state === 'unconfirmed'
-        ? { state: 'failed', reason: '保存状態を確認できないため、送信を止めました（今回は画像を送っていません。' + pre.reason + '）' }
-        : pre);
-      return;
+    if (!fresh) {
+      const pre = await checkJob(job);
+      if (pre.state !== 'not_found') {
+        // saved＝画像を送らない / unauthorized・failed＝そのまま / 確認できない（旧サーバー・照合不可・通信不可など）＝送らずに止める
+        applyResult(job, pre.state === 'unconfirmed'
+          ? { state: 'failed', reason: '保存状態を確認できないため、送信を止めました（今回は画像を送っていません。' + pre.reason + '）' }
+          : pre);
+        return;
+      }
     }
     const m = job.meta;
+    job.uploadAttempted = true;   // 送る直前に印を付ける。以後この写真は、確認してからでないと画像を送らない
     const resp = await postGas({ action: 'upload', requestId: job.requestId, image: base64, mimeType: m.mimeType, filename: m.filename, folderId: m.folderId }, UPLOAD_TIMEOUT_MS);
     let r = classifyResponse(resp, job.requestId);
     if (r.state === 'unconfirmed' || r.state === 'not_found') {
@@ -538,19 +579,38 @@
       return;
     }
     if (!userPin) return;
-    let saved = 0, unknown = 0;
+    let saved = 0, unknown = 0, inFlight = 0;
     for (const p of list) {
+      // この画面で送信中・送信待ちの写真は、その送信の結果に任せる（確認の結果で同じ写真を二重に書き換えない）
+      const live = allJobs.find(j => j.requestId === p.requestId);
+      if (live && isInFlight(live)) { inFlight++; continue; }
+      if (live && live.state === 'saved') { saved++; continue; }   // この画面の送信で保存済みと確認済み
       const r = await checkJob({ requestId: p.requestId, meta: { folderId: p.folderId || '', filename: p.filename } });
+      if (live && isInFlight(live)) { inFlight++; continue; }
+      // 確認の最中に、その写真自身の再試行が保存済みと確認した＝古い確認の結果で「未確認」に戻さない
+      if (live && live.state === 'saved') { saved++; continue; }
       if (r.state === 'unauthorized') {
         pendingBtn.style.display = 'block';
         if (manual && gen === selectionGen) showStatus('error', 'PINが違います');
         return;
       }
-      if (r.state === 'saved') { saved++; forgetPending(p.requestId); }
+      if (r.state === 'saved') {
+        saved++;
+        forgetPending(p.requestId);
+        if (live) {
+          applyResult(live, r);
+          renderJob(live);
+          if (live === currentJob && gen === selectionGen) renderSingleResult(live);
+        }
+      }
       else unknown++;
     }
     pendingBtn.style.display = unknown ? 'block' : 'none';
     if (gen !== selectionGen) return;  // 確認中に次の作業を始めていたら画面は触らない
+    if (unknown === 0 && saved === 0 && inFlight) {
+      if (manual) showStatus('processing', '送信中の写真は、送信が終わってから確認します');
+      return;
+    }
     if (unknown === 0) {
       showStatus('success', '前回確認できなかった ' + saved + '件は、Driveに保存済みでした');
     } else {
@@ -575,15 +635,11 @@
     }
   }
 
-  // 入力の振り分け：1枚→単枚フロー、複数→まとめフロー
+  // 入力の振り分け：1枚→単枚フロー、複数→まとめフロー。
+  // 送信中・送信待ちの写真があっても選べる。その写真は送信を始めた時点の内容で送り続け、結果は「送信の状況」に出る
   function handleSelection(files) {
     const list = Array.from(files || []);
     if (list.length === 0) return;
-    if (busy) {
-      // 保存中は現在の写真・入力・未送信の行をそのまま保つ（世代も進めない）。終わってから選び直してもらう
-      showStatus('processing', '保存中のため、選んだ写真はまだ読み込みません。保存が終わってからもう一度選んでください');
-      return;
-    }
     selectionGen++;
     cancelAiRun();   // 選び直したら、前の写真のAI読み取りの結果は反映しない（未送信の行も送らない）
     document.getElementById('folder-box').style.display = 'block';
@@ -605,6 +661,7 @@
     currentJob = job;
     currentFile = file;
     currentBase64 = null;
+    batchItems = [];   // 前のまとめの行は画面から外れる（送信中の行は一覧で続きを表示する）
 
     document.getElementById('batch-box').style.display = 'none';
     document.getElementById('batch-upload-btn').style.display = 'none';
@@ -624,7 +681,7 @@
     document.getElementById('edit-box').style.display = 'block';
     const btn = document.getElementById('upload-btn');
     btn.textContent = '☁️ 確認して保存';
-    btn.disabled = busy;
+    btn.disabled = false;   // このボタンは新しい写真のもの（前の写真の送信中でも押せる。送信は順番待ちで1件ずつ）
     btn.style.display = 'block';
     showStatus('processing', '✏️ 日付・金額を確認して「確認して保存」をタップ');
 
@@ -723,8 +780,9 @@
   // 「AIで読み取る（画像を送信）」。AIモードのときだけ、現在の単枚／まとめを対象に、押すたびに最大1回の実行を始める
   async function startAiRead() {
     if (!aiMode || aiBusy) return;   // 実行中の連打・並行実行は無視
-    if (busy) { setAiNote('保存中のため、保存が終わってからもう一度押してください'); return; }
     const jobs = currentJob ? [currentJob] : batchItems.map(it => it.job);
+    // 画面の写真を保存中なら送らない（前の写真の送信中でも、画面の新しい写真は明示ボタンで読める）
+    if (jobs.some(isInFlight)) { setAiNote('保存中のため、保存が終わってからもう一度押してください'); return; }
     if (!jobs.length) { setAiNote('先に写真を選んでください'); return; }
     if (currentJob && !currentBase64) { setAiNote('画像の読み込みが終わってから、もう一度押してください'); return; }
     // 保存を始めた・保存済み・すでにAIへ送った写真には送らない（同じ写真への再送なし）
@@ -943,7 +1001,7 @@
     const btn = document.getElementById('batch-upload-btn');
     btn.textContent = '☁️ ' + files.length + '件を確認してまとめて保存';
     btn.style.display = 'block';
-    btn.disabled = busy;
+    btn.disabled = false;   // 新しいまとめのボタン（前の写真の送信中でも押せる）
     showStatus('processing', '✏️ 日付・金額を確認して「確認してまとめて保存」をタップ');
 
     // 写真を選んだだけではAIへ送らない（単枚と同じ）
@@ -970,9 +1028,212 @@
     document.getElementById('bamount-' + i).disabled = !!job.meta;
   }
 
+  // ---- 送信の順番待ち（写真ごと）----
+  // 「確認して保存」「まとめて保存」を押した時点の画像・日付・金額・保存先・ファイル名・識別IDを写真ごとに固定し、
+  // 順番待ちに入れて1件ずつ送る（同じ写真は順番待ちに1回だけ。連打しても二重には入らない）。
+  // 送信中も次の撮影・写真選択・入力はできる。結果は写真（job）そのものに書き、表示は job ごとに更新する
+  // （画面の写真が替わっていても、前の写真の結果を新しい写真へ付け替えない・捨てない）。
+  // 状態: waiting(送信待ち) / sending(送信中) / saved(保存済み・サーバーで確認) / failed(保存されていない) / unconfirmed(分からない)。
+  // 再試行は利用者が押したときだけ。saved は送り直さない。unconfirmed は必ず確認から（見つからないと分かったときだけ同じIDで送る）。
+  // 画面を閉じた・OSが裏で止めた場合の完了は保証しない（未確認の記録は端末に残り、次に開いたとき確認だけ行う）。
+  const allJobs = [];      // この画面で送信を始めた写真（「送信の状況」に表示。画面を閉じるまで残す）
+  const uploadQueue = [];  // 送信待ち（先頭から1件ずつ）
+  let workerRunning = false;
+
+  function isInFlight(job) { return !!job && (job.state === 'waiting' || job.state === 'sending'); }
+
+  function metaFromSnapshot(s) {
+    return Object.freeze({ folderId: s.folderId, filename: s.filename, mimeType: s.mimeType });
+  }
+
+  function rememberFolder(folderId) {
+    try { localStorage.setItem('lastFolderId', folderId); } catch (e) { /* 保存先の記憶は便利機能。送信の記録とは別 */ }
+  }
+
+  function enqueueJob(job) {
+    if (isInFlight(job)) return job.done;
+    job.state = 'waiting';
+    job.screenGen = selectionGen;   // 押したときの画面。画面の文言（#status）だけに使い、結果・一覧の更新には使わない
+    job.done = new Promise(resolve => { job.settle = resolve; });
+    if (allJobs.indexOf(job) < 0) allJobs.push(job);
+    uploadQueue.push(job);
+    renderJobSafe(job);
+    runUploadWorker();
+    return job.done;
+  }
+
+  // 表示の更新で予期しない例外が出ても、順番待ち・写真の結果・待っている保存ボタンの処理は止めない（状態は job に残る）
+  function renderJobSafe(job) {
+    try { renderJob(job); } catch (e) { /* 表示だけの失敗。次の更新で追いつく */ }
+  }
+
+  function settleJob(job) {
+    const settle = job.settle;
+    job.settle = null;
+    renderJobSafe(job);
+    if (settle) settle();
+  }
+
+  async function runUploadWorker() {
+    if (workerRunning) return;
+    workerRunning = true;
+    busy = true;
+    try {
+      while (uploadQueue.length) {
+        const job = uploadQueue.shift();
+        try {
+          await processJob(job);
+        } catch (e) {
+          // 予期しない例外でも「送信中」のまま残さない。画像を送ったかもしれなければ未確認（自動では送り直さない）
+          if (isInFlight(job)) {
+            applyResult(job, job.uploadAttempted
+              ? { state: 'unconfirmed', reason: '予期しないエラーで止まりました' }
+              : { state: 'failed', reason: '予期しないエラーのため送信を止めました（この写真の画像は送っていません）' });
+          }
+        }
+        settleJob(job);
+        if (job.result && (job.result.state === 'unauthorized' || job.result.unauthorized)) stopQueueForPin();
+      }
+    } finally {
+      workerRunning = false;
+      busy = false;
+    }
+  }
+
+  // 1件分。画像は固定済みのデータ（単枚）か、この写真のファイル（まとめ）から読む。読めない・読み込みが終わらないときは送らない
+  async function processJob(job) {
+    job.state = 'sending';
+    renderJobSafe(job);
+    let base64 = job.base64;
+    if (base64 == null) base64 = await readFileWithDeadline(job.file);
+    if (base64 == null) {
+      applyResult(job, { state: 'failed', reason: '画像の読み込みに失敗' });
+      return;
+    }
+    try {
+      await runJob(job, base64);
+    } catch (e) {
+      applyResult(job, { state: 'unconfirmed', reason: e && e.message });
+    }
+    if (job.state === 'saved') job.base64 = null;   // 保存済みは送り直さないので画像データを手放す
+  }
+
+  async function readFileWithDeadline(file) {
+    let timer = null;
+    const deadline = new Promise(resolve => { timer = setTimeout(() => resolve(null), FILE_READ_TIMEOUT_MS); });
+    try {
+      return await Promise.race([fileToBase64(file).catch(() => null), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // PINが違うと分かったら、残りの送信待ちは送らずに止める（同じPINで拒否されるため）。どの写真もあとで再試行できる
+  function stopQueueForPin() {
+    while (uploadQueue.length) {
+      const job = uploadQueue.shift();
+      applyResult(job, { state: 'unauthorized', reason: 'PINが違うため送っていません' });
+      settleJob(job);
+    }
+  }
+
+  const QUEUE_TEXT = {
+    waiting: '送信待ち', sending: '送信中…', checking: '保存されたか確認中…',
+    saved: '保存しました（保存を確認済み）',
+    failed: '保存できませんでした（この写真は保存されていません）',
+    pin: 'PINが違うため保存できませんでした（この写真は保存されていません）',
+    unconfirmed: '保存されたか確認できません。二重に保存しないよう、自動では送り直しません'
+  };
+
+  function jobLabel(job) {
+    const s = job.snapshot;
+    if (!s) return '';
+    return s.date.replace(/-/g, '/') + '・' + (s.amount ? s.amount + '円' : '金額なし') + (s.seq ? '（まとめの' + s.seq + '枚目）' : '');
+  }
+
+  // 一覧の1行（写真ごとに1回だけ作り、以後はこの写真の行だけを書き換える）
+  function ensureQueueRow(job) {
+    if (job.view) return job.view;
+    const li = document.createElement('li');
+    li.className = 'queue-row';
+    const thumb = document.createElement('img');
+    thumb.className = 'queue-thumb';
+    thumb.alt = '';
+    thumb.src = URL.createObjectURL(job.file);
+    const icon = document.createElement('span');
+    icon.className = 'queue-icon';
+    icon.ariaHidden = 'true';
+    const text = document.createElement('div');
+    text.className = 'queue-text';
+    const label = document.createElement('div');
+    label.className = 'queue-label';
+    const state = document.createElement('div');
+    state.className = 'queue-state';
+    text.appendChild(label);
+    text.appendChild(state);
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'queue-retry';
+    retry.onclick = () => { retryJob(job); };
+    li.appendChild(thumb);
+    li.appendChild(icon);
+    li.appendChild(text);
+    li.appendChild(retry);
+    document.getElementById('queue-list').appendChild(li);
+    document.getElementById('queue-box').style.display = 'block';
+    job.view = { li: li, icon: icon, label: label, state: state, retry: retry };
+    return job.view;
+  }
+
+  function renderJob(job) {
+    const v = ensureQueueRow(job);
+    const pin = !!(job.result && (job.result.state === 'unauthorized' || job.result.unauthorized));
+    v.icon.textContent = pin && job.state === 'failed' ? '🔒' : ROW_ICONS[job.state];
+    v.label.textContent = jobLabel(job);
+    v.state.textContent = job.state === 'sending' && job.everUncertain ? QUEUE_TEXT.checking
+      : job.state === 'failed' && pin ? QUEUE_TEXT.pin : (QUEUE_TEXT[job.state] || '');
+    const canRetry = job.state === 'failed' || job.state === 'unconfirmed';
+    v.retry.style.display = canRetry ? 'block' : 'none';
+    v.retry.textContent = job.state === 'unconfirmed' ? '保存されたか確認' : '再試行';
+    v.retry.ariaLabel = jobLabel(job) + 'の写真: ' + v.retry.textContent;
+    renderQueueSummary();
+    // 今の画面に出ている写真だけ、画面の表示も更新する（写真の取り違えを防ぐため、番号ではなく job そのもので照合）
+    const i = batchItems.findIndex(it => it.job === job);
+    const sameScreen = job.screenGen === selectionGen;
+    if (i >= 0) {
+      renderBatchRow(i, job);
+      if (job.state === 'sending' && sameScreen) showStatus('processing', '保存中… ' + (i + 1) + ' / ' + batchItems.length);
+    } else if (job === currentJob && sameScreen) {
+      if (job.state === 'waiting') showStatus('processing', '送信待ち…（前の写真の送信が終わると、この写真を送ります）');
+      if (job.state === 'sending') showStatus('processing', job.everUncertain ? '保存状態を確認中...' : 'アップロード中...');
+    }
+  }
+
+  function renderQueueSummary() {
+    const parts = [];
+    [['waiting', '送信待ち'], ['sending', '送信中'], ['saved', '保存済み'], ['failed', '失敗'], ['unconfirmed', '未確認']].forEach(p => {
+      const n = allJobs.filter(j => j.state === p[0]).length;
+      if (n) parts.push(p[1] + ' ' + n + '件');
+    });
+    document.getElementById('queue-summary').textContent = parts.join('・');
+  }
+
+  // 一覧の「再試行」「保存されたか確認」。失敗・未確認の写真だけ。保存済みは送り直さない。
+  // 今の画面に出ている写真は、画面の保存ボタンと同じ動き（画面の入力欄の値を使う）。
+  // 画面から外れた写真は、最後に送信を始めたときの内容（snapshot）のまま、同じ識別IDで順番待ちに入れる
+  function retryJob(job) {
+    if (!job || job.state === 'saved' || isInFlight(job)) return;   // 保存済み・送信中は何もしない（連打で二重に入れない）
+    if (job === currentJob) return doUpload();
+    if (batchItems.some(it => it.job === job)) return doBatchUpload();
+    if ((job.state !== 'failed' && job.state !== 'unconfirmed') || !job.snapshot) return;
+    if (!job.meta) job.meta = metaFromSnapshot(job.snapshot);
+    return enqueueJob(job);
+  }
+
   async function doBatchUpload() {
-    if (busy) return;   // 保存処理中の連打は無視（ボタンも無効化済み）
     const items = batchItems;
+    if (!items.length) return;
+    if (items.some(it => isInFlight(it.job))) return;   // このまとめの送信中の連打は無視（ボタンも無効化済み）
     const gen = selectionGen;
     const btn = document.getElementById('batch-upload-btn');
     const folderId = document.getElementById('input-folder').value;
@@ -987,52 +1248,31 @@
     // 保存先は「まだ送っていない行」にだけ使う。送信済み（未確認）の行は最初の保存先のまま
     if (items.some(it => it.job.state !== 'saved' && !it.job.meta)) {
       if (folderId === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
-      localStorage.setItem('lastFolderId', folderId);
+      rememberFolder(folderId);
     }
 
-    items.forEach(it => freezeOcr(it.job));   // 保存開始後はOCR候補で入力・保存名を変えない
-    busy = true;
-    btn.disabled = true;
-    document.getElementById('upload-btn').disabled = true;
-    setPickersDisabled(true);
-    try {
-      for (let i = 0; i < items.length; i++) {
-        // 別の写真に選び直されたら、残りの行は送らずに止める（送信中だった行の結果だけ残る）
-        if (gen !== selectionGen) break;
-        const job = items[i].job;
-        if (job.state === 'saved') continue;   // 保存済みの行は送り直さない
-        if (!job.meta) {
-          // 同日でも見分けやすいよう連番を付与（二重保存の防止はサーバーが付ける識別IDで行う）
-          job.meta = { folderId: folderId, filename: buildBaseFilename(snap[i].date, snap[i].amount, i + 1), mimeType: items[i].file.type || 'image/jpeg' };
-        }
-        job.state = 'sending';
-        if (gen === selectionGen) {
-          renderBatchRow(i, job);
-          showStatus('processing', '保存中… ' + (i + 1) + ' / ' + items.length);
-        }
-        let base64 = null;
-        try {
-          base64 = await fileToBase64(items[i].file);
-        } catch (e) {
-          applyResult(job, { state: 'failed', reason: '画像の読み込みに失敗' });
-        }
-        if (base64 !== null) {
-          try {
-            await runJob(job, base64);
-          } catch (e) {
-            applyResult(job, { state: 'unconfirmed', reason: e && e.message });
-          }
-        }
-        if (gen === selectionGen) renderBatchRow(i, job);
-        if (job.result && (job.result.state === 'unauthorized' || job.result.unauthorized)) break;
+    // 押した時点で、送る行をすべて固定してから順番待ちに入れる（日付・金額・保存先・ファイル名。以後その行の入力は変えられない）
+    const targets = [];
+    items.forEach((it, i) => {
+      const job = it.job;
+      freezeOcr(job);   // 保存開始後はOCR候補で入力・保存名を変えない
+      if (job.state === 'saved') return;   // 保存済みの行は送り直さない
+      if (!job.meta) {
+        // 同日でも見分けやすいよう連番を付与（二重保存の防止はサーバーが付ける識別IDで行う）
+        job.snapshot = Object.freeze({
+          date: snap[i].date, amount: snap[i].amount, folderId: folderId, seq: i + 1,
+          filename: buildBaseFilename(snap[i].date, snap[i].amount, i + 1), mimeType: it.file.type || 'image/jpeg'
+        });
+        job.meta = metaFromSnapshot(job.snapshot);
       }
-    } finally {
-      busy = false;
-      btn.disabled = false;
-      document.getElementById('upload-btn').disabled = false;
-      setPickersDisabled(false);
-    }
-    if (gen !== selectionGen) return;   // 別の写真に切り替え済みなら画面は触らない
+      job.base64 = null;   // 画像は送る直前にこの写真のファイルから読む（ファイルへの参照は job が持ち続ける）
+      renderBatchRow(i, job);
+      targets.push(job);
+    });
+    btn.disabled = true;
+    await Promise.all(targets.map(enqueueJob));
+    if (batchItems === items) btn.disabled = false;
+    if (gen !== selectionGen || batchItems !== items) return;   // 別の写真に切り替え済みなら画面は触らない（結果は一覧に表示済み）
 
     const count = s => items.filter(it => it.job.state === s).length;
     const saved = count('saved'), failed = count('failed'), unconfirmed = count('unconfirmed');
@@ -1070,43 +1310,37 @@
     }
   }
 
+  // 単枚の保存。押した時点の画像・入力を固定して順番待ちに入れ、この写真の結果が出るまで待つ（その間も次の写真を選べる）
   async function doUpload() {
-    if (busy) return;   // 保存処理中の連打は無視（ボタンも無効化済み）
     const job = currentJob;
     if (!job || !currentBase64) { showStatus('error', '画像の読み込みが完了していません'); return; }
     if (job.state === 'saved') { showStatus('success', '✓ この写真は保存済みです'); return; }
+    if (isInFlight(job)) return;   // 連打は無視（同じ写真は順番待ちに1回だけ）
     if (!job.meta) {
       const dateVal = document.getElementById('input-date').value;
       if (!dateVal) { showStatus('error', '日付を入力してください'); return; }
       const amount   = document.getElementById('input-amount').value;
       const folderId = document.getElementById('input-folder').value;
       if (folderId === '__create__') { showStatus('error', '保存先フォルダを選んでください'); return; }
-      job.meta = { folderId: folderId, filename: buildBaseFilename(dateVal, amount), mimeType: job.file.type || 'image/jpeg' };
-      localStorage.setItem('lastFolderId', folderId);
+      job.snapshot = Object.freeze({
+        date: dateVal, amount: amount, folderId: folderId, seq: 0,
+        filename: buildBaseFilename(dateVal, amount), mimeType: job.file.type || 'image/jpeg'
+      });
+      job.meta = metaFromSnapshot(job.snapshot);
+      rememberFolder(folderId);
     }
 
-    const base64 = currentBase64;
+    job.base64 = currentBase64;   // 押した時点の画像データ（この写真のもの）を固定する
     const gen = selectionGen;
     const btn = document.getElementById('upload-btn');
     freezeOcr(job);   // 保存開始後はOCR候補で入力・保存名を変えない
-    busy = true;
     btn.disabled = true;
-    document.getElementById('batch-upload-btn').disabled = true;
-    setPickersDisabled(true);
     setSingleInputsLocked(true);
     updatePreview();
-    showStatus('processing', job.everUncertain ? '保存状態を確認中...' : 'アップロード中...');
-    try {
-      await runJob(job, base64);
-    } catch (err) {
-      applyResult(job, { state: 'unconfirmed', reason: err && err.message });
-    } finally {
-      busy = false;
-      btn.disabled = false;
-      document.getElementById('batch-upload-btn').disabled = false;
-      setPickersDisabled(false);
-    }
-    if (gen !== selectionGen || currentJob !== job) return;   // 別の写真に切り替え済みなら画面は触らない
+    await enqueueJob(job);
+    if (currentJob !== job) return;   // 別の写真に切り替え済みなら画面は触らない（結果は「送信の状況」に表示済み）
+    btn.disabled = false;
+    if (gen !== selectionGen) return;
     renderSingleResult(job);
   }
 
