@@ -166,7 +166,19 @@ try { localStorage.removeItem(LS_SID); } catch (_) {}
 let token  = localStorage.getItem(LS_TOKEN) || '';
 let allProps = [];
 let filterType = '';
-let areaFilter = localStorage.getItem('reins_area') || '';   // エリア（市区町村）絞り込み
+// エリア（市区町村）絞り込み。複数選択可（空＝全エリア）。
+// 旧版は文字列1件で保存していたため、文字列でも配列(JSON)でも読めるようにしておく。
+let areaFilter = (() => {
+  try {
+    const raw = localStorage.getItem('reins_area') || '';
+    if (!raw) return new Set();
+    if (raw[0] === '[') return new Set(JSON.parse(raw).filter(Boolean));
+    return new Set([raw]);
+  } catch (_) { return new Set(); }
+})();
+function saveAreaFilter() {
+  try { localStorage.setItem('reins_area', JSON.stringify([...areaFilter])); } catch (_) {}
+}
 let activeTab = localStorage.getItem(LS_TAB) || 'new';
 if (activeTab !== 'new' && activeTab !== 'reins') activeTab = 'new';  // 旧'score'保存の掃除
 let seenThreshold = Number(localStorage.getItem(LS_SEEN) || 0);
@@ -601,7 +613,7 @@ function isFresh(p) { return seenThreshold ? p.ts > seenThreshold : false; }
 
 function buildFilterBar() {
   // 種別チップの件数は選択中エリアに合わせる
-  const base = areaFilter ? allProps.filter(p => p.area === areaFilter) : allProps;
+  const base = areaFilter.size ? allProps.filter(p => areaFilter.has(p.area)) : allProps;
   const types = [...new Set(base.map(p => p.ptype).filter(Boolean))]
     .sort((a, b) => base.filter(p => p.ptype === b).length - base.filter(p => p.ptype === a).length);
   const bar = document.getElementById('filter-bar');
@@ -621,24 +633,29 @@ function buildAreaBar() {
   const areas = [...new Set(allProps.map(p => p.area).filter(Boolean))]
     .sort((a, b) => allProps.filter(p => p.area === b).length - allProps.filter(p => p.area === a).length);
   const bar = document.getElementById('area-bar');
-  if (areaFilter && !areas.includes(areaFilter)) { areaFilter = ''; localStorage.setItem('reins_area', ''); }
+  // 今は存在しないエリアが保存されていたら外す（巡回で物件が消えた場合など）
+  const stale = [...areaFilter].filter(a => !areas.includes(a));
+  if (stale.length) { stale.forEach(a => areaFilter.delete(a)); saveAreaFilter(); }
   if (areas.length < 2) { bar.innerHTML = ''; return; }  // 1エリアだけなら出さない
-  const btn = (val, label) =>
-    `<button class="filter-btn ${areaFilter === val ? 'active' : ''}" onclick="setArea('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
-  let html = btn('', `全エリア ${allProps.length}`);
-  html += areas.map(a => btn(a, `${a} ${allProps.filter(p => p.area === a).length}`)).join('');
+  const btn = (val, label, active) =>
+    `<button class="filter-btn ${active ? 'active' : ''}" onclick="setArea('${val.replace(/'/g, "\\'")}')">${escapeHtml(label)}</button>`;
+  let html = btn('', `全エリア ${allProps.length}`, areaFilter.size === 0);
+  html += areas.map(a => btn(a, `${a} ${allProps.filter(p => p.area === a).length}`, areaFilter.has(a))).join('');
   bar.innerHTML = html;
 }
+// '' は「全エリア」（選択を全解除）。エリア名はタップごとにON/OFFを切り替える。
 function setArea(val) {
-  areaFilter = val;
-  localStorage.setItem('reins_area', val);
+  if (!val) areaFilter.clear();
+  else if (areaFilter.has(val)) areaFilter.delete(val);
+  else areaFilter.add(val);
+  saveAreaFilter();
   buildAreaBar(); buildFilterBar(); render();
 }
 
 function render() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   let list = allProps.slice();
-  if (areaFilter) list = list.filter(p => p.area === areaFilter);   // エリア絞り込み
+  if (areaFilter.size) list = list.filter(p => areaFilter.has(p.area));   // エリア絞り込み（複数可）
   if (showFavsOnly) list = list.filter(p => favs.has(p.key));
   else if (filterType) list = list.filter(p => p.ptype === filterType);
   if (q) list = list.filter(p => (p.address + p.shogo + p.key + p.station).toLowerCase().includes(q));
