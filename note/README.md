@@ -15,7 +15,7 @@
 1. `collect_sources.py` — Google News RSS・はてなブックマークからネタ元を収集
 2. `research.py` — ジャンルごとの人気記事を収集し収益性を比較
 3. `draft_generator.py` — style_guide.md に沿って下書きを生成（Claude Code CLI）
-4. `generate_image.py` — 見出し画像を生成（Codex CLI）
+4. 見出し画像 — ChatGPT で作成（`generate_image.py` / Codex CLI は旧手順）
 5. `publish_helper.py` — 半自動投稿（既定）。`--auto` で完全自動。■行は貼り付け時に見出しへ自動変換
 6. `scheduled_publish.py` — 指定日時に1本公開（note予約投稿はプレミアム限定のため代替）
 
@@ -26,6 +26,10 @@
 - `strip_closing.py` — 末尾の定型（次回予告・お礼等）だけを削除
 - `retire_merged.py` / `delete_dupes.py` — 統合・重複記事の削除（取り返しがつかない操作）
 - `analyze.py` — 売れている有料noteの型（価格帯・タイトル特徴）を分析
+
+## 投稿スキル
+
+`note-publish`（`.claude/skills/note-publish/SKILL.md`）。画像は ChatGPT で作成 → ハッシュタグ込みの下書きを画像付きで確認 → 承認後に自動投稿（`--auto`）。予約公開・公開後修正も扱う。
 
 ## スキ周り自動化
 
