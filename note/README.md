@@ -27,6 +27,10 @@
 - `retire_merged.py` / `delete_dupes.py` — 統合・重複記事の削除（取り返しがつかない操作）
 - `analyze.py` — 売れている有料noteの型（価格帯・タイトル特徴）を分析
 
+## 投稿スキル
+
+`note-publish`（`.claude/skills/note-publish/SKILL.md`）。承認を挟んで半自動投稿・予約公開・公開後修正を行う。
+
 ## スキ周り自動化
 
 `engage.py`（スキル `note-engage`）。本命ニッチの実務発信者にスキ＋返し。自動フォローは廃止済み。

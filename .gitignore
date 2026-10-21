@@ -14,7 +14,8 @@ book-reader/.env
 book-reader/gas/.clasp.json
 realestate/credentials.json
 realestate/venv/
-.claude/
+.claude/*
+!.claude/skills/
 __pycache__/
 *.pyc
 .DS_Store
